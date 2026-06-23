@@ -36,7 +36,9 @@ jobs:
 
       - name: Generate Rust→TS types (verify no drift)
         run: npm run gen:types
-        working-directory: .
+
+      - name: Verify generated types match committed export
+        run: git diff --exit-code src/ipc/generated.ts
 
       - name: ESLint
         run: npm run lint
