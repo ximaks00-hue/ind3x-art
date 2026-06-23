@@ -6,6 +6,8 @@ Open a JAR or folder, browse assets with fuzzy search, preview block models in r
 
 **Stack:** Tauri 2 · Rust · React 19 · TypeScript · Three.js · Vitest · Playwright
 
+[![CI](https://github.com/ximaks00-hue/ind3x-art/actions/workflows/ci.yml/badge.svg)](https://github.com/ximaks00-hue/ind3x-art/actions/workflows/ci.yml)
+
 **Author:** [ximaks00-hue](https://github.com/ximaks00-hue) · [ximaks00@gmail.com](mailto:ximaks00@gmail.com)
 
 ---
