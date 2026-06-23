@@ -1,0 +1,112 @@
+.wrap {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.zoomRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.zoomLabel {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: 10px;
+  color: var(--color-text-muted);
+  flex: 1;
+}
+
+.zoomLabel input {
+  flex: 1;
+  accent-color: var(--color-accent);
+}
+
+.zoomValue {
+  font-size: 10px;
+  color: var(--color-text-secondary);
+  min-width: 28px;
+  text-align: right;
+}
+
+.compareFrame {
+  position: relative;
+  display: grid;
+  place-content: center;
+  min-height: 160px;
+  padding: var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background:
+    linear-gradient(45deg, var(--color-border) 25%, transparent 25%),
+    linear-gradient(-45deg, var(--color-border) 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, var(--color-border) 75%),
+    linear-gradient(-45deg, transparent 75%, var(--color-border) 75%);
+  background-size: 12px 12px;
+  background-position:
+    0 0,
+    0 6px,
+    6px -6px,
+    -6px 0;
+  background-color: var(--color-bg-input);
+  overflow: hidden;
+}
+
+.layer {
+  image-rendering: pixelated;
+  max-width: 100%;
+}
+
+.beforeClip {
+  position: absolute;
+  inset: var(--space-3);
+  overflow: hidden;
+  display: grid;
+  place-content: center;
+  pointer-events: none;
+}
+
+.divider {
+  position: absolute;
+  top: var(--space-2);
+  bottom: var(--space-2);
+  width: 3px;
+  margin-left: -1px;
+  background: var(--color-accent);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--color-accent) 40%, transparent);
+  cursor: col-resize;
+  touch-action: none;
+  z-index: 2;
+}
+
+.labelBefore,
+.labelAfter {
+  position: absolute;
+  top: var(--space-2);
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--color-bg-panel) 85%, transparent);
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--color-text-secondary);
+  pointer-events: none;
+  z-index: 1;
+}
+
+.labelBefore {
+  left: var(--space-3);
+}
+
+.labelAfter {
+  right: var(--space-3);
+}
+
+.hint {
+  margin: 0;
+  font-size: 10px;
+  color: var(--color-text-muted);
+}

@@ -1,0 +1,68 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Generate Rust→TS types (verify no drift)
+        run: npm run gen:types
+        working-directory: .
+
+      - name: ESLint
+        run: npm run lint
+
+      - name: Unit tests (Vitest)
+        run: npm run test:unit
+
+      - name: Prettier check
+        run: npm run format:check
+
+      - name: Rust lint (clippy)
+        run: cargo clippy -- -D warnings
+        working-directory: src-tauri
+
+      - name: Rust tests
+        run: cargo test
+        working-directory: src-tauri
+
+      - name: Frontend build
+        run: npm run build
+
+      - name: Install Playwright browsers
+        run: npx playwright install chromium
+
+      - name: E2E tests
+        run: npm run test:e2e
+
+      - name: E2E integration (fixture + mock IPC)
+        run: npm run test:e2e:integration

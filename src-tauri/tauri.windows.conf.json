@@ -1,0 +1,23 @@
+{
+  "bundle": {
+    "publisher": "inD3X",
+    "copyright": "Copyright © 2026 inD3X",
+    "category": "DeveloperTool",
+    "shortDescription": "Premium Minecraft asset editor",
+    "longDescription": "inD3X Art indexes Minecraft mods and resource packs, previews block models in 3D, and edits textures with a pixel-art workflow.",
+    "windows": {
+      "webviewInstallMode": {
+        "type": "downloadBootstrapper",
+        "silent": true
+      },
+      "nsis": {
+        "installMode": "currentUser",
+        "languages": ["English", "Russian"],
+        "displayLanguageSelector": false
+      },
+      "wix": {
+        "language": "en-US"
+      }
+    }
+  }
+}

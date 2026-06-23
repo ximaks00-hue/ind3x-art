@@ -1,0 +1,77 @@
+:root,
+[data-theme="dark"] {
+  color-scheme: dark;
+
+  --font-sans: "Segoe UI Variable", "Segoe UI", system-ui, -apple-system, sans-serif;
+  --font-mono: "Cascadia Code", "Consolas", "JetBrains Mono", monospace;
+
+  --color-bg-base: #0c0d10;
+  --color-bg-elevated: #12141a;
+  --color-bg-panel: #161922;
+  --color-bg-panel-hover: #1c2030;
+  --color-bg-input: #0f1117;
+  --color-bg-accent-subtle: rgba(99, 140, 255, 0.12);
+
+  --color-border: rgba(255, 255, 255, 0.08);
+  --color-border-strong: rgba(255, 255, 255, 0.14);
+
+  --color-text-primary: #f2f4f8;
+  --color-text-secondary: #9aa3b2;
+  --color-text-muted: #6b7280;
+
+  --color-accent: #638cff;
+  --color-accent-hover: #7a9dff;
+  --color-accent-pressed: #4f74e6;
+  --color-success: #3dd68c;
+  --color-warning: #f5b942;
+  --color-danger: #f07178;
+
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.35);
+  --shadow-md: 0 8px 24px rgba(0, 0, 0, 0.45);
+  --shadow-panel: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+
+  --transition-fast: 120ms ease;
+  --transition-normal: 200ms ease;
+
+  --titlebar-height: 44px;
+  --statusbar-height: 28px;
+  --panel-width-left: 280px;
+  --panel-width-right: 300px;
+}
+
+[data-theme="light"] {
+  color-scheme: light;
+
+  --color-bg-base: #f4f6fb;
+  --color-bg-elevated: #ffffff;
+  --color-bg-panel: #ffffff;
+  --color-bg-panel-hover: #f0f3fa;
+  --color-bg-input: #ffffff;
+  --color-bg-accent-subtle: rgba(79, 116, 230, 0.1);
+
+  --color-border: rgba(15, 23, 42, 0.1);
+  --color-border-strong: rgba(15, 23, 42, 0.16);
+
+  --color-text-primary: #0f172a;
+  --color-text-secondary: #475569;
+  --color-text-muted: #94a3b8;
+
+  --color-accent: #4f74e6;
+  --color-accent-hover: #3d63d4;
+  --color-accent-pressed: #3254c2;
+
+  --shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.06);
+  --shadow-md: 0 12px 32px rgba(15, 23, 42, 0.1);
+  --shadow-panel: inset 0 1px 0 rgba(255, 255, 255, 0.8);
+}

@@ -1,0 +1,64 @@
+.bar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  height: 100%;
+  padding: 0 var(--space-4);
+  font-size: 11px;
+  color: var(--color-text-secondary);
+}
+
+.group {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.label {
+  color: var(--color-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-size: 10px;
+  font-weight: 600;
+}
+
+.muted {
+  color: var(--color-text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 280px;
+}
+
+.sep {
+  color: var(--color-text-muted);
+}
+
+.spacer {
+  flex: 1;
+}
+
+.dotOk,
+.dotWarn {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.dotOk {
+  background: var(--color-success);
+  box-shadow: 0 0 8px color-mix(in srgb, var(--color-success) 60%, transparent);
+}
+
+.dotWarn {
+  background: var(--color-warning);
+}
+
+.mono {
+  font-family: var(--font-mono, monospace);
+  font-size: 10px;
+  color: var(--color-text-secondary);
+  white-space: nowrap;
+}

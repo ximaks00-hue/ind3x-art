@@ -1,0 +1,15 @@
+{
+  "multipart": [
+    {
+      "apply": { "model": "block/test_fence_post" }
+    },
+    {
+      "when": { "north": "true" },
+      "apply": { "model": "block/test_fence_side", "uvlock": true }
+    },
+    {
+      "when": { "south": "true" },
+      "apply": { "model": "block/test_fence_side", "y": 180, "uvlock": true }
+    }
+  ]
+}

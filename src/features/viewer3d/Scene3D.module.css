@@ -1,0 +1,27 @@
+.canvasWrap {
+  position: absolute;
+  inset: 0;
+}
+
+.canvasWrap[data-interaction-mode="paint"] {
+  cursor: crosshair;
+}
+
+.canvasWrap canvas {
+  display: block;
+  width: 100% !important;
+  height: 100% !important;
+}
+
+.devOverlay {
+  position: absolute;
+  bottom: 6px;
+  right: 8px;
+  display: flex;
+  gap: 10px;
+  font-size: 10px;
+  font-family: var(--font-mono, monospace);
+  color: rgba(255, 255, 255, 0.4);
+  pointer-events: none;
+  user-select: none;
+}
