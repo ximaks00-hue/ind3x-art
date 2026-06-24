@@ -6,6 +6,8 @@ Open a JAR or folder, browse assets with fuzzy search, preview block models in r
 
 **Stack:** Tauri 2 · Rust · React 19 · TypeScript · Three.js · Vitest · Playwright
 
+**Current version:** 0.2.0 — see [CHANGELOG.md](CHANGELOG.md)
+
 [![CI](https://github.com/ximaks00-hue/ind3x-art/actions/workflows/ci.yml/badge.svg)](https://github.com/ximaks00-hue/ind3x-art/actions/workflows/ci.yml)
 
 **Author:** [ximaks00-hue](https://github.com/ximaks00-hue) · [ximaks00@gmail.com](mailto:ximaks00@gmail.com)
@@ -62,7 +64,7 @@ npm run tauri dev
 | `npm run test:e2e` | Playwright smoke (Vite, no Tauri) |
 | `npm run test:e2e:integration` | Fixture open → paint → save (mock IPC) |
 | `npm run clippy` | Rust lint (`-D warnings`) |
-| `npm run gen:types` | Verify Rust→TS type export |
+| `npm run gen:types` | Regenerate & verify `bindings.ts` (tauri-specta) |
 | `npm run ci` | **Full local CI** (mirrors GitHub Actions) |
 
 Testing guide: **[docs/TESTING.md](docs/TESTING.md)**
@@ -79,7 +81,7 @@ src/
     viewer3d/           Three.js scene, buildMesh, UV mapping (lazy-loaded)
     editor/             Pixel editor, layers, tools, textureDocument
     save/               Save dialog, backups, saveTextures
-  ipc/                  Tauri client, e2eMock for integration tests
+  ipc/                  tauri-specta bindings, spectaClient, e2eMock
 src-tauri/src/
   index/                Parallel asset indexer + sled cache
   model/                Block models, multipart, mcmeta
@@ -106,7 +108,7 @@ e2e/                    Playwright smoke + integration/
 
 ```powershell
 .\scripts\build-windows.ps1 -Bundles nsis
-# → src-tauri\target\release\bundle\nsis\inD3X Art_0.1.0_x64-setup.exe
+# → src-tauri\target\release\bundle\nsis\inD3X Art_0.2.0_x64-setup.exe
 ```
 
 ### Code signing (optional)
