@@ -76,6 +76,16 @@ describe("hitUvToPixel", () => {
     expect(px).toBeLessThan(12);
     expect(py).toBeLessThan(12);
   });
+
+  it("clamps edge UV hits inside the face pixel range", () => {
+    const f = face([0, 0, 16, 16]);
+    const corners = faceThreeUvs(f);
+    const uMaxT = Math.max(...corners.map(([u]) => u));
+    const vMaxT = Math.max(...corners.map(([, v]) => v));
+    const [px, py] = hitUvToPixel(uMaxT, vMaxT, f);
+    expect(px).toBe(15);
+    expect(py).toBe(15);
+  });
 });
 
 describe("faceUvRegion", () => {

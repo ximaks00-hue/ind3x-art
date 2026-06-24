@@ -99,7 +99,12 @@ export function hitUvToPixel(
 
   const pixelU = uMin + ms * (uMax - uMin);
   const pixelV = vMin + mt * (vMax - vMin);
-  return [Math.floor(pixelU), Math.floor(pixelV)];
+  const pxU = Math.floor(pixelU);
+  const pxV = Math.floor(pixelV);
+  return [
+    Math.min(Math.max(pxU, uMin), Math.max(uMin, uMax - 1)),
+    Math.min(Math.max(pxV, vMin), Math.max(vMin, vMax - 1)),
+  ];
 }
 
 export function faceUvRegion(

@@ -1,11 +1,21 @@
 .host {
+  display: grid;
+  gap: var(--space-2);
+  width: min(360px, calc(100vw - 32px));
+}
+
+.wrapper {
   position: fixed;
   right: var(--space-4);
   bottom: calc(var(--statusbar-height) + var(--space-4));
   z-index: 900;
   display: grid;
   gap: var(--space-2);
-  width: min(360px, calc(100vw - 32px));
+  pointer-events: none;
+}
+
+.wrapper .host {
+  pointer-events: auto;
 }
 
 .toast {

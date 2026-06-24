@@ -1,4 +1,4 @@
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 
 import type { CatalogEntry } from "../../ipc/types";
@@ -67,10 +67,19 @@ export function CatalogVirtualGrid({
 
   useCatalogIconPipeline(visibleEntries, selectedId, entries);
 
+  const loadingMoreRef = useRef(false);
+
+  useEffect(() => {
+    if (!loading) loadingMoreRef.current = false;
+  }, [loading]);
+
   useEffect(() => {
     const last = virtualItems[virtualItems.length - 1];
-    if (!last || !hasMore || loading) return;
-    if (last.index >= rowCount - ICON_PREFETCH_ROWS) loadMore();
+    if (!last || !hasMore || loading || loadingMoreRef.current) return;
+    if (last.index >= rowCount - ICON_PREFETCH_ROWS) {
+      loadingMoreRef.current = true;
+      loadMore();
+    }
   }, [virtualItems, hasMore, loading, loadMore, rowCount]);
 
   return (

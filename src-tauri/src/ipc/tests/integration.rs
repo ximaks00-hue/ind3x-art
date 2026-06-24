@@ -61,13 +61,19 @@ fn insert_opened_project(
                 index: crate::state::IndexState {
                     fingerprint: prepared.fingerprint.clone(),
                     entries: prepared.entries.clone(),
+                    entry_id_index: HashMap::new(),
                     texture_model_index: prepared.texture_model_index,
                     model_cache: Mutex::new(HashMap::new()),
                 },
-                catalog: crate::state::CatalogState {
-                    entries: arc_catalog(prepared.catalog),
-                    creative_tab_order: prepared.creative_tab_order,
-                    language: prepared.catalog_language,
+                catalog: {
+                    let entries = arc_catalog(prepared.catalog);
+                    let id_index = crate::state::build_catalog_id_index(&entries);
+                    crate::state::CatalogState {
+                        entries,
+                        id_index,
+                        creative_tab_order: prepared.creative_tab_order,
+                        language: prepared.catalog_language,
+                    }
                 },
                 save: crate::state::SaveState {
                     journal: Vec::new(),
@@ -80,6 +86,7 @@ fn insert_opened_project(
         let mut app = state.write().expect("state write");
         if let Some(project) = app.projects.get_mut(&handle.id) {
             crate::ipc::helpers::apply_texture_link_counts(project);
+            crate::ipc::helpers::refresh_entry_id_index(project);
         }
     }
     handle

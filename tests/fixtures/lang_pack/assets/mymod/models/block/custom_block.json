@@ -1,6 +1,6 @@
 {
   "parent": "block/cube_all",
   "textures": {
-    "all": "block/test_stone"
+    "all": "mymod:block/custom_block"
   }
 }

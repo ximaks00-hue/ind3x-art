@@ -1,4 +1,11 @@
 import type { EditorTool } from "../../state/editorStore";
+import {
+  ellipseFillPixels,
+  ellipsePixels,
+  hexToRgba,
+  linePixels,
+  rectPixels,
+} from "./tools";
 import type { ShapeTool } from "./paintInteraction";
 
 export interface UvRegion {
@@ -8,19 +15,30 @@ export interface UvRegion {
   height: number;
 }
 
-function toLocal(
+function toLocalPixels(
   [tx, ty]: [number, number],
   region: UvRegion,
-  canvasWidth: number,
-  canvasHeight: number,
 ): [number, number] {
-  return [
-    ((tx - region.x) / region.width) * canvasWidth,
-    ((ty - region.y) / region.height) * canvasHeight,
-  ];
+  return [tx - region.x, ty - region.y];
 }
 
-/** Draw line / rect / ellipse preview (2D canvas overlay or 3D face texture). */
+function drawPixelPoints(
+  ctx: CanvasRenderingContext2D,
+  points: [number, number][],
+  color: string,
+  alpha: number,
+  canvasWidth: number,
+  canvasHeight: number,
+): void {
+  const [r, g, b] = hexToRgba(color);
+  ctx.fillStyle = `rgba(${r},${g},${b},${alpha})`;
+  for (const [x, y] of points) {
+    if (x < 0 || y < 0 || x >= canvasWidth || y >= canvasHeight) continue;
+    ctx.fillRect(x, y, 1, 1);
+  }
+}
+
+/** Draw line / rect / ellipse preview using the same pixel lists as commit. */
 export function drawShapePreview(
   ctx: CanvasRenderingContext2D,
   tool: ShapeTool,
@@ -32,50 +50,50 @@ export function drawShapePreview(
   canvasWidth: number,
   canvasHeight: number,
 ): void {
-  const [x0, y0] = toLocal(start, region, canvasWidth, canvasHeight);
-  const [x1, y1] = toLocal(end, region, canvasWidth, canvasHeight);
+  const [x0, y0] = toLocalPixels(start, region);
+  const [x1, y1] = toLocalPixels(end, region);
 
   ctx.clearRect(0, 0, canvasWidth, canvasHeight);
-  ctx.strokeStyle = color;
-  ctx.lineWidth = 1;
-  ctx.globalAlpha = 0.85;
 
   if (tool === "line") {
-    ctx.beginPath();
-    ctx.moveTo(x0, y0);
-    ctx.lineTo(x1, y1);
-    ctx.stroke();
+    drawPixelPoints(ctx, linePixels(x0, y0, x1, y1), color, 0.85, canvasWidth, canvasHeight);
     return;
   }
 
   if (tool === "ellipse") {
-    const cx = (x0 + x1) / 2;
-    const cy = (y0 + y1) / 2;
-    const rx = Math.abs(x1 - x0) / 2;
-    const ry = Math.abs(y1 - y0) / 2;
-    ctx.beginPath();
-    ctx.ellipse(cx, cy, rx, ry, 0, 0, Math.PI * 2);
     if (rectFilled) {
-      ctx.fillStyle = color;
-      ctx.globalAlpha = 0.35;
-      ctx.fill();
-      ctx.globalAlpha = 0.85;
+      drawPixelPoints(
+        ctx,
+        ellipseFillPixels(x0, y0, x1, y1),
+        color,
+        0.35,
+        canvasWidth,
+        canvasHeight,
+      );
     }
-    ctx.stroke();
+    drawPixelPoints(
+      ctx,
+      ellipsePixels(x0, y0, x1, y1),
+      color,
+      0.85,
+      canvasWidth,
+      canvasHeight,
+    );
     return;
   }
 
-  const left = Math.min(x0, x1);
-  const top = Math.min(y0, y1);
-  const w = Math.abs(x1 - x0);
-  const h = Math.abs(y1 - y0);
+  const outline = rectPixels(x0, y0, x1, y1, false);
   if (rectFilled) {
-    ctx.fillStyle = color;
-    ctx.globalAlpha = 0.35;
-    ctx.fillRect(left, top, w, h);
-    ctx.globalAlpha = 0.85;
+    drawPixelPoints(
+      ctx,
+      rectPixels(x0, y0, x1, y1, true),
+      color,
+      0.35,
+      canvasWidth,
+      canvasHeight,
+    );
   }
-  ctx.strokeRect(left, top, w, h);
+  drawPixelPoints(ctx, outline, color, 0.85, canvasWidth, canvasHeight);
 }
 
 export function isShapeToolName(tool: EditorTool): tool is ShapeTool {

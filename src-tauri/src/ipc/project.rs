@@ -12,8 +12,8 @@ use crate::source::open_source as load_source;
 use crate::state::SharedState;
 
 use super::helpers::{
-    apply_texture_link_counts, prepare_opened_project, refresh_index_cache, refresh_pack_format,
-    rebuild_texture_model_index,
+    apply_texture_link_counts, prepare_opened_project, refresh_entry_id_index,
+    refresh_index_cache, refresh_pack_format, rebuild_texture_model_index,
 };
 
 #[tauri::command]
@@ -83,7 +83,6 @@ pub async fn open_source(
         let mut app = state.write()?;
         let mut catalog_cache_hit = false;
         let catalog_entry_count = prepared.catalog.len() as u64;
-        app.clear_cancel(handle_id);
         app.projects.insert(
             handle_id,
             crate::state::Project {
@@ -94,13 +93,19 @@ pub async fn open_source(
                 index: crate::state::IndexState {
                     fingerprint: prepared.fingerprint.clone(),
                     entries: prepared.entries.clone(),
+                    entry_id_index: HashMap::new(),
                     texture_model_index: prepared.texture_model_index,
                     model_cache: Mutex::new(HashMap::new()),
                 },
-                catalog: crate::state::CatalogState {
-                    entries: crate::state::arc_catalog(prepared.catalog),
-                    creative_tab_order: prepared.creative_tab_order,
-                    language: prepared.catalog_language.clone(),
+                catalog: {
+                    let entries = crate::state::arc_catalog(prepared.catalog);
+                    let id_index = crate::state::build_catalog_id_index(&entries);
+                    crate::state::CatalogState {
+                        entries,
+                        id_index,
+                        creative_tab_order: prepared.creative_tab_order,
+                        language: prepared.catalog_language.clone(),
+                    }
                 },
                 save: crate::state::SaveState {
                     journal: Vec::new(),
@@ -109,6 +114,7 @@ pub async fn open_source(
         );
         if let Some(project) = app.projects.get_mut(&handle_id) {
             apply_texture_link_counts(project);
+            refresh_entry_id_index(project);
             catalog_cache_hit = prepared.catalog_from_cache;
         }
         let res = OpenSourceResult {
@@ -138,14 +144,16 @@ pub async fn reindex_project(
     changed_paths: Option<Vec<String>>,
     state: State<'_, SharedState>,
 ) -> CoreResult<crate::dto::ReindexResult> {
+    let shared = state.inner().clone();
+    let handle_id = handle.id;
+
     let (old_fingerprint, cancel, db, source_path, source_kind) = {
-        let app = state.read()?;
-        let project = app.projects.get(&handle.id).ok_or(CoreError::ProjectNotFound)?;
-        let cancel = app
-            .cancel_flags
-            .get(&handle.id)
-            .cloned()
-            .unwrap_or_else(|| std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)));
+        let mut app = shared.write()?;
+        if !app.projects.contains_key(&handle_id) {
+            return Err(CoreError::ProjectNotFound);
+        }
+        let cancel = app.register_cancel(handle_id);
+        let project = app.projects.get(&handle_id).ok_or(CoreError::ProjectNotFound)?;
         (
             project.index.fingerprint.clone(),
             cancel,
@@ -155,12 +163,40 @@ pub async fn reindex_project(
         )
     };
 
+    tauri::async_runtime::spawn_blocking(move || {
+        reindex_project_blocking(
+            &shared,
+            handle_id,
+            changed_paths,
+            old_fingerprint,
+            cancel,
+            db,
+            source_path,
+            source_kind,
+            on_event,
+        )
+    })
+    .await
+    .map_err(|e| CoreError::Internal(format!("reindex task failed: {e}")))?
+}
+
+fn reindex_project_blocking(
+    state: &SharedState,
+    handle_id: u64,
+    changed_paths: Option<Vec<String>>,
+    old_fingerprint: String,
+    cancel: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    db: sled::Db,
+    source_path: std::path::PathBuf,
+    source_kind: crate::dto::SourceKind,
+    on_event: tauri::ipc::Channel<IndexEvent>,
+) -> CoreResult<crate::dto::ReindexResult> {
     let source = load_source(&source_path)?;
     let new_fingerprint = source_fingerprint(&source_path)?;
 
     let entries = if let Some(paths) = changed_paths.filter(|p| !p.is_empty()) {
         let mut app = state.write()?;
-        let project = app.projects.get_mut(&handle.id).ok_or(CoreError::ProjectNotFound)?;
+        let project = app.projects.get_mut(&handle_id).ok_or(CoreError::ProjectNotFound)?;
         let before = project.index.entries.len();
         patch_entries_for_paths(&mut project.index.entries, source.as_ref(), &paths, Some(&on_event))?;
         prune_orphan_entries(&mut project.index.entries, source.as_ref())?;
@@ -180,7 +216,7 @@ pub async fn reindex_project(
                 true,
             )?;
             let mut app = state.write()?;
-            let project = app.projects.get_mut(&handle.id).ok_or(CoreError::ProjectNotFound)?;
+            let project = app.projects.get_mut(&handle_id).ok_or(CoreError::ProjectNotFound)?;
             project.source = source;
             project.index.entries = full_entries.clone();
             project.index.fingerprint = new_fingerprint.clone();
@@ -222,7 +258,7 @@ pub async fn reindex_project(
         )?;
 
         let mut app = state.write()?;
-        let project = app.projects.get_mut(&handle.id).ok_or(CoreError::ProjectNotFound)?;
+        let project = app.projects.get_mut(&handle_id).ok_or(CoreError::ProjectNotFound)?;
         project.source = load_source(&source_path)?;
         project.index.entries = entries.clone();
         project.index.fingerprint = new_fingerprint;
@@ -242,8 +278,7 @@ pub async fn reindex_project(
 
     {
         let mut app = state.write()?;
-        if let Some(project) = app.projects.get_mut(&handle.id) {
-            project.source = load_source(&source_path)?;
+        if let Some(project) = app.projects.get_mut(&handle_id) {
             refresh_pack_format(project);
         }
     }
@@ -253,7 +288,7 @@ pub async fn reindex_project(
         catalog_count: {
             let app = state.read()?;
             app.projects
-                .get(&handle.id)
+                .get(&handle_id)
                 .map(|p| p.catalog.entries.len() as u64)
                 .unwrap_or(0)
         },

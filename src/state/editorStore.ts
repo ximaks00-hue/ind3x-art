@@ -77,8 +77,18 @@ interface EditorState {
     path: string,
     fallback?: TextureAnimationMeta | null,
   ) => TextureAnimationMeta | undefined;
-  duplicateAnimationFrame: (path: string, frameIndex: number) => void;
-  deleteAnimationFrame: (path: string, frameIndex: number) => void;
+  duplicateAnimationFrame: (
+    path: string,
+    frameIndex: number,
+    baseMeta?: TextureAnimationMeta,
+  ) => void;
+  deleteAnimationFrame: (
+    path: string,
+    frameIndex: number,
+    baseMeta?: TextureAnimationMeta,
+  ) => void;
+  /** Reset per-session state (animation overrides, face draft, selection) on project open/close. */
+  resetEditorSession: () => void;
 }
 
 const DEFAULT_RECENT = ["#ffffff", "#000000", "#c6c6c6", "#8b8b8b", "#7f7f7f", "#555555"];
@@ -108,8 +118,14 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   animationOverrides: {},
   setTool: (tool) => set({ tool }),
   setColor: (color) => {
-    set({ color });
-    get().pushRecentColor(color);
+    const normalized = color.toLowerCase();
+    set((s) => ({
+      color,
+      recentColors: [
+        normalized,
+        ...s.recentColors.filter((c) => c.toLowerCase() !== normalized),
+      ].slice(0, 16),
+    }));
   },
   bumpRevision: () => set((s) => ({ revision: s.revision + 1 })),
   setBrushSize: (brushSize) => set({ brushSize: Math.max(1, Math.min(32, brushSize)) }),
@@ -152,11 +168,12 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       return { animationOverrides: next };
     }),
   getAnimationMeta: (path, fallback) => get().animationOverrides[path] ?? fallback,
-  duplicateAnimationFrame: (path, frameIndex) => {
-    const meta = get().animationOverrides[path];
+  duplicateAnimationFrame: (path, frameIndex, baseMeta) => {
+    const meta = get().animationOverrides[path] ?? baseMeta;
     if (!meta || meta.frames.length === 0) return;
+    if (frameIndex < 0 || frameIndex >= meta.frames.length) return;
     const frames = [...meta.frames];
-    frames.splice(frameIndex + 1, 0, frames[frameIndex] ?? frameIndex);
+    frames.splice(frameIndex + 1, 0, frames[frameIndex]!);
     set((s) => ({
       animationOverrides: {
         ...s.animationOverrides,
@@ -164,8 +181,8 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       },
     }));
   },
-  deleteAnimationFrame: (path, frameIndex) => {
-    const meta = get().animationOverrides[path];
+  deleteAnimationFrame: (path, frameIndex, baseMeta) => {
+    const meta = get().animationOverrides[path] ?? baseMeta;
     if (!meta || meta.frames.length <= 1) return;
     const frames = meta.frames.filter((_, i) => i !== frameIndex);
     set((s) => ({
@@ -173,9 +190,16 @@ export const useEditorStore = create<EditorState>((set, get) => ({
         ...s.animationOverrides,
         [path]: { ...meta, frames },
       },
-      activeFrame: Math.min(get().activeFrame, frames.length - 1),
+      activeFrame: Math.min(s.activeFrame, frames.length - 1),
     }));
   },
+  resetEditorSession: () =>
+    set({
+      animationOverrides: {},
+      faceShapeDraft: null,
+      selection: null,
+      activeFrame: 0,
+    }),
 }));
 
 export const TOOL_LABELS: Record<EditorTool, string> = {

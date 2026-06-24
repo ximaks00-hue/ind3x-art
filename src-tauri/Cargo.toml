@@ -1,6 +1,6 @@
 [package]
 name = "ind3x-art"
-version = "0.3.1"
+version = "0.3.2"
 description = "Premium Minecraft asset editor"
 authors = ["inD3X"]
 edition = "2021"
@@ -39,7 +39,6 @@ hex = "0.4"
 image = { version = "0.25", default-features = false, features = ["png"] }
 base64 = "0.22"
 notify = { version = "6", features = ["macos_fsevent"] }
-tauri-plugin-fs = "2"
 specta = { version = "=2.0.0-rc.24", features = ["derive"] }
 specta-typescript = "=0.0.11"
 tauri-specta = { version = "=2.0.0-rc.24", features = ["derive", "typescript"] }

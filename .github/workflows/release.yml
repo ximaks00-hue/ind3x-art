@@ -5,25 +5,88 @@ on:
     tags:
       - "v*"
 
-permissions:
-  contents: write
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Verify tag matches package.json version
+        run: |
+          PKG_VERSION=$(node -p "require('./package.json').version")
+          TAG_VERSION="${GITHUB_REF_NAME#v}"
+          if [ "$PKG_VERSION" != "$TAG_VERSION" ]; then
+            echo "ERROR: package.json version ($PKG_VERSION) != tag ($TAG_VERSION)"
+            exit 1
+          fi
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: ESLint
+        run: npm run lint
+
+      - name: Unit tests
+        run: npm run test:unit
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Rust lint (clippy)
+        run: cargo clippy -- -D warnings
+        working-directory: src-tauri
+
+      - name: Rust tests
+        run: cargo test
+        working-directory: src-tauri
+
+      - name: Install Playwright browsers
+        run: npx playwright install chromium
+
+      - name: Integration E2E (mock IPC smoke)
+        run: npm run test:e2e:integration
+
   build:
+    needs: validate
     strategy:
-      fail-fast: false
+      fail-fast: true
       matrix:
         include:
           - platform: ubuntu-22.04
             bundle: appimage
             artifact_glob: "*.AppImage"
             artifact_path: src-tauri/target/release/bundle/appimage/
-          - platform: windows-latest
+          - platform: windows-2022
             bundle: nsis
             artifact_glob: "*-setup.exe"
             artifact_path: src-tauri/target/release/bundle/nsis/
 
     runs-on: ${{ matrix.platform }}
+    timeout-minutes: 90
+    permissions:
+      contents: read
 
     steps:
       - name: Checkout
@@ -60,9 +123,55 @@ jobs:
       - name: Build Tauri bundle (${{ matrix.bundle }})
         run: npm run tauri build -- --bundles ${{ matrix.bundle }}
 
-      - name: Upload release asset
+      - name: Verify artifact exists
+        shell: bash
+        run: |
+          ARTIFACTS=$(ls ${{ matrix.artifact_path }}${{ matrix.artifact_glob }} 2>/dev/null | wc -l)
+          if [ "$ARTIFACTS" -eq 0 ]; then
+            echo "ERROR: No artifacts found at ${{ matrix.artifact_path }}${{ matrix.artifact_glob }}"
+            exit 1
+          fi
+          echo "Found $ARTIFACTS artifact(s)"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ matrix.bundle }}
+          path: ${{ matrix.artifact_path }}${{ matrix.artifact_glob }}
+          if-no-files-found: error
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - name: Download AppImage
+        uses: actions/download-artifact@v4
+        with:
+          name: release-appimage
+          path: dist/appimage
+
+      - name: Download NSIS installer
+        uses: actions/download-artifact@v4
+        with:
+          name: release-nsis
+          path: dist/nsis
+
+      - name: Generate SHA256 checksums
+        run: |
+          cd dist
+          find . -type f \( -name "*.AppImage" -o -name "*-setup.exe" \) \
+            -exec sha256sum {} \; > SHA256SUMS
+          cat SHA256SUMS
+
+      - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          files: ${{ matrix.artifact_path }}${{ matrix.artifact_glob }}
+          files: |
+            dist/appimage/*.AppImage
+            dist/nsis/*-setup.exe
+            dist/SHA256SUMS
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

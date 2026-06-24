@@ -99,7 +99,9 @@ export async function paintAtTexturePixel(
   if (tool === "wand") {
     await applyWandAtPixel(ctx, x, y, options?.pixelWorker ?? null, (sel) => {
       useEditorStore.getState().setSelection(sel);
-      callbacks?.onWandSelection?.(sel);
+      if (sel !== null) {
+        callbacks?.onWandSelection?.(sel);
+      }
     });
     callbacks?.onComplete?.();
     return { x, y };

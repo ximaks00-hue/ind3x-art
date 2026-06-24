@@ -193,7 +193,12 @@ export function useHotkeys(handlers: HotkeyHandlers, enabled: boolean): void {
         if (!command.shortcut || command.disabled) continue;
         if (matchShortcut(event, command.shortcut)) {
           event.preventDefault();
-          void command.run();
+          const result = command.run();
+          if (result instanceof Promise) {
+            result.catch((err: unknown) => {
+              console.error(`[hotkey] command "${command.id}" failed:`, err);
+            });
+          }
           return;
         }
       }

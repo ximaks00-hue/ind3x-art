@@ -1,4 +1,5 @@
 import type { ExplorerViewMode, IndexStatus } from "../../state/projectStore";
+import { sourcePathBasename } from "./sourcePathLabel";
 import styles from "./ExplorerPanel.module.css";
 
 interface ExplorerHeaderProps {
@@ -11,6 +12,19 @@ interface ExplorerHeaderProps {
   onViewModeChange: (mode: ExplorerViewMode) => void;
   onExpandAll: () => void;
   onCollapseAll: () => void;
+}
+
+function statusSubtitle(
+  indexStatus: IndexStatus,
+  shownCount: number,
+  assetTotal: number,
+): string {
+  if (indexStatus === "done") {
+    return `${shownCount.toLocaleString()} loaded · ${assetTotal.toLocaleString()} total`;
+  }
+  if (indexStatus === "running") return "Indexing…";
+  if (indexStatus === "error") return "Failed to open source";
+  return "No source open";
 }
 
 export function ExplorerHeader({
@@ -74,14 +88,14 @@ export function ExplorerHeader({
         </button>
       </div>
       <p className={styles.subtitle}>
-        {indexStatus === "done"
-          ? `${shownCount.toLocaleString()} loaded · ${assetTotal.toLocaleString()} total`
-          : indexStatus === "running"
-            ? "Indexing…"
-            : "No source open"}
+        {statusSubtitle(indexStatus, shownCount, assetTotal)}
         {queryLoading ? " · loading…" : ""}
       </p>
-      {sourcePath && <p className={styles.sourcePath}>{sourcePath}</p>}
+      {sourcePath && (
+        <p className={styles.sourcePath} title={sourcePath}>
+          {sourcePathBasename(sourcePath)}
+        </p>
+      )}
     </div>
   );
 }

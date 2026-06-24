@@ -9,6 +9,8 @@ import {
   Sun,
 } from "lucide-react";
 
+import { isTauri } from "@tauri-apps/api/core";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useWindowChrome } from "../../hooks/useWindowChrome";
 import type { Theme, WorkspaceMode } from "../../state/settingsStore";
 import { useSettingsStore } from "../../state/settingsStore";
@@ -60,13 +62,22 @@ export function TitleBar({
   } = useSettingsStore();
   const ThemeIcon = THEME_ICONS[theme];
 
+  const onBrandDoubleClick = () => {
+    if (!isTauri()) return;
+    void getCurrentWindow().toggleMaximize();
+  };
+
   return (
     <div className={styles.bar}>
-      <div className={styles.brand} data-tauri-drag-region>
-        <span className={styles.logoMark} aria-hidden />
-        <div className={styles.brandText}>
-          <span className={styles.name}>inD3X Art</span>
-          <span className={styles.tagline}>Minecraft Asset Studio</span>
+      <div className={styles.brand} onDoubleClick={onBrandDoubleClick}>
+        <span className={styles.logoMark} data-tauri-drag-region aria-hidden />
+        <div className={styles.brandText} data-tauri-drag-region>
+          <span className={styles.name} data-tauri-drag-region>
+            inD3X Art
+          </span>
+          <span className={styles.tagline} data-tauri-drag-region>
+            Minecraft Asset Studio
+          </span>
         </div>
       </div>
 

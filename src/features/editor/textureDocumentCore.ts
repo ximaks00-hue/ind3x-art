@@ -39,6 +39,10 @@ export interface TextureLayer {
 export interface LayerBuffers extends TextureLayer {
   canvas: HTMLCanvasElement;
   ctx: CanvasRenderingContext2D;
+  pixelCache: Uint8ClampedArray | null;
+  cacheWidth: number;
+  cacheHeight: number;
+  cacheDirty: boolean;
 }
 
 export interface TextureDoc {
@@ -57,26 +61,78 @@ export interface TextureDoc {
   savedRevision: number;
 }
 
+export function ensureLayerPixelCache(layer: LayerBuffers): Uint8ClampedArray {
+  const { width, height } = layer.canvas;
+  if (
+    layer.pixelCache &&
+    layer.cacheWidth === width &&
+    layer.cacheHeight === height
+  ) {
+    return layer.pixelCache;
+  }
+  layer.pixelCache = new Uint8ClampedArray(
+    layer.ctx.getImageData(0, 0, width, height).data,
+  );
+  layer.cacheWidth = width;
+  layer.cacheHeight = height;
+  layer.cacheDirty = false;
+  return layer.pixelCache;
+}
+
+export function flushLayerPixelCache(layer: LayerBuffers): void {
+  if (!layer.pixelCache || !layer.cacheDirty) return;
+  const imageData = layer.ctx.createImageData(layer.cacheWidth, layer.cacheHeight);
+  imageData.data.set(layer.pixelCache);
+  layer.ctx.putImageData(imageData, 0, 0);
+  layer.cacheDirty = false;
+}
+
+export function invalidateLayerPixelCache(layer: LayerBuffers): void {
+  layer.pixelCache = null;
+  layer.cacheWidth = 0;
+  layer.cacheHeight = 0;
+  layer.cacheDirty = false;
+}
+
+export function readLayerRgba(layer: LayerBuffers, x: number, y: number): Rgba {
+  const data = ensureLayerPixelCache(layer);
+  const i = (y * layer.cacheWidth + x) * 4;
+  return [data[i], data[i + 1], data[i + 2], data[i + 3]];
+}
+
+export function writeLayerRgba(
+  layer: LayerBuffers,
+  x: number,
+  y: number,
+  rgba: Rgba,
+): void {
+  const data = ensureLayerPixelCache(layer);
+  const i = (y * layer.cacheWidth + x) * 4;
+  data[i] = rgba[0];
+  data[i + 1] = rgba[1];
+  data[i + 2] = rgba[2];
+  data[i + 3] = rgba[3];
+  layer.cacheDirty = true;
+}
+
 export function readRgba(ctx: CanvasRenderingContext2D, x: number, y: number): Rgba {
   const data = ctx.getImageData(x, y, 1, 1).data;
   return [data[0], data[1], data[2], data[3]];
 }
 
 export function writeRgba(
-  ctx: CanvasRenderingContext2D,
+  layer: LayerBuffers,
   x: number,
   y: number,
   rgba: Rgba,
 ): void {
-  const image = ctx.createImageData(1, 1);
-  image.data[0] = rgba[0];
-  image.data[1] = rgba[1];
-  image.data[2] = rgba[2];
-  image.data[3] = rgba[3];
-  ctx.putImageData(image, x, y);
+  writeLayerRgba(layer, x, y, rgba);
 }
 
 export function compositeDocument(doc: TextureDoc): void {
+  for (const layer of doc.layers) {
+    flushLayerPixelCache(layer);
+  }
   const { compositeCtx, width, height, layers } = doc;
   compositeCtx.clearRect(0, 0, width, height);
   for (const layer of layers) {
@@ -118,7 +174,7 @@ export function applyChangesToDoc(
     if (!inBounds(doc, change.x, change.y)) continue;
     const layer = getLayer(doc, change.layerId);
     if (!layer || layer.locked) continue;
-    writeRgba(layer.ctx, change.x, change.y, change.after);
+    writeLayerRgba(layer, change.x, change.y, change.after);
     if (!doc.dirtyBox) {
       doc.dirtyBox = { x0: change.x, y0: change.y, x1: change.x, y1: change.y };
     } else {

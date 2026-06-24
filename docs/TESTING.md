@@ -85,7 +85,7 @@ Playwright `studio-workflow.spec.ts` now clicks **Test Stone** in the catalog gr
 
 ## Native WebDriver E2E (optional)
 
-Scaffold tests live in `e2e/native/`. They are **not** part of the default `npm run ci` pipeline unless `TAURI_WEBDRIVER_URL` is configured in GitHub Actions (optional `native-e2e` job).
+Scaffold tests live in `e2e/native/studio-webdriver.spec.ts`. They are **not** part of the default `npm run ci` pipeline unless `TAURI_WEBDRIVER_URL` is configured in GitHub Actions (optional `native-e2e` job; see `.github/workflows/ci.yml`).
 
 ```powershell
 # With tauri-driver / WebDriver listening on port 4444:

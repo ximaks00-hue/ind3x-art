@@ -591,13 +591,15 @@ function TextureCanvasInner({ handle, selectedFace }: TextureCanvasProps) {
         const dy = point[1] - start[1];
         const path = selectedFace.texturePath;
         const layerContext = getActiveLayerContext(path);
-        if (layerContext) {
+        const doc = getDoc(path);
+        if (layerContext && doc) {
           const changes = buildMoveSelectionChanges(
             layerContext.layerId,
             mb,
             dx,
             dy,
             (x, y) => getLayerPixel(path, layerContext.layerId, x, y),
+            { width: doc.width, height: doc.height },
           );
           if (changes.length > 0) {
             commitChanges(handle, path, changes);

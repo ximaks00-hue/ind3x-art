@@ -1,23 +1,51 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { IndexEvent } from "../../ipc/types";
+import type { CatalogFilter, IndexEvent, PageReq } from "../../ipc/types";
+import { buildSyntheticCatalog, E2E_CATALOG_SIZE } from "../../ipc/e2eCatalogFixture";
 
-vi.mock("../../ipc/client", async () => {
-  const { createE2eMockIpc } = await import("../../ipc/e2eMock");
-  return {
-    ipc: createE2eMockIpc(),
-    IpcError: class IpcError extends Error {},
-    isCoreError: () => false,
-  };
-});
+const mockCatalog = buildSyntheticCatalog(E2E_CATALOG_SIZE);
+
+function queryCatalogMock(filter: CatalogFilter, page: PageReq) {
+  let entries = mockCatalog;
+  if (filter.category) {
+    entries = entries.filter((entry) => entry.category === filter.category);
+  }
+  if (filter.namespace) {
+    entries = entries.filter((entry) => entry.namespace === filter.namespace);
+  }
+  if (filter.search) {
+    const query = filter.search.toLowerCase();
+    entries = entries.filter(
+      (entry) =>
+        entry.displayName.toLowerCase().includes(query) ||
+        entry.id.toLowerCase().includes(query) ||
+        entry.searchTokens.some((token) => token.toLowerCase().includes(query)),
+    );
+  }
+  const slice = entries.slice(page.offset, page.offset + page.limit);
+  return { entries: slice, total: entries.length };
+}
+
+const ipcMock = vi.hoisted(() => ({
+  openSource: vi.fn(),
+  queryCatalog: vi.fn(),
+  saveTextures: vi.fn(),
+}));
+
+vi.mock("../../ipc/client", () => ({
+  ipc: ipcMock,
+  IpcError: class IpcError extends Error {},
+  isCoreError: () => false,
+}));
 
 import { queryCatalog } from "../../app/services/catalogService";
-import { E2E_CATALOG_SIZE } from "../../ipc/e2eCatalogFixture";
 import { ipc } from "../../ipc/client";
+import { applyCatalogSelection } from "./catalogSelection";
 import { useCatalogStore } from "./catalogStore";
 import { CATALOG_PAGE_SIZE } from "./useCatalogQuery";
 import { catalogRowCount } from "./catalogUtils";
 import { useProjectStore } from "../../state/projectStore";
+import { useSettingsStore } from "../../state/settingsStore";
 
 async function openFixtureProject() {
   const onEvent = { onmessage: null as ((event: IndexEvent) => void) | null };
@@ -36,6 +64,22 @@ describe("studio catalog scale (mock IPC)", () => {
       sourcePath: null,
       indexStatus: "idle",
     });
+    vi.clearAllMocks();
+    ipcMock.openSource.mockResolvedValue({
+      handle: { id: 1 },
+      sourcePath: "tests/fixtures/simple_pack",
+      sourceKind: "folder",
+      entryCount: 3,
+      fromCache: false,
+      catalogFromCache: false,
+      catalogEntryCount: E2E_CATALOG_SIZE,
+      packFormat: 15,
+      catalogLanguage: "en_us",
+    });
+    ipcMock.queryCatalog.mockImplementation(
+      async (_handle, filter: CatalogFilter, page: PageReq) => queryCatalogMock(filter, page),
+    );
+    ipcMock.saveTextures.mockResolvedValue({ savedCount: 1 });
   });
 
   it("serves 2000+ catalog entries with paginated query", async () => {
@@ -64,16 +108,22 @@ describe("studio catalog scale (mock IPC)", () => {
   });
 
   it("studio select wires catalog to project store", async () => {
-    await openFixtureProject();
-    await window.__E2E__!.openStudioFixture();
-    const total = await window.__E2E__!.getCatalogTotal();
-    expect(total).toBe(E2E_CATALOG_SIZE);
+    const { handle } = await openFixtureProject();
+    useSettingsStore.getState().setWorkspaceMode("studio");
 
-    await window.__E2E__!.selectCatalogEntry("minecraft:test_stone");
+    const page = await queryCatalog(
+      handle,
+      { category: null, namespace: null, search: "test_stone", fuzzy: false },
+      { offset: 0, limit: 20 },
+    );
+    const entry = page.entries.find((row) => row.id === "minecraft:test_stone");
+    expect(entry).toBeDefined();
+    applyCatalogSelection(entry!);
+
     expect(useCatalogStore.getState().selectedId).toBe("minecraft:test_stone");
     expect(useCatalogStore.getState().selectedEntry?.displayName).toBe("Test Stone");
+    expect(useSettingsStore.getState().workspaceMode).toBe("studio");
 
-    const handle = useProjectStore.getState().handle!;
     const saved = await ipc.saveTextures(handle, [
       {
         path: "assets/minecraft/textures/block/test_stone.png",

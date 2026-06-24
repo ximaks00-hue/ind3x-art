@@ -1,4 +1,6 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
+
 import styles from "./ContextMenu.module.css";
 
 export interface ContextMenuItem {
@@ -24,8 +26,29 @@ function menuButtons(menu: HTMLDivElement): HTMLButtonElement[] {
   );
 }
 
+function clampPosition(
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+): { left: number; top: number } {
+  const margin = 8;
+  return {
+    left: Math.max(margin, Math.min(x, window.innerWidth - width - margin)),
+    top: Math.max(margin, Math.min(y, window.innerHeight - height - margin)),
+  };
+}
+
 export function ContextMenu({ items, x, y, onSelect, onClose }: ContextMenuProps) {
   const menuRef = useRef<HTMLDivElement>(null);
+  const [position, setPosition] = useState({ left: x, top: y });
+
+  useLayoutEffect(() => {
+    const menu = menuRef.current;
+    if (!menu) return;
+    const { width, height } = menu.getBoundingClientRect();
+    setPosition(clampPosition(x, y, width, height));
+  }, [x, y, items]);
 
   useEffect(() => {
     const menu = menuRef.current;
@@ -86,16 +109,18 @@ export function ContextMenu({ items, x, y, onSelect, onClose }: ContextMenuProps
     };
   }, [onClose, items]);
 
-  // Clamp to viewport
-  const style: React.CSSProperties = {
-    position: "fixed",
-    left: Math.min(x, window.innerWidth - 200),
-    top: Math.min(y, window.innerHeight - items.length * 32 - 16),
-    zIndex: 2000,
-  };
-
-  return (
-    <div ref={menuRef} className={styles.menu} style={style} role="menu">
+  const menu = (
+    <div
+      ref={menuRef}
+      className={styles.menu}
+      style={{
+        position: "fixed",
+        left: position.left,
+        top: position.top,
+        zIndex: 2000,
+      }}
+      role="menu"
+    >
       {items.map((item) =>
         item.separator ? (
           <div key={item.id} className={styles.separator} role="separator" />
@@ -121,4 +146,6 @@ export function ContextMenu({ items, x, y, onSelect, onClose }: ContextMenuProps
       )}
     </div>
   );
+
+  return createPortal(menu, document.body);
 }

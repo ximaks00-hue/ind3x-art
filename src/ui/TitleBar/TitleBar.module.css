@@ -68,6 +68,8 @@
   gap: var(--space-1);
   flex-shrink: 0;
   height: 100%;
+  -webkit-app-region: no-drag;
+  app-region: no-drag;
 }
 
 .modeToggle {

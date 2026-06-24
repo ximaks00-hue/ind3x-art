@@ -2,6 +2,11 @@ import { useEffect, useRef, useState } from "react";
 
 import { useFocusTrap } from "../../hooks/useFocusTrap";
 import type { SaveMode } from "../../ipc/types";
+import {
+  normalizeRelativeAssetPath,
+  validateRenameTargetPath,
+  validateSaveNamespace,
+} from "./savePathValidation";
 import styles from "./SaveDialog.module.css";
 
 export interface SaveDialogSubmit {
@@ -87,11 +92,28 @@ function SaveDialogForm({
     }
   }, [mode]);
 
+  const renameDisabled = dirtyCount !== 1;
+
+  const namespaceError =
+    mode === "namespace" && namespace.trim().length > 0
+      ? validateSaveNamespace(namespace)
+      : null;
+  const renameError =
+    mode === "rename" && renamePath.trim().length > 0
+      ? validateRenameTargetPath(renamePath)
+      : null;
+
+  useEffect(() => {
+    if (renameDisabled && mode === "rename") {
+      setMode("overwrite");
+    }
+  }, [renameDisabled, mode]);
+
   const canSubmit =
     mode === "overwrite" ||
     mode === "exportFolder" ||
-    (mode === "namespace" && namespace.trim().length > 0) ||
-    (mode === "rename" && renamePath.trim().length > 0);
+    (mode === "namespace" && namespace.trim().length > 0 && !namespaceError) ||
+    (mode === "rename" && dirtyCount === 1 && renamePath.trim().length > 0 && !renameError);
 
   return (
     <>
@@ -108,9 +130,13 @@ function SaveDialogForm({
               name="save-mode"
               value={value}
               checked={mode === value}
+              disabled={value === "rename" && renameDisabled}
               onChange={() => setMode(value)}
             />
-            <span>{MODE_LABELS[value]}</span>
+            <span>
+              {MODE_LABELS[value]}
+              {value === "rename" && renameDisabled ? " (single texture only)" : ""}
+            </span>
           </label>
         ))}
       </div>
@@ -125,6 +151,7 @@ function SaveDialogForm({
             placeholder="create"
             spellCheck={false}
           />
+          {namespaceError && <small className={styles.fieldError}>{namespaceError}</small>}
         </label>
       )}
 
@@ -137,7 +164,11 @@ function SaveDialogForm({
             placeholder="assets/minecraft/textures/block/stone_v2.png"
             spellCheck={false}
           />
-          <small>Applies when saving a single dirty texture.</small>
+          {renameError ? (
+            <small className={styles.fieldError}>{renameError}</small>
+          ) : (
+            <small>Applies when saving a single dirty texture.</small>
+          )}
         </label>
       )}
 
@@ -159,8 +190,12 @@ function SaveDialogForm({
           onClick={() =>
             onSubmit({
               mode,
-              namespace: mode === "namespace" ? namespace.trim() : undefined,
-              targetPath: mode === "rename" ? renamePath.trim() : undefined,
+              namespace:
+                mode === "namespace" ? namespace.trim().replace(/^\/+|\/+$/g, "") : undefined,
+              targetPath:
+                mode === "rename"
+                  ? (normalizeRelativeAssetPath(renamePath.trim()) ?? undefined)
+                  : undefined,
             })
           }
         >

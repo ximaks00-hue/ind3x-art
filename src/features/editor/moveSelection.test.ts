@@ -26,6 +26,7 @@ describe("moveSelection", () => {
       1,
       0,
       (x, y) => layer.get(`${x},${y}`) ?? null,
+      { width: 4, height: 2 },
     );
 
     // Overlap move by +1 should produce three effective mutations:
@@ -38,5 +39,26 @@ describe("moveSelection", () => {
     expect(byPoint.get("1,0")?.after).toEqual([10, 0, 0, 255]);
     expect(byPoint.get("2,0")?.before).toEqual([0, 0, 0, 0]);
     expect(byPoint.get("2,0")?.after).toEqual([20, 0, 0, 255]);
+  });
+
+  it("rejects moves that would place pixels outside document bounds", () => {
+    const buffer: MoveBuffer = {
+      x0: 0,
+      y0: 0,
+      w: 1,
+      h: 1,
+      pixels: new Map([["0,0", [255, 0, 0, 255]]]),
+    };
+
+    const changes = buildMoveSelectionChanges(
+      "layer-1",
+      buffer,
+      2,
+      0,
+      () => null,
+      { width: 2, height: 2 },
+    );
+
+    expect(changes).toEqual([]);
   });
 });

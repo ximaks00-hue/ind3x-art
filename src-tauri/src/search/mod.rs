@@ -3,7 +3,7 @@
 pub fn fuzzy_score(query: &str, text: &str) -> Option<u32> {
     let q = query.trim().to_ascii_lowercase();
     if q.is_empty() {
-        return Some(0);
+        return None;
     }
     let t = text.to_ascii_lowercase();
     if t.contains(&q) {
@@ -45,5 +45,11 @@ mod tests {
     fn matches_subsequence() {
         assert!(fuzzy_score("stn", "stone").is_some());
         assert!(fuzzy_score("xyz", "stone").is_none());
+    }
+
+    #[test]
+    fn empty_query_does_not_match_everything() {
+        assert!(fuzzy_score("", "stone").is_none());
+        assert!(fuzzy_score("   ", "stone").is_none());
     }
 }

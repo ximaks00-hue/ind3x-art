@@ -10,6 +10,8 @@ import { clearTextureCache } from "../features/viewer3d/textureLoader";
 import { formatIpcError } from "../ipc/errors";
 import { ipc } from "../ipc/client";
 import type { IndexEvent } from "../ipc/types";
+import { useEditorStore } from "../state/editorStore";
+import { useInteractionStore } from "../state/interactionStore";
 import { useProjectStore } from "../state/projectStore";
 import { useSelectionStore } from "../state/selectionStore";
 import { useSettingsStore } from "../state/settingsStore";
@@ -138,6 +140,8 @@ export function useProjectSource(onBeforeOpen?: () => void) {
         invalidateProjectCaches({ thumbnails: true, icons: true, studio: true });
         useCatalogStore.getState().reset();
         useSettingsStore.getState().setStudioSelectedCatalogId(null);
+        useEditorStore.getState().resetEditorSession();
+        useInteractionStore.getState().resetInteractionState();
 
         setHandle(result);
         finishOpen(result);
@@ -191,6 +195,8 @@ export function useProjectSource(onBeforeOpen?: () => void) {
           clearProject();
           clearSelection();
           clearTextureDocuments();
+          useEditorStore.getState().resetEditorSession();
+          useInteractionStore.getState().resetInteractionState();
           setIndexStatus("error");
         }
         pushToast(`Failed to open: ${formatIpcError(error)}`, "error");

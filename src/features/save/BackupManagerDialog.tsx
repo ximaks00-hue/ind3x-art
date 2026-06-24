@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 
 import {
+  backupIdFromPath,
   createProjectBackup,
   getSaveJournal,
   listProjectBackups,
@@ -223,7 +224,14 @@ function BackupManagerContent({
                         <button
                           type="button"
                           className={styles.restoreSmall}
-                          onClick={() => void handleRestore(j.backupPath!, j.backupPath!)}
+                          onClick={() => {
+                            const path = j.backupPath!;
+                            const known = backups.find((b) => b.path === path);
+                            void (async () => {
+                              const id = known?.id ?? (await backupIdFromPath(path));
+                              await handleRestore(id, path);
+                            })();
+                          }}
                           disabled={restoring === j.backupPath}
                         >
                           ↩ Restore

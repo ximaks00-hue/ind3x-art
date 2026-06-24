@@ -9,19 +9,19 @@ use crate::dto::{
     ProjectHandle, RenderableModel, TexturePreview, TexturePreviewBatch, VariantKey,
 };
 use crate::error::{CoreError, CoreResult};
-use crate::image::{decode_texture_preview, encode_texture_full};
+use crate::image::{clamp_texture_preview_size, decode_texture_preview, encode_texture_full, MAX_TEXTURE_PREVIEW_BATCH};
 use crate::index::texture_index;
 use crate::model::multipart::{parse_variant_state, resolve_multipart_models};
 use crate::model::types::{
     blockstate_id_from_asset_path, model_id_from_asset_path, normalize_model_ref,
-    texture_stem_from_entry_path,
 };
-use crate::resolve::{collect_variant_models, find_models_for_texture, ModelRegistry};
+use crate::resolve::{collect_variant_models, ModelRegistry};
 use crate::source::safe_join_under_root;
 use crate::state::{lock_model_cache, SharedState};
 
 use super::helpers::{
-    indexed_texture_paths, pack_for_project, project_for_handle, require_indexed_texture,
+    indexed_texture_paths, pack_for_project, project_for_handle, rebuild_texture_model_index,
+    require_indexed_texture,
 };
 
 #[tauri::command]
@@ -83,18 +83,33 @@ pub fn get_texture_previews_batch(
     max_size: Option<u32>,
     state: State<'_, SharedState>,
 ) -> CoreResult<Vec<TexturePreviewBatch>> {
+    if asset_paths.len() > MAX_TEXTURE_PREVIEW_BATCH {
+        return Err(CoreError::InvalidInput(format!(
+            "batch size {} exceeds limit of {}",
+            asset_paths.len(),
+            MAX_TEXTURE_PREVIEW_BATCH
+        )));
+    }
     let app = state.read()?;
     let project = app.projects.get(&handle.id).ok_or(CoreError::ProjectNotFound)?;
     let valid_textures = indexed_texture_paths(project);
-    let size = max_size.unwrap_or(32);
+    let size = clamp_texture_preview_size(max_size);
     let mut out = Vec::with_capacity(asset_paths.len());
     for path in asset_paths {
         let preview = if valid_textures.contains(path.as_str()) {
-            project
-                .source
-                .read(&path)
-                .ok()
-                .and_then(|bytes| decode_texture_preview(&bytes, size).ok())
+            match project.source.read(&path) {
+                Ok(bytes) => match decode_texture_preview(&bytes, size) {
+                    Ok(preview) => Some(preview),
+                    Err(error) => {
+                        tracing::debug!(path = %path, %error, "texture preview decode failed");
+                        None
+                    }
+                },
+                Err(error) => {
+                    tracing::debug!(path = %path, %error, "texture read failed for preview batch");
+                    None
+                }
+            }
         } else {
             None
         };
@@ -159,7 +174,7 @@ pub fn get_texture_preview(
     require_indexed_texture(project, &asset_path)?;
 
     let bytes = project.source.read(&asset_path)?;
-    decode_texture_preview(&bytes, max_size.unwrap_or(32))
+    decode_texture_preview(&bytes, clamp_texture_preview_size(max_size))
 }
 
 #[tauri::command]
@@ -224,20 +239,22 @@ pub fn models_for_texture(
     asset_path: String,
     state: State<'_, SharedState>,
 ) -> CoreResult<Vec<ModelRefInfo>> {
-    let app = state.read()?;
-    let project = app.projects.get(&handle.id).ok_or(CoreError::ProjectNotFound)?;
-
-    let indexed = texture_index::models_for_texture_path(&project.index.texture_model_index, &asset_path);
+    let indexed = {
+        let app = state.read()?;
+        let project = app.projects.get(&handle.id).ok_or(CoreError::ProjectNotFound)?;
+        texture_index::models_for_texture_path(&project.index.texture_model_index, &asset_path)
+    };
     if !indexed.is_empty() {
         return Ok(indexed);
     }
 
-    let texture_stem = texture_stem_from_entry_path(&asset_path);
-    let source = project.source.as_ref();
-    let pack = pack_for_project(project);
-    let mut cache = lock_model_cache(&project.index.model_cache)?;
-    let mut registry = ModelRegistry::new(source, &mut cache, pack);
-    find_models_for_texture(&mut registry, &project.index.entries, &asset_path, &texture_stem)
+    let mut app = state.write()?;
+    let project = app.projects.get_mut(&handle.id).ok_or(CoreError::ProjectNotFound)?;
+    super::helpers::rebuild_texture_model_index(project)?;
+    Ok(texture_index::models_for_texture_path(
+        &project.index.texture_model_index,
+        &asset_path,
+    ))
 }
 
 #[tauri::command]
@@ -249,10 +266,32 @@ pub fn resolve_renderable(
     linked_model_path: Option<String>,
     state: State<'_, SharedState>,
 ) -> CoreResult<RenderableModel> {
+    let resolve_path = linked_model_path.as_deref().unwrap_or(asset_path.as_str());
+    let needs_texture_index_rebuild = {
+        let app = state.read()?;
+        let project = app.projects.get(&handle.id).ok_or(CoreError::ProjectNotFound)?;
+        let entry = project
+            .index
+            .entries
+            .iter()
+            .find(|e| e.path == resolve_path)
+            .ok_or_else(|| CoreError::AssetNotFound(resolve_path.to_string()))?;
+        entry.kind == AssetKind::Texture
+            && texture_index::models_for_texture_path(
+                &project.index.texture_model_index,
+                &asset_path,
+            )
+            .is_empty()
+    };
+    if needs_texture_index_rebuild {
+        let mut app = state.write()?;
+        let project = app.projects.get_mut(&handle.id).ok_or(CoreError::ProjectNotFound)?;
+        rebuild_texture_model_index(project)?;
+    }
+
     let app = state.read()?;
     let project = app.projects.get(&handle.id).ok_or(CoreError::ProjectNotFound)?;
 
-    let resolve_path = linked_model_path.as_deref().unwrap_or(asset_path.as_str());
     let entry = project
         .index
         .entries
@@ -267,17 +306,8 @@ pub fn resolve_renderable(
 
     match entry.kind {
         AssetKind::Texture => {
-            let mut models =
+            let models =
                 texture_index::models_for_texture_path(&project.index.texture_model_index, &asset_path);
-            if models.is_empty() {
-                let texture_stem = texture_stem_from_entry_path(&asset_path);
-                models = find_models_for_texture(
-                    &mut registry,
-                    &project.index.entries,
-                    &asset_path,
-                    &texture_stem,
-                )?;
-            }
             if let Some(first) = models.first() {
                 let (ns, path) = if let Some((a, b)) = first.model_id.split_once(':') {
                     (a.to_string(), b.to_string())

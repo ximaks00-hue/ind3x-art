@@ -10,10 +10,12 @@ import { useCatalogSelection } from "./useCatalogSelection";
 /** Restores persisted studio category/selection and runs first-entry auto-select. */
 export function useCatalogSessionRestore() {
   const handle = useProjectStore((s) => s.handle);
+  const indexStatus = useProjectStore((s) => s.indexStatus);
   const workspaceMode = useSettingsStore((s) => s.workspaceMode);
   const entries = useCatalogStore((s) => s.entries);
   const category = useCatalogStore((s) => s.category);
   const facets = useCatalogStore((s) => s.facets);
+  const catalogLoading = useCatalogStore((s) => s.loading);
   const selectedId = useCatalogStore((s) => s.selectedId);
   const sessionRestorePending = useCatalogStore((s) => s.sessionRestorePending);
   const setCategory = useCatalogStore((s) => s.setCategory);
@@ -24,11 +26,17 @@ export function useCatalogSessionRestore() {
   const setStudioCatalogCategory = useSettingsStore((s) => s.setStudioCatalogCategory);
 
   const sessionRestoredRef = useRef(false);
+  const restoreAbortRef = useRef<AbortController | null>(null);
   const { selectEntry } = useCatalogSelection();
 
   useEffect(() => {
+    restoreAbortRef.current?.abort();
+    restoreAbortRef.current = new AbortController();
     sessionRestoredRef.current = false;
     setSessionRestorePending(true);
+    return () => {
+      restoreAbortRef.current?.abort();
+    };
   }, [handle?.id, setSessionRestorePending]);
 
   const finishSessionRestore = useCallback(() => {
@@ -37,10 +45,11 @@ export function useCatalogSessionRestore() {
   }, [setSessionRestorePending]);
 
   useEffect(() => {
-    if (!useCatalogStore.getState().sessionRestorePending) return;
-    const timer = window.setTimeout(() => finishSessionRestore(), 1500);
-    return () => window.clearTimeout(timer);
-  }, [handle?.id, finishSessionRestore]);
+    if (!sessionRestorePending || sessionRestoredRef.current) return;
+    if (indexStatus === "error") {
+      finishSessionRestore();
+    }
+  }, [indexStatus, sessionRestorePending, finishSessionRestore]);
 
   useEffect(() => {
     if (!studioSelectedCatalogId && !studioCatalogCategory) {
@@ -49,7 +58,7 @@ export function useCatalogSessionRestore() {
   }, [handle?.id, studioSelectedCatalogId, studioCatalogCategory, finishSessionRestore]);
 
   useEffect(() => {
-    if (sessionRestoredRef.current) return;
+    if (sessionRestoredRef.current || !sessionRestorePending) return;
 
     if (studioCatalogCategory && category !== studioCatalogCategory) {
       if (!facets) return;
@@ -74,33 +83,60 @@ export function useCatalogSessionRestore() {
         finishSessionRestore();
         return;
       }
-      if (!handle) return;
+
+      if (!handle) {
+        if (indexStatus === "done" || indexStatus === "error") {
+          finishSessionRestore();
+        }
+        return;
+      }
+
+      const signal = restoreAbortRef.current?.signal;
       let cancelled = false;
       void getCatalogEntry(handle, studioSelectedCatalogId)
         .then((entry) => {
-          if (cancelled || sessionRestoredRef.current) return;
+          if (cancelled || signal?.aborted || sessionRestoredRef.current) return;
           selectEntry(entry);
           finishSessionRestore();
         })
         .catch(() => {
-          if (!cancelled) finishSessionRestore();
+          if (!cancelled && !signal?.aborted) finishSessionRestore();
         });
+
       return () => {
         cancelled = true;
       };
     }
+
     finishSessionRestore();
   }, [
     entries,
     facets,
     handle,
+    indexStatus,
     studioSelectedCatalogId,
     studioCatalogCategory,
     category,
+    sessionRestorePending,
     setCategory,
     setStudioCatalogCategory,
     setFocusIndex,
     selectEntry,
+    finishSessionRestore,
+  ]);
+
+  useEffect(() => {
+    if (sessionRestoredRef.current || !sessionRestorePending) return;
+    if (!handle || indexStatus !== "done" || catalogLoading) return;
+    if (studioSelectedCatalogId || studioCatalogCategory) return;
+    finishSessionRestore();
+  }, [
+    handle,
+    indexStatus,
+    catalogLoading,
+    sessionRestorePending,
+    studioSelectedCatalogId,
+    studioCatalogCategory,
     finishSessionRestore,
   ]);
 

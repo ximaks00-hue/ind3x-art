@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use crate::dto::{CatalogEntry, CatalogEntryKind};
 
@@ -50,12 +50,14 @@ fn merge_item_into_block(block: &mut CatalogEntry, item: &CatalogEntry) {
     } else {
         block.icon_model_path = Some(item.source_path.clone());
     }
-    if !block.aliases.iter().any(|a| a == &item.source_path) {
+    let alias_set: HashSet<&str> = block.aliases.iter().map(String::as_str).collect();
+    if !alias_set.contains(item.source_path.as_str()) {
         block.aliases.push(item.source_path.clone());
     }
     if let Some(ref item_id) = block.item_id {
         let token = item_id.to_lowercase();
-        if !block.search_tokens.iter().any(|t| t == &token) {
+        let token_set: HashSet<&str> = block.search_tokens.iter().map(String::as_str).collect();
+        if !token_set.contains(token.as_str()) {
             block.search_tokens.push(token);
             block.search_tokens.sort();
         }

@@ -1,6 +1,8 @@
 import {
   commitChanges,
   copyRegion,
+  getDoc,
+  getTextureCanvas,
   hasClipboard,
   pasteRegion,
   redoTexture,
@@ -83,7 +85,13 @@ export function useAppHotkeyBindings(
           ];
           copyRegion(path, x0, y0, x1 - x0 + 1, y1 - y0 + 1);
         } else {
-          copyRegion(path, 0, 0, 9999, 9999);
+          const doc = getDoc(path);
+          const canvas = getTextureCanvas(path);
+          const width = doc?.width ?? canvas?.width;
+          const height = doc?.height ?? canvas?.height;
+          if (width && height) {
+            copyRegion(path, 0, 0, width, height);
+          }
         }
         pushToast("Region copied", "info");
       },

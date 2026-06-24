@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { Clock } from "lucide-react";
 
 import { useFocusTrap } from "../../hooks/useFocusTrap";
@@ -70,8 +70,10 @@ function CommandPaletteInner({ commands, onClose }: Omit<CommandPaletteProps, "o
   const [activeIndex, setActiveIndex] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
   const trapRef = useFocusTrap(true);
+  const listboxId = useId();
   const recentCommandIds = useUiStore((s) => s.recentCommandIds);
   const pushRecentCommand = useUiStore((s) => s.pushRecentCommand);
+  const pushToast = useUiStore((s) => s.pushToast);
 
   const filtered = useMemo(
     () => filterCommands(commands, query, recentCommandIds),
@@ -89,9 +91,14 @@ function CommandPaletteInner({ commands, onClose }: Omit<CommandPaletteProps, "o
   const runCommand = useCallback(
     (command: AppCommand) => {
       pushRecentCommand(command.id);
-      void Promise.resolve(command.run()).finally(onClose);
+      void Promise.resolve(command.run())
+        .catch((error) => {
+          const message = error instanceof Error ? error.message : "Command failed";
+          pushToast(message, "error");
+        })
+        .finally(onClose);
     },
-    [pushRecentCommand, onClose],
+    [pushRecentCommand, pushToast, onClose],
   );
 
   useEffect(() => {
@@ -125,6 +132,8 @@ function CommandPaletteInner({ commands, onClose }: Omit<CommandPaletteProps, "o
   }, [filtered, activeIndex, onClose, runCommand]);
 
   let lastGroup: string | null = null;
+  const activeCommand = filtered[activeIndex];
+  const activeOptionId = activeCommand ? `command-option-${activeCommand.id}` : undefined;
 
   return (
     <div className={styles.overlay} onMouseDown={onClose} role="presentation">
@@ -140,6 +149,11 @@ function CommandPaletteInner({ commands, onClose }: Omit<CommandPaletteProps, "o
           ref={inputRef}
           className={styles.input}
           type="search"
+          role="combobox"
+          aria-expanded="true"
+          aria-controls={listboxId}
+          aria-activedescendant={activeOptionId}
+          aria-autocomplete="list"
           placeholder={
             settingsMode ? "Search settings…" : "Type a command…  (> for settings)"
           }
@@ -150,7 +164,7 @@ function CommandPaletteInner({ commands, onClose }: Omit<CommandPaletteProps, "o
           }}
           aria-label="Search commands"
         />
-        <ul className={styles.list} role="listbox">
+        <ul className={styles.list} id={listboxId} role="listbox">
           {filtered.length === 0 ? (
             <li className={styles.empty}>
               {settingsMode ? "No matching settings" : "No matching commands"}
@@ -171,6 +185,9 @@ function CommandPaletteInner({ commands, onClose }: Omit<CommandPaletteProps, "o
                   )}
                   <button
                     type="button"
+                    role="option"
+                    id={`command-option-${command.id}`}
+                    aria-selected={index === activeIndex}
                     className={index === activeIndex ? styles.itemActive : styles.item}
                     onMouseEnter={() => setActiveIndex(index)}
                     onClick={() => runCommand(command)}

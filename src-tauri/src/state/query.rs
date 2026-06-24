@@ -315,7 +315,7 @@ mod query_bench {
 
 
     #[test]
-
+    #[ignore = "timing benchmark — run with cargo test --release bench_ -- --ignored"]
     fn bench_query_assets_page_200() {
 
         let entries = make_bench_entries();
@@ -350,6 +350,8 @@ mod query_bench {
 
                     entries,
 
+                    entry_id_index: std::collections::HashMap::new(),
+
                     texture_model_index: std::collections::HashMap::new(),
 
                     model_cache: std::sync::Mutex::new(std::collections::HashMap::new()),
@@ -358,7 +360,9 @@ mod query_bench {
 
                 catalog: crate::state::CatalogState {
 
-                    entries: crate::state::arc_catalog(Vec::new()),
+                    entries: Vec::new(),
+
+                    id_index: std::collections::HashMap::new(),
 
                     creative_tab_order: crate::catalog::CreativeTabOrder::default(),
 

@@ -5,6 +5,80 @@ All notable changes to **inD3X Art** are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.2] - 2026-06-24
+
+### Added
+
+#### Editor & paint pipeline
+
+- **Singleton pixel worker** (`pixelWorkerClient.ts`) — one shared Comlink worker per app session; avoids per-stroke worker spawn.
+- **Sparse worker protocol** — fill/wand/pencil send pixel lists via `Comlink.transfer()` instead of full-frame diffs.
+- **Layer pixel cache** (`textureDocumentCore.ts`) — `readLayerRgba` / `writeLayerRgba` cache with invalidation on commit.
+- **Save path validation** (`savePathValidation.ts`) — inline namespace/rename validation in Save dialog.
+- **Explorer source label** (`sourcePathLabel.ts`) — basename + full-path tooltip in header.
+
+#### Tests & fixtures
+
+- `pixelWorker.test.ts`, `paintWorkerOps.test.ts`, `savePathValidation.test.ts`, `backupService.test.ts`.
+- `catalogIconGolden.test.ts`, expanded `compileGolden.test.ts`.
+- Fixture packs: `pack.mcmeta` for simple/studio/multipart; `custom_block.png` for mymod lang pack.
+- `rust-toolchain.toml` for reproducible Rust builds.
+
+### Changed
+
+#### CI / release
+
+- **Release gate** — tag builds run validate (typecheck, lint, unit tests, clippy, `cargo test`, integration E2E) before Tauri bundle; single publish job avoids race on GitHub Releases.
+- **Codecov** — upload steps use `secrets.CODECOV_TOKEN` directly (fixes skipped coverage uploads).
+- **Vitest** — `VITE_E2E_MOCK` in test define; spike/perf tests excluded from default suite; coverage thresholds ratcheted to current baseline.
+- **`scripts/ci.ps1`** — `npm.cmd` + explicit `$LASTEXITCODE` checks on Windows PowerShell 5.x.
+
+#### UI & accessibility
+
+- **Command palette** — combobox ARIA (`aria-activedescendant`, `role="option"`); command failures surface error toasts.
+- **Session restore dialog** — `role="dialog"` on inner panel with `useId` title.
+- **Toast host** — `aria-live="assertive"` for errors, `polite` for info/success.
+- **Context menu** — measured viewport clamp + `createPortal` to `document.body`.
+- **Panel error boundary** — resets when `children` change (new project without manual retry).
+- **Button primitive** — `type="button"` cannot be overridden by spread props.
+- Removed unused `Dialog` primitive (feature dialogs keep dedicated components).
+
+#### Window chrome
+
+- **Maximize / restore** — Tauri window permissions (`toggle-maximize`, `minimize`, `close`, `is-maximized`, `start-dragging`); `app-region: no-drag` on controls; icon toggles on resize; double-click title to maximize.
+
+### Fixed
+
+#### State & IPC
+
+- **`finishOpen`** clears stale `selectedAsset` / `selectedAssetId` after reindex.
+- **Comparator** — blocks 3D compare mode without a captured before-model.
+- **E2E fault injection** — `readFaultConfig` returns `failOps`; mock IPC disabled in production builds (`!import.meta.env.PROD`).
+- **`invalidateCatalogIconsForTextures`** wired through mock IPC in lifecycle tests.
+
+#### Explorer, save & catalog services
+
+- Inspector uses `node.id` not `path`; backup restore clears texture documents before reopen.
+- Explorer keyboard scroll + stable nav index map; grouped view includes unknown asset kinds.
+- Shared thumbnail inflight map; save dialog rename disabled when `dirtyCount !== 1`.
+- Session restore abortable (no hard 1500 ms timeout); save path validation on rename/namespace.
+
+#### Editor & viewer
+
+- Face shape preview revision deps; move-selection OOB guard; Mcmeta editor error toast.
+- `readAlphaGrid` capped at 512×512; full-texture copy uses document dimensions.
+- Sparse paint worker tests no longer hang on async `e2eMock` import deadlock.
+
+#### Rust backend
+
+- **Multipart parser** — `when` clauses accept JSON booleans (`true`/`false`) in addition to strings.
+- Custom block fixture uses `mymod:block/custom_block` texture (not vanilla stone).
+
+#### E2E integration
+
+- Session restore tests expect dialog title **"Restore last project?"**.
+- Save failure test injects `failOps: ["saveBatch"]` (matches real save path).
+
 ## [0.3.1] - 2026-06-24
 
 ### Added
@@ -134,6 +208,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Initial release: asset indexer, explorer, 3D viewer, texture editor, save pipeline, Tauri 2 desktop shell.
 
+[0.3.2]: https://github.com/ximaks00-hue/ind3x-art/compare/v0.3.1...v0.3.2
 [0.3.1]: https://github.com/ximaks00-hue/ind3x-art/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/ximaks00-hue/ind3x-art/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/ximaks00-hue/ind3x-art/compare/v0.1.0...v0.2.0

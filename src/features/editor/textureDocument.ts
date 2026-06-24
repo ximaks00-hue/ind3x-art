@@ -14,6 +14,7 @@ export {
   ensureTextureDocument,
   getActiveLayerContext,
   getActiveLayerId,
+  getActiveLayerCanvas,
   getDirtyTexturePaths,
   getDoc,
   getLayerPixel,

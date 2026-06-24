@@ -7,7 +7,7 @@ use zip::write::SimpleFileOptions;
 use zip::ZipWriter;
 
 use crate::error::{CoreError, CoreResult};
-use crate::source::normalize_zip_path;
+use crate::source::{normalize_zip_path, validate_relative_asset_path};
 
 pub fn rebuild_jar_atomic(
     jar_path: &Path,
@@ -26,7 +26,11 @@ pub fn rebuild_jar_atomic(
     let mut writer = ZipWriter::new(dest);
     let options = SimpleFileOptions::default();
 
-    let replace_set: HashSet<String> = replacements.keys().cloned().collect();
+    let mut replace_set = HashSet::new();
+    for path in replacements.keys() {
+        let validated = validate_relative_asset_path(path)?;
+        replace_set.insert(normalize_zip_path(&validated));
+    }
 
     for i in 0..archive.len() {
         let mut file = archive.by_index(i)?;
@@ -39,7 +43,8 @@ pub fn rebuild_jar_atomic(
     }
 
     for (path, data) in replacements {
-        let needle = normalize_zip_path(path);
+        let validated = validate_relative_asset_path(path)?;
+        let needle = normalize_zip_path(&validated);
         writer.start_file(needle, options)?;
         writer.write_all(data)?;
     }
@@ -109,6 +114,21 @@ mod tests {
         assert_eq!(read_back, updated);
         let meta = source.read("pack.mcmeta").expect("meta");
         assert_eq!(meta, br#"{"pack":{"pack_format":34}}"#);
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn rebuild_jar_rejects_traversal_paths() {
+        let dir = std::env::temp_dir().join(format!("ind3x-save-traversal-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let jar_path = dir.join("pack.jar");
+        write_test_jar(&jar_path, &[("pack.mcmeta", br#"{"pack":{"pack_format":34}}"#)]);
+
+        let mut replacements = HashMap::new();
+        replacements.insert("../../evil.png".to_string(), sample_png());
+        assert!(rebuild_jar_atomic(&jar_path, &replacements).is_err());
 
         let _ = fs::remove_dir_all(&dir);
     }

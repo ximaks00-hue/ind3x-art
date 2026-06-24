@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
+import { Mesh, MeshBasicMaterial } from "three";
 
 import type { RenderableModel } from "../../ipc/types";
+import { buildFaceOverlayNode, disposeObject3D } from "./buildMesh";
 
 const FIXTURE_RENDERABLE: RenderableModel = {
   kind: "block",
@@ -34,35 +36,57 @@ const FIXTURE_RENDERABLE: RenderableModel = {
   ambientOcclusion: true,
 };
 
-describe("compile golden (B2 structural)", () => {
-  it("stone block is a full cube with six faces", () => {
-    expect(FIXTURE_RENDERABLE.kind).toBe("block");
-    expect(FIXTURE_RENDERABLE.modelId).toBe("minecraft:block/test_stone");
-    expect(FIXTURE_RENDERABLE.ambientOcclusion).toBe(true);
-    expect(FIXTURE_RENDERABLE.cuboids).toHaveLength(1);
-    expect(FIXTURE_RENDERABLE.cuboids[0].from).toEqual([0, 0, 0]);
-    expect(FIXTURE_RENDERABLE.cuboids[0].to).toEqual([16, 16, 16]);
-    expect(FIXTURE_RENDERABLE.cuboids[0].faces).toHaveLength(6);
-  });
+function countCompiledVertices(model: RenderableModel): {
+  faces: number;
+  vertices: number;
+  indices: number;
+} {
+  let faces = 0;
+  let vertices = 0;
+  let indices = 0;
 
-  it("each face uses 16×16 UV on the stone texture", () => {
-    const directions = new Set(
-      FIXTURE_RENDERABLE.cuboids[0].faces.map((f) => f.direction),
-    );
-    expect(directions).toEqual(new Set(["north", "south", "east", "west", "up", "down"]));
-    for (const face of FIXTURE_RENDERABLE.cuboids[0].faces) {
-      expect(face.texture).toContain("test_stone.png");
-      expect(face.uv).toEqual([0, 0, 16, 16]);
+  for (let cuboidIndex = 0; cuboidIndex < model.cuboids.length; cuboidIndex += 1) {
+    const cuboid = model.cuboids[cuboidIndex];
+    for (let faceIndex = 0; faceIndex < cuboid.faces.length; faceIndex += 1) {
+      const node = buildFaceOverlayNode(
+        model,
+        cuboidIndex,
+        faceIndex,
+        new MeshBasicMaterial(),
+      );
+      if (!node) continue;
+      node.traverse((child) => {
+        if (!(child instanceof Mesh)) return;
+        faces += 1;
+        vertices += child.geometry.attributes.position.count;
+        const index = child.geometry.index;
+        if (index) indices += index.count;
+      });
+      disposeObject3D(node);
     }
+  }
+
+  return { faces, vertices, indices };
+}
+
+describe("compile golden", () => {
+  it("buildMesh compiles a full cube with stable vertex counts", () => {
+    const counts = countCompiledVertices(FIXTURE_RENDERABLE);
+    expect(counts).toMatchInlineSnapshot(`
+      {
+        "faces": 6,
+        "indices": 36,
+        "vertices": 24,
+      }
+    `);
   });
 
-  it("item generated model has no cuboids", () => {
+  it("item generated model compiles to zero mesh faces", () => {
     const item: RenderableModel = {
       ...FIXTURE_RENDERABLE,
       kind: "itemGenerated",
       cuboids: [],
     };
-    expect(item.kind).toBe("itemGenerated");
-    expect(item.cuboids).toHaveLength(0);
+    expect(countCompiledVertices(item)).toEqual({ faces: 0, vertices: 0, indices: 0 });
   });
 });

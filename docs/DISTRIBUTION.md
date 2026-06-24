@@ -12,8 +12,8 @@ AppImage is a portable single-file bundle that runs on most modern distributions
 2. Make it executable and run:
 
 ```bash
-chmod +x "inD3X Art_0.3.1_amd64.AppImage"
-./"inD3X Art_0.3.1_amd64.AppImage"
+chmod +x "inD3X Art_0.3.2_amd64.AppImage"
+./"inD3X Art_0.3.2_amd64.AppImage"
 ```
 
 Optional: move to `~/.local/bin` or integrate with your desktop environment (some file managers offer “Integrate and run” for AppImages).
@@ -52,7 +52,7 @@ WebView2 is installed by the NSIS bootstrapper when missing.
 
 ## CI release pipeline
 
-Pushing a tag `v*` (e.g. `v0.3.1`) triggers [`.github/workflows/release.yml`](../.github/workflows/release.yml):
+Pushing a tag `v*` (e.g. `v0.3.2`) triggers [`.github/workflows/release.yml`](../.github/workflows/release.yml):
 
 | Runner | Artifact |
 |--------|----------|

@@ -285,6 +285,7 @@ function readFaultConfig(): E2EFaultConfig {
   if (fromStorageRaw) {
     fromStorage = parseStoredE2EFaultConfig(fromStorageRaw);
   }
+  const failOps = fromWindow.failOps ?? fromStorage.failOps;
   return {
     latencyMs: Math.max(
       0,
@@ -301,6 +302,7 @@ function readFaultConfig(): E2EFaultConfig {
         Number(fromWindow.failRate ?? fromStorage.failRate ?? defaults.failRate) || 0,
       ),
     ),
+    ...(failOps && failOps.length > 0 ? { failOps } : {}),
   };
 }
 
@@ -330,7 +332,7 @@ export function createE2eMockIpc() {
 
   const appInfo: AppInfo = {
     name: "inD3X Art",
-    version: "0.3.1-e2e",
+    version: "0.3.2-e2e",
     identifier: "com.ind3x.art",
     target: "e2e-mock",
     profile: "test",
@@ -473,7 +475,9 @@ export function createE2eMockIpc() {
   }
 
   const e2eMockEnabled =
-    import.meta.env.DEV && import.meta.env.VITE_E2E_MOCK === "true";
+    import.meta.env.VITE_E2E_MOCK === "true" &&
+    !import.meta.env.PROD &&
+    (import.meta.env.DEV || import.meta.env.MODE === "test");
 
   if (typeof window !== "undefined" && e2eMockEnabled) {
     window.__E2E__ = {

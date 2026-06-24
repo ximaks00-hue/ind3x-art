@@ -43,14 +43,14 @@ test.describe("integration failure paths (mock IPC)", () => {
     });
 
     await page.evaluate(() => {
-      window.__E2E__!.setFaultConfig({ failOps: ["saveTextures"] });
+      window.__E2E__!.setFaultConfig({ failOps: ["saveBatch"] });
     });
 
     const saveBtn = page.getByRole("banner").getByRole("button", { name: /Save/i });
     await expect(saveBtn).toBeEnabled({ timeout: 5_000 });
     await saveBtn.click();
 
-    await expect(page.getByText(/injected failure at saveTextures/i)).toBeVisible({
+    await expect(page.getByText(/injected failure at saveBatch/i)).toBeVisible({
       timeout: 5_000,
     });
     await expect
@@ -98,12 +98,12 @@ test.describe("integration failure paths (mock IPC)", () => {
       );
     });
     await page.goto("/");
-    await expect(page.getByRole("dialog", { name: "Restore session" })).toBeVisible({
+    await expect(page.getByRole("dialog", { name: "Restore last project?" })).toBeVisible({
       timeout: 15_000,
     });
     await expect(page.getByText("simple_pack")).toBeVisible();
     await page.getByRole("button", { name: "Not now" }).click();
-    await expect(page.getByRole("dialog", { name: "Restore session" })).toBeHidden();
+    await expect(page.getByRole("dialog", { name: "Restore last project?" })).toBeHidden();
   });
 
   test("session restore open failure surfaces error", async ({ page }) => {
@@ -129,7 +129,7 @@ test.describe("integration failure paths (mock IPC)", () => {
       );
     });
     await page.goto("/");
-    await expect(page.getByRole("dialog", { name: "Restore session" })).toBeVisible({
+    await expect(page.getByRole("dialog", { name: "Restore last project?" })).toBeVisible({
       timeout: 15_000,
     });
 

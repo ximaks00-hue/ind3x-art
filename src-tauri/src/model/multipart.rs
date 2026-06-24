@@ -35,6 +35,17 @@ fn property_matches(expected: &str, actual: &str) -> bool {
     expected.split('|').any(|candidate| candidate == actual)
 }
 
+/// Minecraft blockstate `when` values may be strings (`"true"`) or JSON booleans (`true`).
+fn when_value_as_str(value: &Value) -> Option<&str> {
+    if let Some(text) = value.as_str() {
+        return Some(text);
+    }
+    if let Some(flag) = value.as_bool() {
+        return Some(if flag { "true" } else { "false" });
+    }
+    None
+}
+
 /// Returns true when a multipart `when` clause matches the given block state.
 pub fn matches_when(when: &Value, state: &HashMap<String, String>) -> bool {
     match when {
@@ -61,7 +72,7 @@ fn matches_when_object(
             return items.iter().all(|item| matches_when(item, state));
         }
 
-        let Some(expected) = value.as_str() else {
+        let Some(expected) = when_value_as_str(value) else {
             return false;
         };
         let actual = state.get(key).map(String::as_str).unwrap_or("");
@@ -153,6 +164,17 @@ mod tests {
     #[test]
     fn matches_simple_property() {
         let when: Value = serde_json::json!({ "north": "true" });
+        let mut state = HashMap::new();
+        state.insert("north".to_string(), "true".to_string());
+        assert!(matches_when(&when, &state));
+
+        state.insert("north".to_string(), "false".to_string());
+        assert!(!matches_when(&when, &state));
+    }
+
+    #[test]
+    fn matches_boolean_property() {
+        let when: Value = serde_json::json!({ "north": true });
         let mut state = HashMap::new();
         state.insert("north".to_string(), "true".to_string());
         assert!(matches_when(&when, &state));

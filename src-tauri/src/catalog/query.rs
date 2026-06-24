@@ -97,15 +97,12 @@ pub fn query_catalog(
 
     let total = matched.len() as u64;
     let start = page.offset as usize;
-    let end = start.saturating_add(page.limit as usize).min(matched.len());
-    let page_entries = if start >= matched.len() {
-        Vec::new()
-    } else {
-        matched[start..end]
-            .iter()
-            .map(|(_, idx)| entries[*idx].as_ref().clone())
-            .collect()
-    };
+    let page_entries: Vec<CatalogEntry> = matched
+        .iter()
+        .skip(start)
+        .take(page.limit as usize)
+        .map(|(_, idx)| entries[*idx].as_ref().clone())
+        .collect();
 
     CatalogPage {
         entries: page_entries,
@@ -114,10 +111,16 @@ pub fn query_catalog(
 }
 
 pub fn get_catalog_entry<'a>(entries: &'a [Arc<CatalogEntry>], id: &str) -> Option<&'a CatalogEntry> {
-    entries
-        .iter()
-        .find(|e| e.id == id)
-        .map(|entry| entry.as_ref())
+    entries.iter().find(|e| e.id == id).map(Arc::as_ref)
+}
+
+/// O(1) lookup using a pre-built id → index map.
+pub fn get_catalog_entry_indexed<'a>(
+    entries: &'a [Arc<CatalogEntry>],
+    id_index: &std::collections::HashMap<String, usize>,
+    id: &str,
+) -> Option<&'a CatalogEntry> {
+    id_index.get(id).and_then(|&i| entries.get(i)).map(Arc::as_ref)
 }
 
 pub fn catalog_facets(entries: &[Arc<CatalogEntry>]) -> CatalogFacets {
@@ -229,6 +232,7 @@ mod bench {
     }
 
     #[test]
+    #[ignore = "timing benchmark — run with cargo test --release bench_ -- --ignored"]
     fn bench_query_catalog_200_page_under_30ms() {
         let catalog = crate::state::arc_catalog(synthetic_catalog(3_000));
         let filter = CatalogFilter {
@@ -253,6 +257,7 @@ mod bench {
     }
 
     #[test]
+    #[ignore = "timing benchmark — run with cargo test --release bench_ -- --ignored"]
     fn bench_query_catalog_5000_under_50ms() {
         let catalog = crate::state::arc_catalog(synthetic_catalog(5_000));
         let filter = CatalogFilter {

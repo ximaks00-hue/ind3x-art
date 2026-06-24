@@ -16,13 +16,20 @@ impl PackInfo {
 pub fn read_pack_info(source: &dyn AssetSource) -> PackInfo {
     let bytes = match source.read("pack.mcmeta") {
         Ok(b) => b,
-        Err(_) => {
-            if let Ok(b) = source.read("assets/minecraft/pack.mcmeta") {
-                b
-            } else {
-                return PackInfo {
-                    pack_format: detect_pack_format_heuristic(source),
-                };
+        Err(error) => {
+            tracing::debug!(%error, path = "pack.mcmeta", "pack.mcmeta not readable");
+            match source.read("assets/minecraft/pack.mcmeta") {
+                Ok(b) => b,
+                Err(fallback_error) => {
+                    tracing::debug!(
+                        %fallback_error,
+                        path = "assets/minecraft/pack.mcmeta",
+                        "namespace pack.mcmeta not readable — using pack format heuristic"
+                    );
+                    return PackInfo {
+                        pack_format: detect_pack_format_heuristic(source),
+                    };
+                }
             }
         }
     };
@@ -36,14 +43,20 @@ pub fn read_pack_info(source: &dyn AssetSource) -> PackInfo {
         pack_format: Option<u32>,
     }
 
-    let from_mcmeta = serde_json::from_slice::<Root>(&bytes)
-        .ok()
-        .and_then(|root| root.pack)
-        .and_then(|pack| pack.pack_format);
+    let from_mcmeta = match serde_json::from_slice::<Root>(&bytes) {
+        Ok(root) => root.pack.and_then(|pack| pack.pack_format),
+        Err(error) => {
+            tracing::warn!(%error, "failed to parse pack.mcmeta — using pack format heuristic");
+            None
+        }
+    };
 
-    PackInfo {
-        pack_format: from_mcmeta.or_else(|| detect_pack_format_heuristic(source)),
-    }
+    let pack_format = from_mcmeta.or_else(|| {
+        tracing::debug!("pack_format missing from pack.mcmeta — using heuristic");
+        detect_pack_format_heuristic(source)
+    });
+
+    PackInfo { pack_format }
 }
 
 /// Guess pack format from path layout when `pack.mcmeta` is missing.
@@ -79,8 +92,12 @@ pub fn normalize_resource_path(path: &str, pack: &PackInfo) -> String {
 }
 
 /// Normalize a texture reference from model JSON (`block/stone` or legacy `blocks/stone`).
-pub fn normalize_texture_ref(texture_ref: &str, _pack: &PackInfo) -> String {
+pub fn normalize_texture_ref(texture_ref: &str, pack: &PackInfo) -> String {
     if texture_ref.starts_with('#') || texture_ref.contains(':') {
+        return texture_ref.to_string();
+    }
+
+    if !pack.is_legacy() {
         return texture_ref.to_string();
     }
 
@@ -152,15 +169,15 @@ mod tests {
     }
 
     #[test]
-    fn normalizes_blocks_prefix_without_pack_mcmeta() {
+    fn leaves_unknown_pack_format_refs_unchanged() {
         let pack = PackInfo::default();
         assert_eq!(
             normalize_texture_ref("blocks/stone", &pack),
-            "block/stone"
+            "blocks/stone"
         );
         assert_eq!(
             normalize_texture_ref("items/apple", &pack),
-            "item/apple"
+            "items/apple"
         );
     }
 }

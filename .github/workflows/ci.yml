@@ -6,9 +6,14 @@ on:
   pull_request:
     branches: [main, master]
 
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   cross-platform:
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
@@ -41,6 +46,7 @@ jobs:
 
   build:
     runs-on: windows-latest
+    timeout-minutes: 60
 
     steps:
       - name: Checkout
@@ -84,14 +90,14 @@ jobs:
         run: npm run test:unit:coverage
 
       - name: Upload frontend coverage (Codecov)
-        if: env.CODECOV_TOKEN != ''
+        if: ${{ secrets.CODECOV_TOKEN != '' }}
         uses: codecov/codecov-action@v4
+        env:
+          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
         with:
           files: coverage/lcov.info
           flags: frontend
-          fail_ci_if_error: false
-        env:
-          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+          fail_ci_if_error: true
 
       - name: Prettier check
         run: npm run format:check
@@ -113,14 +119,14 @@ jobs:
         working-directory: src-tauri
 
       - name: Upload Rust coverage (Codecov)
-        if: env.CODECOV_TOKEN != ''
+        if: ${{ secrets.CODECOV_TOKEN != '' }}
         uses: codecov/codecov-action@v4
+        env:
+          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
         with:
           files: src-tauri/lcov-rust.info
           flags: rust
-          fail_ci_if_error: false
-        env:
-          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+          fail_ci_if_error: true
 
       - name: Frontend build
         run: npm run build
@@ -138,8 +144,9 @@ jobs:
         run: npm run test:e2e:integration
 
   native-e2e:
-    if: ${{ vars.TAURI_WEBDRIVER_URL != '' || secrets.TAURI_WEBDRIVER_URL != '' }}
+    if: ${{ vars.TAURI_WEBDRIVER_URL != '' }}
     runs-on: windows-latest
+    timeout-minutes: 30
     steps:
       - name: Checkout
         uses: actions/checkout@v4

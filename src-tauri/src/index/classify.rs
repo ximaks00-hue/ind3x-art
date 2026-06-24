@@ -14,27 +14,27 @@ pub fn classify_path(relative_path: &str) -> Option<AssetEntry> {
         ));
     }
 
-    if !path.starts_with("assets/") {
+    const ASSETS: &str = "assets/";
+    if !path.starts_with(ASSETS) {
         return None;
     }
 
-    let parts: Vec<&str> = path.split('/').collect();
-    if parts.len() < 3 {
-        return None;
-    }
-
-    let namespace = parts[1];
+    let rest = &path[ASSETS.len()..];
+    let (namespace, rest) = rest.split_once('/')?;
     if namespace.is_empty() || namespace.contains(':') {
         return None;
     }
+    if rest.is_empty() {
+        return None;
+    }
 
-    let tail = parts[2..].join("/");
-
-    if tail == "pack.mcmeta" {
+    if rest == "pack.mcmeta" {
         return Some(entry(namespace, path, AssetKind::PackMeta, "pack.mcmeta".to_string()));
     }
 
-    if parts[2] == "textures" {
+    let (section, after_section) = rest.split_once('/')?;
+
+    if section == "textures" {
         let normalized_path = normalize_classified_path(path);
         if path.ends_with(".png.mcmeta") {
             let name = file_name(&normalized_path);
@@ -56,37 +56,33 @@ pub fn classify_path(relative_path: &str) -> Option<AssetEntry> {
         }
     }
 
-    if parts[2] == "models" && path.ends_with(".json") {
-        let model_path = parts[3..].join("/");
-        let model_path = model_path.strip_suffix(".json").unwrap_or(&model_path);
-        if model_path.starts_with("block/") {
-            let name = file_name(model_path);
-            return Some(entry(namespace, path, AssetKind::BlockModel, name));
-        }
-        if model_path.starts_with("item/") {
-            let name = file_name(model_path);
-            return Some(entry(namespace, path, AssetKind::ItemModel, name));
+    if section == "models" && path.ends_with(".json") {
+        if let Some(model_path) = after_section.strip_suffix(".json") {
+            if let Some(sub) = model_path.strip_prefix("block/") {
+                return Some(entry(namespace, path, AssetKind::BlockModel, file_name(sub)));
+            }
+            if let Some(sub) = model_path.strip_prefix("item/") {
+                return Some(entry(namespace, path, AssetKind::ItemModel, file_name(sub)));
+            }
         }
     }
 
-    if parts[2] == "blockstates" && path.ends_with(".json") {
-        let name = file_name(parts[3..].join("/").trim_end_matches(".json"));
-        return Some(entry(namespace, path, AssetKind::Blockstate, name));
+    if section == "blockstates" && path.ends_with(".json") {
+        if let Some(name) = after_section.strip_suffix(".json") {
+            return Some(entry(namespace, path, AssetKind::Blockstate, file_name(name)));
+        }
     }
 
-    if parts[2] == "lang" && path.ends_with(".json") {
-        let name = file_name(path);
-        return Some(entry(namespace, path, AssetKind::Lang, name));
+    if section == "lang" && path.ends_with(".json") {
+        return Some(entry(namespace, path, AssetKind::Lang, file_name(path)));
     }
 
-    if parts[2] == "sounds" {
-        let name = file_name(path);
-        return Some(entry(namespace, path, AssetKind::Sound, name));
+    if section == "sounds" {
+        return Some(entry(namespace, path, AssetKind::Sound, file_name(path)));
     }
 
     if path.ends_with(".json") || path.ends_with(".png") || path.ends_with(".ogg") {
-        let name = file_name(path);
-        return Some(entry(namespace, path, AssetKind::Other, name));
+        return Some(entry(namespace, path, AssetKind::Other, file_name(path)));
     }
 
     None

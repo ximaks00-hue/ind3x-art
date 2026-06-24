@@ -67,6 +67,10 @@
   color: var(--color-text-secondary);
 }
 
+.fieldError {
+  color: var(--color-danger, #e05252);
+}
+
 .hint {
   margin: 0;
   padding: 0 var(--space-4) var(--space-3);

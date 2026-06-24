@@ -6,7 +6,7 @@ import { spectaCommands } from "./spectaClient";
 export { IpcError, isCoreError } from "./errors";
 
 export const ipc =
-  import.meta.env.VITE_E2E_MOCK === "true"
+  import.meta.env.VITE_E2E_MOCK === "true" && !import.meta.env.PROD
     ? createE2eMockIpc()
     : {
         ...spectaCommands,

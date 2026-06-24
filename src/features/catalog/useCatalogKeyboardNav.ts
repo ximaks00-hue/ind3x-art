@@ -23,6 +23,13 @@ export function useCatalogKeyboardNav({
   scrollToRow,
 }: UseCatalogKeyboardNavOptions) {
   const keyboardScopeActiveRef = useRef(false);
+  const entriesRef = useRef(entries);
+  const focusIndexRef = useRef(focusIndex);
+  const selectEntryRef = useRef(selectEntry);
+
+  entriesRef.current = entries;
+  focusIndexRef.current = focusIndex;
+  selectEntryRef.current = selectEntry;
 
   useEffect(() => {
     const panel = panelRef.current;
@@ -44,12 +51,13 @@ export function useCatalogKeyboardNav({
 
   const moveFocus = useCallback(
     (next: number) => {
-      if (!entries.length) return;
-      const clamped = Math.max(0, Math.min(entries.length - 1, next));
+      const list = entriesRef.current;
+      if (!list.length) return;
+      const clamped = Math.max(0, Math.min(list.length - 1, next));
       setFocusIndex(clamped);
       scrollToRow(Math.floor(clamped / CATALOG_GRID_COLS));
     },
-    [entries.length, setFocusIndex, scrollToRow],
+    [setFocusIndex, scrollToRow],
   );
 
   useEffect(() => {
@@ -71,37 +79,40 @@ export function useCatalogKeyboardNav({
         return;
       }
 
-      if (!entries.length) return;
+      const list = entriesRef.current;
+      if (!list.length) return;
+
+      const currentFocus = focusIndexRef.current;
 
       if (event.key === "ArrowRight") {
         event.preventDefault();
-        moveFocus(focusIndex + 1);
+        moveFocus(currentFocus + 1);
       } else if (event.key === "ArrowLeft") {
         event.preventDefault();
-        moveFocus(focusIndex - 1);
+        moveFocus(currentFocus - 1);
       } else if (event.key === "ArrowDown") {
         event.preventDefault();
-        moveFocus(focusIndex + CATALOG_GRID_COLS);
+        moveFocus(currentFocus + CATALOG_GRID_COLS);
       } else if (event.key === "ArrowUp") {
         event.preventDefault();
-        moveFocus(focusIndex - CATALOG_GRID_COLS);
+        moveFocus(currentFocus - CATALOG_GRID_COLS);
       } else if (event.key === "Home") {
         event.preventDefault();
         moveFocus(0);
       } else if (event.key === "End") {
         event.preventDefault();
-        moveFocus(entries.length - 1);
+        moveFocus(list.length - 1);
       } else if (event.key === "Enter") {
-        const entry = entries[focusIndex];
+        const entry = list[currentFocus];
         if (entry) {
           event.preventDefault();
-          selectEntry(entry);
+          selectEntryRef.current(entry);
         }
       }
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [entries, focusIndex, moveFocus, searchRef, selectEntry]);
+  }, [moveFocus, searchRef]);
 
   useEffect(() => {
     if (focusIndex >= entries.length) {

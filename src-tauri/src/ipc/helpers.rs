@@ -38,24 +38,35 @@ pub(crate) fn pack_for_project(project: &crate::state::Project) -> PackInfo {
     }
 }
 
+pub(crate) fn refresh_entry_id_index(project: &mut crate::state::Project) {
+    project.index.entry_id_index = project
+        .index
+        .entries
+        .iter()
+        .enumerate()
+        .map(|(idx, entry)| (entry.id.clone(), idx))
+        .collect();
+}
+
 pub(crate) fn rebuild_texture_model_index(project: &mut crate::state::Project) -> CoreResult<()> {
     let pack = pack_for_project(project);
-    let entries = project.index.entries.clone();
+    let entries = &project.index.entries;
     let mut cache = lock_model_cache(&project.index.model_cache)?;
     let mut registry = ModelRegistry::new(project.source.as_ref(), &mut cache, pack);
     project.index.texture_model_index =
-        texture_index::build_texture_model_index(&mut registry, &entries);
+        texture_index::build_texture_model_index(&mut registry, entries);
     drop(cache);
+    refresh_entry_id_index(project);
     apply_texture_link_counts(project);
     Ok(())
 }
 
 pub(crate) fn apply_texture_link_counts(project: &mut crate::state::Project) {
-    let index = project.index.texture_model_index.clone();
+    let index = &project.index.texture_model_index;
     for entry in &mut project.index.entries {
         if entry.kind == AssetKind::Texture {
             let count =
-                texture_index::models_for_texture_path(&index, &entry.path).len() as u32;
+                texture_index::models_for_texture_path(index, &entry.path).len() as u32;
             entry.linked_model_count = Some(count);
         }
     }
@@ -102,11 +113,13 @@ pub(crate) fn prepare_opened_project(
         index: crate::state::IndexState {
             fingerprint: fingerprint.clone(),
             entries: entries.clone(),
+            entry_id_index: HashMap::new(),
             texture_model_index: HashMap::new(),
             model_cache: Mutex::new(HashMap::new()),
         },
         catalog: crate::state::CatalogState {
-            entries: crate::state::arc_catalog(Vec::new()),
+            entries: Vec::new(),
+            id_index: std::collections::HashMap::new(),
             creative_tab_order: CreativeTabOrder::default(),
             language: "en_us".to_string(),
         },
@@ -302,26 +315,6 @@ pub(crate) fn ensure_catalog_built(state: &SharedState, handle_id: u64) -> CoreR
         "catalog empty while index has blockstates/models — rebuilding"
     );
     crate::catalog::build_project_catalog(project, &db)?;
-    Ok(())
-}
-
-#[allow(dead_code)]
-pub(crate) fn ensure_project_catalog(
-    app: &mut crate::state::AppState,
-    db: &sled::Db,
-    handle_id: u64,
-) -> CoreResult<()> {
-    let project = app
-        .projects
-        .get_mut(&handle_id)
-        .ok_or(CoreError::ProjectNotFound)?;
-    if crate::catalog::catalog_needs_rebuild(project) {
-        tracing::warn!(
-            entry_count = project.index.entries.len(),
-            "catalog empty while index has blockstates/models — rebuilding"
-        );
-        crate::catalog::build_project_catalog(project, db)?;
-    }
     Ok(())
 }
 

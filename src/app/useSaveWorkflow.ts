@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
 
 import { clearTextureDocuments } from "../features/editor/textureDocument";
@@ -27,11 +27,13 @@ export function useSaveWorkflow({
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
   const [saveDialogOpen, setSaveDialogOpen] = useState(false);
   const [backupDialogOpen, setBackupDialogOpen] = useState(false);
+  const savingRef = useRef(false);
 
   const runSave = useCallback(
     async (options?: SaveOptions) => {
-      if (!handle || dirtyCount === 0 || saving) return;
+      if (!handle || dirtyCount === 0 || savingRef.current) return;
 
+      savingRef.current = true;
       setSaving(true);
       setSaveMessage("writing textures…");
       try {
@@ -52,10 +54,11 @@ export function useSaveWorkflow({
         setSaveMessage(message);
         pushToast(message, "error");
       } finally {
+        savingRef.current = false;
         setSaving(false);
       }
     },
-    [handle, dirtyCount, saving, pushToast, triggerSaveFlash],
+    [handle, dirtyCount, pushToast, triggerSaveFlash],
   );
 
   const handleSave = useCallback(async () => {
@@ -88,8 +91,9 @@ export function useSaveWorkflow({
   );
 
   const handleRestoreBackup = useCallback(async () => {
-    if (!handle || !sourcePath || saving || opening) return;
+    if (!handle || !sourcePath || savingRef.current || opening) return;
 
+    savingRef.current = true;
     setSaving(true);
     setSaveMessage("restoring backup…");
     try {
@@ -109,9 +113,10 @@ export function useSaveWorkflow({
       setSaveMessage(message);
       pushToast(message, "error");
     } finally {
+      savingRef.current = false;
       setSaving(false);
     }
-  }, [handle, sourcePath, saving, opening, openSource, pushToast]);
+  }, [handle, sourcePath, opening, openSource, pushToast]);
 
   return {
     saving,

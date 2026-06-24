@@ -1,4 +1,5 @@
 use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
 
 use crate::builtins::get_builtin_model;
 use crate::dto::{AssetKind, ModelRefInfo, TextureMetaInfo};
@@ -15,14 +16,14 @@ const MAX_PARENT_DEPTH: usize = 32;
 
 pub struct ModelRegistry<'a> {
     source: &'a dyn AssetSource,
-    cache: &'a mut HashMap<String, ResolvedModel>,
+    cache: &'a mut HashMap<String, Arc<ResolvedModel>>,
     pack: PackInfo,
 }
 
 impl<'a> ModelRegistry<'a> {
     pub fn new(
         source: &'a dyn AssetSource,
-        cache: &'a mut HashMap<String, ResolvedModel>,
+        cache: &'a mut HashMap<String, Arc<ResolvedModel>>,
         pack: PackInfo,
     ) -> Self {
         Self {
@@ -36,16 +37,20 @@ impl<'a> ModelRegistry<'a> {
         &self.pack
     }
 
-    pub fn resolve_model(&mut self, namespace: &str, model_path: &str) -> CoreResult<ResolvedModel> {
+    pub fn resolve_model(
+        &mut self,
+        namespace: &str,
+        model_path: &str,
+    ) -> CoreResult<Arc<ResolvedModel>> {
         let model_path = normalize_model_path(model_path, &self.pack);
         let model_id = format!("{namespace}:{model_path}");
         if let Some(cached) = self.cache.get(&model_id) {
-            return Ok(cached.clone());
+            return Ok(Arc::clone(cached));
         }
 
         let (ns, path) = normalize_model_ref(&model_path, namespace);
-        let resolved = self.resolve_model_inner(&ns, &path, &mut HashSet::new())?;
-        self.cache.insert(model_id, resolved.clone());
+        let resolved = Arc::new(self.resolve_model_inner(&ns, &path, &mut HashSet::new())?);
+        self.cache.insert(model_id, Arc::clone(&resolved));
         Ok(resolved)
     }
 
@@ -100,7 +105,7 @@ impl<'a> ModelRegistry<'a> {
             current_ns = p_ns;
             let pid = format!("{current_ns}:{p_path}");
             if visited.contains(&pid) {
-                break;
+                return Err(CoreError::Internal(format!("model cycle at {pid}")));
             }
             visited.insert(pid);
             chain.push(self.load_raw_model(&current_ns, &p_path)?);
@@ -133,14 +138,8 @@ impl<'a> ModelRegistry<'a> {
             }
         }
 
-        let parent_chain: Vec<String> = chain
-            .iter()
-            .filter_map(|m| m.parent.clone())
-            .collect();
-
         Ok(ResolvedModel {
             model_id,
-            parent_chain,
             ambient_occlusion,
             textures,
             elements,

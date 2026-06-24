@@ -37,6 +37,15 @@ describe("buildGroupedRows", () => {
     );
     expect(rows.filter((r) => r.type === "asset")).toHaveLength(0);
   });
+
+  it("emits assets for kinds outside KIND_ORDER", () => {
+    const entry = {
+      ...asset("assets/minecraft/atlases/blocks.json"),
+      kind: "other" as const,
+    };
+    const rows = buildGroupedRows([entry], new Set());
+    expect(rows.some((r) => r.type === "asset" && r.entry.id === entry.id)).toBe(true);
+  });
 });
 
 describe("buildFlatRows", () => {
@@ -56,5 +65,19 @@ describe("buildFilesystemRows", () => {
     const groups = rows.filter((r) => r.type === "group");
     expect(groups.length).toBeGreaterThan(0);
     expect(rows.some((r) => r.type === "asset")).toBe(true);
+  });
+
+  it("shows subdirectory assets when a path is both a file and directory prefix", () => {
+    const rows = buildFilesystemRows(
+      [
+        asset("assets/minecraft"),
+        asset("assets/minecraft/textures/block/stone.png"),
+      ],
+      new Set(),
+    );
+    expect(rows.filter((r) => r.type === "asset")).toHaveLength(2);
+    expect(rows.some((r) => r.type === "asset" && r.entry.path.endsWith("stone.png"))).toBe(
+      true,
+    );
   });
 });

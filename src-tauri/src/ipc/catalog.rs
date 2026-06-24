@@ -36,9 +36,13 @@ pub fn get_catalog_entry(
     ensure_catalog_built(&state, handle.id)?;
     let app = state.read()?;
     let project = app.projects.get(&handle.id).ok_or(CoreError::ProjectNotFound)?;
-    crate::catalog::get_catalog_entry(&project.catalog.entries, &entry_id)
-        .cloned()
-        .ok_or_else(|| CoreError::AssetNotFound(entry_id))
+    crate::catalog::get_catalog_entry_indexed(
+        &project.catalog.entries,
+        &project.catalog.id_index,
+        &entry_id,
+    )
+    .cloned()
+    .ok_or_else(|| CoreError::AssetNotFound(entry_id))
 }
 
 #[tauri::command]
@@ -63,11 +67,15 @@ pub fn resolve_catalog_entry(
     state: State<'_, SharedState>,
 ) -> CoreResult<RenderableModel> {
     ensure_catalog_built(&state, handle.id)?;
-    let mut app = state.write()?;
+    let app = state.read()?;
     let project = app.projects.get(&handle.id).ok_or(CoreError::ProjectNotFound)?;
-    let entry = crate::catalog::get_catalog_entry(&project.catalog.entries, &entry_id)
-        .ok_or_else(|| CoreError::AssetNotFound(entry_id.clone()))?
-        .clone();
+    let entry = crate::catalog::get_catalog_entry_indexed(
+        &project.catalog.entries,
+        &project.catalog.id_index,
+        &entry_id,
+    )
+    .ok_or_else(|| CoreError::AssetNotFound(entry_id.clone()))?
+    .clone();
     let source = project.source.as_ref();
     let pack = pack_for_project(project);
     let mut cache = lock_model_cache(&project.index.model_cache)?;

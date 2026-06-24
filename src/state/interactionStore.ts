@@ -14,6 +14,7 @@ interface InteractionState {
   captureCompareBefore: (model: RenderableModel) => void;
   captureCompareBeforeFromSave: () => void;
   setViewerBeforeModel: (model: RenderableModel | null) => void;
+  resetInteractionState: () => void;
   /** @deprecated Use cycleComparator */
   toggleComparator2d: () => void;
   /** @deprecated Use cycleComparator */
@@ -33,10 +34,13 @@ export const useInteractionStore = create<InteractionState>((set, get) => ({
     if (comparatorMode === "2d") {
       const before =
         viewerBeforeModel ?? (captureFor3d ? cloneRenderable(captureFor3d) : null);
+      // Do not enter 3D mode without a before-model — silent broken state.
+      if (!before) return;
       set({ comparatorMode: "3d", viewerBeforeModel: before });
       return;
     }
-    set({ comparatorMode: null });
+    // Exiting comparator: release the held model to free memory.
+    set({ comparatorMode: null, viewerBeforeModel: null });
   },
   captureCompareBefore: (model) => set({ viewerBeforeModel: cloneRenderable(model) }),
   captureCompareBeforeFromSave: () => {
@@ -46,14 +50,16 @@ export const useInteractionStore = create<InteractionState>((set, get) => ({
     }
   },
   setViewerBeforeModel: (viewerBeforeModel) => set({ viewerBeforeModel }),
+  resetInteractionState: () => set({ comparatorMode: null, viewerBeforeModel: null }),
   toggleComparator2d: () => get().cycleComparator(),
   toggleComparator3d: (capture) => {
     const mode = get().comparatorMode;
     if (mode === "3d") {
-      set({ comparatorMode: null });
+      set({ comparatorMode: null, viewerBeforeModel: null });
       return;
     }
     const before = get().viewerBeforeModel ?? (capture ? cloneRenderable(capture) : null);
+    if (!before) return;
     set({ comparatorMode: "3d", viewerBeforeModel: before });
   },
 }));

@@ -1855,7 +1855,7 @@ dependencies = [
 
 [[package]]
 name = "ind3x-art"
-version = "0.3.0"
+version = "0.3.2"
 dependencies = [
  "base64 0.22.1",
  "hex",
@@ -1871,7 +1871,6 @@ dependencies = [
  "tauri",
  "tauri-build",
  "tauri-plugin-dialog",
- "tauri-plugin-fs",
  "tauri-plugin-opener",
  "tauri-specta",
  "tempfile",

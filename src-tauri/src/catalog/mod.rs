@@ -22,7 +22,7 @@ pub use icon::compile_catalog_icon_model;
 pub use icon::compile_catalog_placed_model;
 pub use creative_tabs::{load_creative_tabs, CreativeTabOrder};
 pub use patch::patch_project_catalog;
-pub use query::{catalog_facets, get_catalog_entry, query_catalog};
+pub use query::{catalog_facets, get_catalog_entry, get_catalog_entry_indexed, query_catalog};
 
 use crate::dto::{AssetEntry, AssetKind, CatalogEntry, CatalogResolveKind};
 use crate::error::{log_if_err, CoreResult};
@@ -88,7 +88,9 @@ pub fn build_project_catalog(project: &mut Project, db: &sled::Db) -> CoreResult
     let language = project.catalog.language.clone();
     if let Ok(Some(catalog)) = cache::load_cached_catalog(db, &fingerprint, &language) {
         if cached_catalog_trustworthy(&project.index.entries, &catalog) {
-            project.catalog.entries = arc_catalog(catalog);
+            let entries = arc_catalog(catalog);
+            project.catalog.id_index = crate::state::build_catalog_id_index(&entries);
+            project.catalog.entries = entries;
             return Ok(true);
         }
         tracing::warn!(
@@ -117,6 +119,7 @@ pub fn build_project_catalog(project: &mut Project, db: &sled::Db) -> CoreResult
 
     let flat: Vec<CatalogEntry> = entries.iter().map(|e| e.as_ref().clone()).collect();
     cache::save_catalog_cache(db, &fingerprint, &language, &flat)?;
+    project.catalog.id_index = crate::state::build_catalog_id_index(&entries);
     project.catalog.entries = entries;
     Ok(false)
 }

@@ -109,6 +109,10 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       queryOffset: 0,
       queryHasMore: result.entryCount > 0,
       collapsedGroups: {},
+      selectedAssetId: null,
+      selectedAsset: null,
+      facets: null,
+      validationById: {},
     }),
   setQueryPage: (entries, total, append, offset) =>
     set((s) => {
@@ -127,6 +131,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     set({
       assets: [],
       queryOffset: 0,
+      queryTotal: 0,
       queryHasMore: false,
     }),
   setFacets: (facets) => set({ facets }),
@@ -167,6 +172,10 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       fromCache: false,
       collapsedGroups: {},
       validationById: {},
+      kindFilter: "all",
+      namespaceFilter: "",
+      search: "",
+      queryRevision: 0,
     }),
   selectAsset: (entry) =>
     set({
@@ -179,12 +188,12 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
   setFuzzySearch: (fuzzySearch) => set({ fuzzySearch }),
   setViewMode: (viewMode) => set({ viewMode }),
   toggleGroupCollapsed: (groupId) =>
-    set({
+    set((s) => ({
       collapsedGroups: {
-        ...get().collapsedGroups,
-        [groupId]: !get().collapsedGroups[groupId],
+        ...s.collapsedGroups,
+        [groupId]: !s.collapsedGroups[groupId],
       },
-    }),
+    })),
   setAllGroupsCollapsed: (collapsed, groupIds) => {
     const next: Record<string, boolean> = {};
     for (const id of groupIds) {

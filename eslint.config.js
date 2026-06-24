@@ -76,12 +76,18 @@ export default [
     },
   },
   {
+    // Relax some strict rules in test files without fully excluding them.
+    files: ["**/*.test.ts", "**/*.test.tsx", "e2e/**/*.ts", "e2e/**/*.tsx"],
+    rules: {
+      "no-console": "off",
+      "@typescript-eslint/no-explicit-any": "off",
+    },
+  },
+  {
     ignores: [
       "dist/**",
       "src-tauri/**",
       "node_modules/**",
-      "**/*.test.ts",
-      "**/*.test.tsx",
       "src/ipc/bindings.ts",
     ],
   },

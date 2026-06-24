@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import type { RenderableModel, RenderFace } from "../../ipc/types";
 import { formatFaceDirection } from "../../app/studioStatusLabels";
@@ -81,6 +81,7 @@ export function UnfoldPanel({ model, selectedFace, onSelectFace }: UnfoldPanelPr
   const setHoveredFace = useSelectionStore((s) => s.setHoveredFace);
   const cuboidIndex = selectedFace?.cuboidIndex ?? 0;
   const [previewUrls, setPreviewUrls] = useState<Record<string, string>>({});
+  const prevUrlsRef = useRef<Record<string, string>>({});
 
   const faces = useMemo(
     () =>
@@ -98,7 +99,14 @@ export function UnfoldPanel({ model, selectedFace, onSelectFace }: UnfoldPanelPr
       const url = facePreviewUrl(cell.face, revision);
       if (url) next[direction] = url;
     }
+    const prev = prevUrlsRef.current;
+    prevUrlsRef.current = next;
     setPreviewUrls(next);
+    return () => {
+      for (const url of Object.values(prev)) {
+        if (url.startsWith("blob:")) URL.revokeObjectURL(url);
+      }
+    };
   }, [faces, revision]);
 
   const handleHover = (cell: FaceCell | null, active: boolean) => {

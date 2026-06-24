@@ -88,6 +88,23 @@ describe("paintEngine tools", () => {
     expect(getPixel(path, 15, 15)).toEqual([0, 0, 255, 255]);
   });
 
+  it("fill respects tolerance on near colors", async () => {
+    const { ensureTextureDocument } = await import("./textureDocument");
+    clearTextureDocuments();
+    vi.mocked(ipc.getTexture).mockResolvedValue(
+      mockTexturePreview(4, 4, [100, 100, 100, 255]),
+    );
+    await ensureTextureDocument(handle, path);
+    commitChanges(
+      handle,
+      path,
+      collectStrokeChanges(path, [[1, 0]], "pencil", "#6e6e6e"),
+    );
+    const strict = floodFillChanges(path, 0, 0, "#ff0000", 0);
+    const loose = floodFillChanges(path, 0, 0, "#ff0000", 40);
+    expect(strict.length).toBeLessThan(loose.length);
+  });
+
   it("wand is not in paintEngine but fill works on uniform area", () => {
     const changes = floodFillChanges(path, 8, 8, "#ffffff");
     expect(changes.length).toBeGreaterThan(0);

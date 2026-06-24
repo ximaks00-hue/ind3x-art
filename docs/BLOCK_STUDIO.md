@@ -211,7 +211,7 @@ Honest acceptance status on **real Tauri + real packs**. Manual checklist: [STUD
 | R2 | Catalog UX — fuzzy, recent, focus, facets | P0 | ✅ implemented |
 | R3 | Studio viewport — variants, multipart, biome, bootstrap | P0 | ✅ implemented |
 | R4 | Icon perf — concurrency, progress, placeholder cube | P1 | ✅ implemented |
-| R5 | Real E2E — UI clicks, studio_pack, docs | P1 | ✅ implemented |
+| R5 | Real E2E — UI clicks, studio_pack, docs | P1 | ⚠️ mock-only (Playwright tests use synthetic catalog; real Tauri WebDriver via `test:e2e:native`) |
 | R6 | Premium polish — dirty badge, session restore | P2 | ✅ minimal |
 
 **Note:** Phase 6 Playwright tests use `VITE_E2E_MOCK` (synthetic 2400-entry catalog). Rust `cargo test` exercises real fixtures (`simple_pack`, `multipart_pack`, `studio_pack`).

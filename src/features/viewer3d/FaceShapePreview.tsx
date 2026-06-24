@@ -79,7 +79,7 @@ export function FaceShapePreview({ model }: FaceShapePreviewProps) {
     root.rotation.y = THREE.MathUtils.degToRad(model.modelRotation.y);
     root.rotation.z = THREE.MathUtils.degToRad(model.modelRotation.z);
     return root;
-  }, [draft, tool, color, rectFilled, model]);
+  }, [draft, tool, color, rectFilled, model, revision]);
 
   useEffect(() => {
     return () => {

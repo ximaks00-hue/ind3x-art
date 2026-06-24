@@ -6,6 +6,7 @@ import { loadTexture } from "./textureLoader";
 
 const ITEM_DISPLAY_SCALE = 0.9;
 const EXTRUSION_DEPTH = 1 / 16;
+const MAX_ITEM_TEXTURE_DIM = 512;
 
 type AlphaGrid = {
   width: number;
@@ -15,9 +16,14 @@ type AlphaGrid = {
 
 function readAlphaGrid(image: CanvasImageSource): AlphaGrid {
   const canvas = document.createElement("canvas");
-  const width = "width" in image && typeof image.width === "number" ? image.width : 16;
-  const height =
+  let width = "width" in image && typeof image.width === "number" ? image.width : 16;
+  let height =
     "height" in image && typeof image.height === "number" ? image.height : 16;
+  if (width > MAX_ITEM_TEXTURE_DIM || height > MAX_ITEM_TEXTURE_DIM) {
+    const scale = MAX_ITEM_TEXTURE_DIM / Math.max(width, height);
+    width = Math.max(1, Math.floor(width * scale));
+    height = Math.max(1, Math.floor(height * scale));
+  }
   canvas.width = width;
   canvas.height = height;
   const ctx = canvas.getContext("2d");

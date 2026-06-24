@@ -14,7 +14,7 @@ function RelationshipTree({
   onSelect,
 }: {
   nodes: RelationshipNode[];
-  onSelect: (path: string) => void;
+  onSelect: (assetId: string) => void;
 }) {
   if (!nodes.length) return null;
   return (
@@ -24,7 +24,7 @@ function RelationshipTree({
           <button
             type="button"
             className={styles.treeNode}
-            onClick={() => onSelect(node.path)}
+            onClick={() => onSelect(node.id)}
           >
             <span className={styles.treeKind}>{node.kind}</span>
             {node.label}
@@ -116,7 +116,7 @@ export function InspectorPanel({
           <h4 className={styles.sectionTitle}>Relationships</h4>
           <RelationshipTree
             nodes={details.relationships}
-            onSelect={(path) => onSelectRelated(path)}
+            onSelect={onSelectRelated}
           />
         </div>
       )}

@@ -17,6 +17,7 @@ interface ExplorerAssetListProps {
   indexStatus: string;
   rows: ExplorerRow[];
   navigableRows: (ExplorerRow & { type: "asset" })[];
+  navigableIndexByAssetId: Map<string, number>;
   virtualizer: Virtualizer<HTMLDivElement, Element>;
   virtualItems: VirtualItem[];
   queryLoading: boolean;
@@ -42,6 +43,7 @@ export function ExplorerAssetList({
   indexStatus,
   rows,
   navigableRows,
+  navigableIndexByAssetId,
   virtualizer,
   virtualItems,
   queryLoading,
@@ -121,9 +123,7 @@ export function ExplorerAssetList({
 
             const { entry } = row;
             const isTexture = entry.kind === "texture";
-            const navIndex = navigableRows.findIndex(
-              (r) => r.type === "asset" && r.entry.id === entry.id,
-            );
+            const navIndex = navigableIndexByAssetId.get(entry.id) ?? -1;
             const isFocused = navIndex === focusRowIndex;
             const warnCount = validationById[entry.id];
 

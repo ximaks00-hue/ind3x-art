@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use serde::Deserialize;
 
@@ -127,8 +127,6 @@ pub struct RawAnimation {
 #[derive(Debug, Clone)]
 pub struct ResolvedModel {
     pub model_id: String,
-    #[allow(dead_code)]
-    pub parent_chain: Vec<String>,
     pub ambient_occlusion: bool,
     pub textures: HashMap<String, String>,
     pub elements: Vec<RawElement>,
@@ -237,9 +235,22 @@ pub fn resolve_texture_value_with_pack(
     textures: &HashMap<String, String>,
     pack: &crate::model::normalize::PackInfo,
 ) -> Option<String> {
+    resolve_texture_value_with_pack_inner(value, namespace, textures, pack, &mut HashSet::new())
+}
+
+fn resolve_texture_value_with_pack_inner(
+    value: &str,
+    namespace: &str,
+    textures: &HashMap<String, String>,
+    pack: &crate::model::normalize::PackInfo,
+    visited: &mut HashSet<String>,
+) -> Option<String> {
     if let Some(key) = value.strip_prefix('#') {
+        if !visited.insert(key.to_string()) {
+            return None;
+        }
         let next = textures.get(key)?;
-        return resolve_texture_value_with_pack(next, namespace, textures, pack);
+        return resolve_texture_value_with_pack_inner(next, namespace, textures, pack, visited);
     }
 
     let normalized = crate::model::normalize::normalize_texture_ref(value, pack);
@@ -310,7 +321,6 @@ mod tests {
         use std::collections::HashMap;
         super::ResolvedModel {
             model_id: "minecraft:block/test".to_string(),
-            parent_chain: vec![],
             ambient_occlusion: true,
             textures: textures
                 .into_iter()
@@ -369,5 +379,19 @@ mod tests {
             "block/stone"
         );
         assert_eq!(super::normalize_texture_stem("items/apple"), "item/apple");
+    }
+
+    #[test]
+    fn cyclic_texture_refs_return_none() {
+        use std::collections::HashMap;
+
+        let mut textures = HashMap::new();
+        textures.insert("particle".to_string(), "#all".to_string());
+        textures.insert("all".to_string(), "#particle".to_string());
+        let pack = crate::model::normalize::PackInfo::default();
+        assert!(
+            super::resolve_texture_value_with_pack("#particle", "minecraft", &textures, &pack)
+                .is_none()
+        );
     }
 }

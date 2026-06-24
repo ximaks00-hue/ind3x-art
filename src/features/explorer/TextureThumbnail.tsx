@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import { ipc } from "../../ipc/client";
 import { useProjectStore } from "../../state/projectStore";
 import { useSettingsStore } from "../../state/settingsStore";
-import { getThumbnailCache, thumbnailCacheKey } from "./thumbnailCache";
+import { getThumbnailCache, fetchThumbnailDataUrl, thumbnailCacheKey } from "./thumbnailCache";
 import styles from "./TextureThumbnail.module.css";
 
 interface TextureThumbnailProps {
@@ -46,27 +46,23 @@ export function TextureThumbnail({ assetPath, size = 24 }: TextureThumbnailProps
         if (!entries[0]?.isIntersecting) return;
         observer.disconnect();
 
-        void (async () => {
-          try {
-            const cached = cache.get(cacheKey);
-            if (cached) {
-              if (!cancelled) {
-                setSrc(cached);
-                setLoaded(true);
-              }
-              return;
-            }
-            const preview = await ipc.getTexturePreview(handle, assetPath, size * 2);
-            const url = `data:image/png;base64,${preview.pngBase64}`;
-            cache.set(cacheKey, url);
+        void fetchThumbnailDataUrl(cacheKey, async () => {
+          const cached = cache.get(cacheKey);
+          if (cached) return cached;
+          const preview = await ipc.getTexturePreview(handle, assetPath, size * 2);
+          const url = `data:image/png;base64,${preview.pngBase64}`;
+          cache.set(cacheKey, url);
+          return url;
+        })
+          .then((url) => {
             if (!cancelled) {
               setSrc(url);
               setLoaded(true);
             }
-          } catch {
+          })
+          .catch(() => {
             if (!cancelled) setFailed(true);
-          }
-        })();
+          });
       },
       { rootMargin: "80px" },
     );

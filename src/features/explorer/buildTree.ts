@@ -61,14 +61,20 @@ export function buildGroupedRows(
 
     if (collapsed.has(nsId)) continue;
 
-    for (const kind of KIND_ORDER) {
-      const items = kinds.get(kind);
-      if (!items?.length) continue;
+    const orderedKinds = [
+      ...KIND_ORDER.filter((kind) => kinds.has(kind)),
+      ...[...kinds.keys()]
+        .filter((kind) => !KIND_ORDER.includes(kind))
+        .sort(),
+    ];
+
+    for (const kind of orderedKinds) {
+      const items = kinds.get(kind)!;
       const kindId = `${nsId}/kind:${kind}`;
       rows.push({
         type: "group",
         id: kindId,
-        label: ASSET_KIND_LABELS[kind],
+        label: ASSET_KIND_LABELS[kind] ?? kind,
         depth: 1,
         count: items.length,
       });
@@ -97,7 +103,6 @@ export function buildFilesystemRows(
   assets: AssetEntry[],
   collapsed: ReadonlySet<string>,
 ): ExplorerRow[] {
-  // Build trie
   type TrieNode = {
     children: Map<string, TrieNode>;
     entry?: AssetEntry;
@@ -122,38 +127,27 @@ export function buildFilesystemRows(
 
   const rows: ExplorerRow[] = [];
 
-  function visit(node: TrieNode, pathSoFar: string, depth: number) {
-    // Sort: directories first, then files
-    const sortedKeys = [...node.children.keys()].sort((a, b) => {
-      const aIsDir =
-        node.children.get(a)!.children.size > 0 || !node.children.get(a)!.entry;
-      const bIsDir =
-        node.children.get(b)!.children.size > 0 || !node.children.get(b)!.entry;
+  function sortedChildKeys(node: TrieNode): string[] {
+    return [...node.children.keys()].sort((a, b) => {
+      const aChild = node.children.get(a)!;
+      const bChild = node.children.get(b)!;
+      const aIsDir = aChild.children.size > 0 || !aChild.entry;
+      const bIsDir = bChild.children.size > 0 || !bChild.entry;
       if (aIsDir !== bIsDir) return aIsDir ? -1 : 1;
       return a.localeCompare(b);
     });
-
-    for (const key of sortedKeys) {
-      const child = node.children.get(key)!;
-      const id = pathSoFar ? `${pathSoFar}/${key}` : key;
-      const hasSubDirs = child.children.size > 0;
-
-      if (hasSubDirs && !child.entry) {
-        // Pure directory node
-        const count = countLeaves(child);
-        rows.push({ type: "group", id, label: key, depth, count });
-        if (!collapsed.has(id)) {
-          visit(child, id, depth + 1);
-        }
-      } else if (child.entry) {
-        // Leaf file
-        rows.push({ type: "asset", entry: child.entry, depth });
-      }
-    }
   }
 
   function countLeaves(node: TrieNode): number {
-    if (node.entry) return 1;
+    if (node.entry && node.children.size === 0) return 1;
+    let count = node.entry ? 1 : 0;
+    for (const child of node.children.values()) {
+      count += countLeaves(child);
+    }
+    return count;
+  }
+
+  function countChildLeaves(node: TrieNode): number {
     let count = 0;
     for (const child of node.children.values()) {
       count += countLeaves(child);
@@ -161,6 +155,39 @@ export function buildFilesystemRows(
     return count;
   }
 
-  visit(root, "", 0);
+  function visitChildren(node: TrieNode, pathSoFar: string, depth: number) {
+    for (const key of sortedChildKeys(node)) {
+      emitNode(node.children.get(key)!, pathSoFar ? `${pathSoFar}/${key}` : key, key, depth);
+    }
+  }
+
+  function emitNode(node: TrieNode, id: string, label: string, depth: number) {
+    const hasChildren = node.children.size > 0;
+
+    if (node.entry) {
+      rows.push({ type: "asset", entry: node.entry, depth });
+    }
+
+    if (!hasChildren) return;
+
+    const childCount = countChildLeaves(node);
+    if (childCount === 0) return;
+
+    const groupId = node.entry ? `${id}/` : id;
+    const groupLabel = node.entry ? `${label}/` : label;
+    rows.push({
+      type: "group",
+      id: groupId,
+      label: groupLabel,
+      depth,
+      count: childCount,
+    });
+
+    if (!collapsed.has(groupId)) {
+      visitChildren(node, id, depth + 1);
+    }
+  }
+
+  visitChildren(root, "", 0);
   return rows;
 }

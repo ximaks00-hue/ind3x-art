@@ -1,9 +1,9 @@
-import { useEffect, useRef } from "react";
+import { useEffect } from "react";
 
 import { ipc } from "../../ipc/client";
 import { useProjectStore } from "../../state/projectStore";
 import { useSettingsStore } from "../../state/settingsStore";
-import { getThumbnailCache, thumbnailCacheKey } from "./thumbnailCache";
+import { getThumbnailCache, isThumbnailInflight, thumbnailCacheKey, trackThumbnailBatch } from "./thumbnailCache";
 
 const BATCH_SIZE = 32;
 const THUMB_PIXEL_SIZE = 48;
@@ -12,7 +12,6 @@ const THUMB_PIXEL_SIZE = 48;
 export function useThumbnailBatchPrefetch(visibleTexturePaths: string[]) {
   const handle = useProjectStore((s) => s.handle);
   const cacheLimit = useSettingsStore((s) => s.textureCacheLimit);
-  const inflight = useRef(new Set<string>());
 
   useEffect(() => {
     if (!handle || !visibleTexturePaths.length) return;
@@ -20,28 +19,26 @@ export function useThumbnailBatchPrefetch(visibleTexturePaths: string[]) {
     const cache = getThumbnailCache(cacheLimit);
     const missing = visibleTexturePaths.filter((path) => {
       const key = thumbnailCacheKey(handle.id, path);
-      return !cache.get(key) && !inflight.current.has(key);
+      return !cache.get(key) && !isThumbnailInflight(key);
     });
     if (!missing.length) return;
 
     for (let i = 0; i < missing.length; i += BATCH_SIZE) {
       const chunk = missing.slice(i, i + BATCH_SIZE);
       const keys = chunk.map((path) => thumbnailCacheKey(handle.id, path));
-      for (const key of keys) inflight.current.add(key);
 
-      void ipc
+      const batch = ipc
         .getTexturePreviewsBatch(handle, chunk, THUMB_PIXEL_SIZE)
-        .then((batch) => {
-          for (const item of batch) {
+        .then((items) => {
+          for (const item of items) {
             if (item.preview) {
               const key = thumbnailCacheKey(handle.id, item.path);
               cache.set(key, `data:image/png;base64,${item.preview.pngBase64}`);
             }
           }
-        })
-        .finally(() => {
-          for (const key of keys) inflight.current.delete(key);
         });
+
+      trackThumbnailBatch(keys, cache, batch);
     }
   }, [handle, visibleTexturePaths, cacheLimit]);
 }

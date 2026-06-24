@@ -2,7 +2,7 @@ pub mod query;
 
 mod project;
 
-pub use project::{arc_catalog, CatalogState, IndexState, SaveState};
+pub use project::{arc_catalog, build_catalog_id_index, CatalogState, IndexState, SaveState};
 
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -133,8 +133,8 @@ fn prune_legacy_cache_dirs(base: &std::path::Path) {
 }
 
 pub fn lock_model_cache(
-    cache: &std::sync::Mutex<HashMap<String, ResolvedModel>>,
-) -> CoreResult<std::sync::MutexGuard<'_, HashMap<String, ResolvedModel>>> {
+    cache: &std::sync::Mutex<HashMap<String, Arc<ResolvedModel>>>,
+) -> CoreResult<std::sync::MutexGuard<'_, HashMap<String, Arc<ResolvedModel>>>> {
     cache
         .lock()
         .map_err(|_| CoreError::Internal("model cache poisoned".into()))

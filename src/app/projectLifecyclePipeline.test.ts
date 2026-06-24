@@ -1,15 +1,91 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { IndexEvent } from "../ipc/types";
+import type {
+  AssetDetails,
+  AssetEntry,
+  IndexEvent,
+  RenderableModel,
+  TextureSaveEntry,
+} from "../ipc/types";
 
-vi.mock("../ipc/client", async () => {
-  const { createE2eMockIpc } = await import("../ipc/e2eMock");
+const TEXTURE_PATH = "assets/minecraft/textures/block/test_stone.png";
+
+const FIXTURE_ASSETS: AssetEntry[] = [
+  {
+    id: TEXTURE_PATH,
+    kind: "texture",
+    namespace: "minecraft",
+    path: TEXTURE_PATH,
+    displayName: "test_stone",
+  },
+  {
+    id: "assets/minecraft/models/block/test_stone.json",
+    kind: "blockModel",
+    namespace: "minecraft",
+    path: "assets/minecraft/models/block/test_stone.json",
+    displayName: "test_stone",
+  },
+  {
+    id: "assets/minecraft/blockstates/test_stone.json",
+    kind: "blockstate",
+    namespace: "minecraft",
+    path: "assets/minecraft/blockstates/test_stone.json",
+    displayName: "test_stone",
+  },
+];
+
+const FIXTURE_RENDERABLE: RenderableModel = {
+  kind: "block",
+  modelId: "minecraft:block/test_stone",
+  cuboids: [],
+  textureRefs: { all: TEXTURE_PATH },
+  textureMeta: {},
+  modelRotation: { x: 0, y: 0, z: 0, uvlock: false },
+  display: {},
+  ambientOcclusion: true,
+};
+
+function fixtureAssetDetails(entry: AssetEntry): AssetDetails {
   return {
-    ipc: createE2eMockIpc(),
-    IpcError: class IpcError extends Error {},
-    isCoreError: () => false,
+    id: entry.id,
+    kind: entry.kind,
+    path: entry.path,
+    namespace: entry.namespace,
+    displayName: entry.displayName,
+    packFormat: 15,
+    textureWidth: entry.kind === "texture" ? 16 : null,
+    textureHeight: entry.kind === "texture" ? 16 : null,
+    linkedModels:
+      entry.kind === "texture"
+        ? [
+            {
+              modelId: "minecraft:block/test_stone",
+              path: "assets/minecraft/models/block/test_stone.json",
+              kind: "blockModel",
+              label: "test_stone",
+            },
+          ]
+        : [],
+    relationships: [],
+    warnings: [],
   };
-});
+}
+
+const ipcMock = vi.hoisted(() => ({
+  openSource: vi.fn(),
+  queryAssets: vi.fn(),
+  getAssetDetails: vi.fn(),
+  resolveRenderable: vi.fn(),
+  getTexture: vi.fn(),
+  saveBatch: vi.fn(),
+  invalidateCatalogIconsForTextures: vi.fn(),
+}));
+
+vi.mock("../ipc/client", () => ({
+  ipc: ipcMock,
+  IpcError: class IpcError extends Error {},
+  isCoreError: () => false,
+}));
 
 vi.mock("../features/viewer3d/textureLoader", () => ({
   refreshTextureFromCanvas: vi.fn(),
@@ -28,8 +104,6 @@ import {
 } from "../features/editor/textureDocument";
 import { saveDirtyTextures } from "../features/save/saveTextures";
 import { useProjectStore } from "../state/projectStore";
-
-const TEXTURE_PATH = "assets/minecraft/textures/block/test_stone.png";
 
 function make1x1PngBase64(r: number, g: number, b: number, a = 255): string {
   const canvas = document.createElement("canvas");
@@ -66,6 +140,47 @@ describe("project lifecycle pipeline", () => {
       queryRevision: 0,
     });
     vi.clearAllMocks();
+
+    ipcMock.openSource.mockResolvedValue({
+      handle: { id: 1 },
+      sourcePath: "tests/fixtures/simple_pack",
+      sourceKind: "folder",
+      entryCount: FIXTURE_ASSETS.length,
+      fromCache: false,
+      catalogFromCache: false,
+      catalogEntryCount: 0,
+      packFormat: 15,
+      catalogLanguage: "en_us",
+    });
+    ipcMock.queryAssets.mockImplementation(async (_handle, filter, page) => {
+      let entries = FIXTURE_ASSETS;
+      if (filter.kind) entries = entries.filter((entry) => entry.kind === filter.kind);
+      const slice = entries.slice(page.offset, page.offset + page.limit);
+      return { entries: slice, total: entries.length };
+    });
+    ipcMock.getAssetDetails.mockImplementation(async (_handle, assetId) => {
+      const entry = FIXTURE_ASSETS.find((row) => row.id === assetId);
+      if (!entry) throw new Error(`Asset not found: ${assetId}`);
+      return fixtureAssetDetails(entry);
+    });
+    ipcMock.resolveRenderable.mockResolvedValue(FIXTURE_RENDERABLE);
+    ipcMock.getTexture.mockResolvedValue({
+      pngBase64: make1x1PngBase64(255, 0, 0),
+      width: 1,
+      height: 1,
+    });
+    ipcMock.saveBatch.mockImplementation(
+      async (_handle, textures: TextureSaveEntry[]) => {
+        const paths = textures.map((texture) => texture.path);
+        return {
+          savedCount: textures.length,
+          savedPaths: paths,
+          originalPaths: paths,
+          backupPath: "tests/fixtures/simple_pack/.ind3x-backups/e2e-mock",
+        };
+      },
+    );
+    ipcMock.invalidateCatalogIconsForTextures.mockResolvedValue([]);
   });
 
   it("open -> query textures -> inspect -> resolve renderable", async () => {
@@ -96,12 +211,6 @@ describe("project lifecycle pipeline", () => {
   });
 
   it("open -> paint texture -> save clears dirty through mock IPC", async () => {
-    vi.spyOn(ipc, "getTexture").mockResolvedValue({
-      pngBase64: make1x1PngBase64(255, 0, 0),
-      width: 1,
-      height: 1,
-    });
-
     const { handle } = await openFixtureProject();
 
     const doc = await ensureTextureDocument(handle, TEXTURE_PATH);

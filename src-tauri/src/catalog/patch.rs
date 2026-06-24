@@ -141,7 +141,7 @@ pub fn patch_project_catalog(
         let ctx = CatalogBuildCtx::new(&rebuild_assets, Some(source), &language);
         let new_slice = build_deduped_catalog(&ctx);
         project.catalog.entries.append(&mut arc_catalog(new_slice));
-        project.catalog.entries = arc_catalog(dedup_catalog(
+        let deduped = arc_catalog(dedup_catalog(
             project
                 .catalog
                 .entries
@@ -149,6 +149,7 @@ pub fn patch_project_catalog(
                 .map(|e| e.as_ref().clone())
                 .collect(),
         ));
+        project.catalog.entries = deduped;
     }
 
     let pack = PackInfo {
@@ -159,6 +160,7 @@ pub fn patch_project_catalog(
     let mut registry = ModelRegistry::new(source, &mut model_cache, pack);
     enrich_catalog_texture_paths(&mut project.catalog.entries, &mut registry, &pack);
     drop(model_cache);
+    project.catalog.id_index = crate::state::build_catalog_id_index(&project.catalog.entries);
 
     if super::catalog_needs_rebuild(project) {
         super::build_project_catalog(project, db)?;
@@ -258,13 +260,19 @@ mod tests {
             index: crate::state::IndexState {
                 fingerprint: "test-fp".to_string(),
                 entries,
+                entry_id_index: std::collections::HashMap::new(),
                 texture_model_index: std::collections::HashMap::new(),
                 model_cache: std::sync::Mutex::new(std::collections::HashMap::new()),
             },
-            catalog: crate::state::CatalogState {
-                entries: crate::state::arc_catalog(catalog),
-                creative_tab_order: Default::default(),
-                language: "en_us".to_string(),
+            catalog: {
+                let entries = crate::state::arc_catalog(catalog);
+                let id_index = crate::state::build_catalog_id_index(&entries);
+                crate::state::CatalogState {
+                    entries,
+                    id_index,
+                    creative_tab_order: Default::default(),
+                    language: "en_us".to_string(),
+                }
             },
             save: crate::state::SaveState {
                 journal: Vec::new(),

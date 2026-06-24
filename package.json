@@ -1,7 +1,7 @@
 {
   "name": "ind3x-art",
   "private": true,
-  "version": "0.3.1",
+  "version": "0.3.2",
   "author": "ximaks00-hue <ximaks00@gmail.com>",
   "type": "module",
   "scripts": {

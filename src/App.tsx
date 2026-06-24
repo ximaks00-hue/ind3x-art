@@ -7,6 +7,7 @@ import { useAppHotkeyBindings } from "./app/useAppHotkeyBindings";
 import { useAppStatusBar } from "./app/useAppStatusBar";
 import { useProjectSource } from "./app/useProjectSource";
 import { useSaveWorkflow } from "./app/useSaveWorkflow";
+import { clearTextureDocuments } from "./features/editor/textureDocument";
 import type { ScreenshotExportOptions } from "./lib/exportScreenshot";
 import { EditorPanel } from "./features/editor/EditorPanel";
 import { useCatalogBootstrap } from "./features/catalog/useCatalogBootstrap";
@@ -198,6 +199,7 @@ function App() {
         onExportScreenshot={onExportScreenshot}
         onSaveDialogSubmit={(submit) => void saveWorkflow.handleSaveDialogSubmit(submit)}
         onBackupRestored={() => {
+          clearTextureDocuments();
           if (sourcePath) void openSource(sourcePath);
         }}
       />

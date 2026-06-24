@@ -58,7 +58,13 @@ export async function paintStroke(
   if (tool === "picker") return point;
 
   if (tool === "fill") {
-    const changes = floodFillChanges(texturePath, point.x, point.y, color);
+    const changes = floodFillChanges(
+      texturePath,
+      point.x,
+      point.y,
+      color,
+      ctx.fillTolerance ?? 0,
+    );
     commitChanges(handle, texturePath, changes, true, "Fill");
     return point;
   }

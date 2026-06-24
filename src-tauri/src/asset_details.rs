@@ -207,6 +207,14 @@ fn validate_blockstate_json(
 }
 
 pub fn find_entry_by_id(project: &Project, asset_id: &str) -> CoreResult<AssetEntry> {
+    if let Some(&idx) = project.index.entry_id_index.get(asset_id) {
+        return project
+            .index
+            .entries
+            .get(idx)
+            .cloned()
+            .ok_or_else(|| CoreError::AssetNotFound(asset_id.to_string()));
+    }
     project
         .index
         .entries

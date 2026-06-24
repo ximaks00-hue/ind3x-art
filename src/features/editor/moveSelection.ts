@@ -15,13 +15,30 @@ interface CombinedPixelChange {
   after: Rgba;
 }
 
+export interface DocumentBounds {
+  width: number;
+  height: number;
+}
+
 export function buildMoveSelectionChanges(
   layerId: string,
   buffer: MoveBuffer,
   dx: number,
   dy: number,
   readPixel: ReadLayerPixel,
+  bounds: DocumentBounds,
 ): PixelChange[] {
+  for (let y = 0; y < buffer.h; y++) {
+    for (let x = 0; x < buffer.w; x++) {
+      if (!buffer.pixels.get(`${x},${y}`)) continue;
+      const dstX = buffer.x0 + dx + x;
+      const dstY = buffer.y0 + dy + y;
+      if (dstX < 0 || dstY < 0 || dstX >= bounds.width || dstY >= bounds.height) {
+        return [];
+      }
+    }
+  }
+
   const transparent: Rgba = [0, 0, 0, 0];
   const combined = new Map<string, CombinedPixelChange>();
   const read = (x: number, y: number) => readPixel(x, y) ?? transparent;

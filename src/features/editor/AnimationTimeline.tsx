@@ -55,7 +55,7 @@ export function AnimationTimeline({ texturePath, animation }: AnimationTimelineP
         <button
           type="button"
           className={styles.btn}
-          onClick={() => duplicateAnimationFrame(texturePath, activeFrame)}
+          onClick={() => duplicateAnimationFrame(texturePath, activeFrame, animation)}
           title="Duplicate frame"
         >
           Dup
@@ -64,7 +64,7 @@ export function AnimationTimeline({ texturePath, animation }: AnimationTimelineP
           type="button"
           className={styles.btn}
           disabled={total <= 1}
-          onClick={() => deleteAnimationFrame(texturePath, activeFrame)}
+          onClick={() => deleteAnimationFrame(texturePath, activeFrame, animation)}
           title="Delete frame"
         >
           Del

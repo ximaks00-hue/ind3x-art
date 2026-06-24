@@ -4,6 +4,7 @@ import type { CatalogEntry } from "../../ipc/types";
 import {
   getCatalogIconCache,
   catalogIconCacheKey,
+  readCatalogIconState,
   resetCatalogIconCache,
 } from "./catalogIconCache";
 import { scheduleCatalogIconBakesFlat } from "./catalogIconPipeline";
@@ -55,6 +56,9 @@ describe("catalogIconPipeline failures", () => {
     scheduleCatalogIconBakesFlat([entry], { id: 1 }, "preview", 256, 256);
     await vi.waitFor(
       () => {
+        const state = readCatalogIconState(1, entry.iconKey, 256);
+        expect(state.status).toBe("failed");
+        expect(state.error).toContain("texture missing");
         const key = catalogIconCacheKey(1, entry.iconKey);
         expect(getCatalogIconCache(256).get(key)).toBeUndefined();
       },

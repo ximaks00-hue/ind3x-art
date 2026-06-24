@@ -149,6 +149,14 @@ export function ExplorerPanel({
 
   const navigableRows = useMemo(() => assetRows(rows), [rows]);
 
+  const navigableIndexByAssetId = useMemo(() => {
+    const map = new Map<string, number>();
+    navigableRows.forEach((row, index) => {
+      if (row.type === "asset") map.set(row.entry.id, index);
+    });
+    return map;
+  }, [navigableRows]);
+
   useEffect(() => {
     setFocusRowIndex((index) => {
       if (navigableRows.length === 0) return 0;
@@ -177,6 +185,17 @@ export function ExplorerPanel({
   }, [virtualItems, rows]);
 
   useThumbnailBatchPrefetch(visibleTexturePaths);
+
+  useEffect(() => {
+    const focused = navigableRows[focusRowIndex];
+    if (!focused || focused.type !== "asset") return;
+    const rowIndex = rows.findIndex(
+      (row) => row.type === "asset" && row.entry.id === focused.entry.id,
+    );
+    if (rowIndex >= 0) {
+      virtualizer.scrollToIndex(rowIndex, { align: "auto" });
+    }
+  }, [focusRowIndex, navigableRows, rows, virtualizer]);
 
   useEffect(() => {
     const last = virtualItems[virtualItems.length - 1];
@@ -377,6 +396,7 @@ export function ExplorerPanel({
         indexStatus={indexStatus}
         rows={rows}
         navigableRows={navigableRows as (ExplorerRow & { type: "asset" })[]}
+        navigableIndexByAssetId={navigableIndexByAssetId}
         virtualizer={virtualizer}
         virtualItems={virtualItems}
         queryLoading={queryLoading}

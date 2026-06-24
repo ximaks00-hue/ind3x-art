@@ -1,24 +1,20 @@
 /**
- * Hook that initialises the pixel worker once and returns a ref to its proxy.
- * Uses Comlink for typed communication.
+ * Hook that shares a singleton pixel worker across editor surfaces.
  */
-import * as Comlink from "comlink";
+import type { Remote } from "comlink";
 import { useEffect, useRef } from "react";
 
+import { acquirePixelWorker, releasePixelWorker } from "./pixelWorkerClient";
 import type { PixelWorkerApi } from "./pixelWorker";
 
-export function usePixelWorker(): React.MutableRefObject<Comlink.Remote<PixelWorkerApi> | null> {
-  const proxyRef = useRef<Comlink.Remote<PixelWorkerApi> | null>(null);
+export function usePixelWorker(): React.MutableRefObject<Remote<PixelWorkerApi> | null> {
+  const proxyRef = useRef<Remote<PixelWorkerApi> | null>(null);
 
   useEffect(() => {
-    const worker = new Worker(new URL("./pixelWorker.ts", import.meta.url), {
-      type: "module",
-    });
-    proxyRef.current = Comlink.wrap<PixelWorkerApi>(worker);
-
+    proxyRef.current = acquirePixelWorker();
     return () => {
       proxyRef.current = null;
-      worker.terminate();
+      releasePixelWorker();
     };
   }, []);
 

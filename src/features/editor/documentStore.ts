@@ -13,6 +13,9 @@ import {
   getLayer,
   inBounds,
   readRgba,
+  readLayerRgba,
+  writeLayerRgba,
+  invalidateLayerPixelCache,
   type LayerBuffers,
   type PixelChange,
   type Rgba,
@@ -96,17 +99,12 @@ function nextLayerId(): string {
 }
 
 function writeRgba(
-  ctx: CanvasRenderingContext2D,
+  layer: LayerBuffers,
   x: number,
   y: number,
   rgba: Rgba,
 ): void {
-  const image = ctx.createImageData(1, 1);
-  image.data[0] = rgba[0];
-  image.data[1] = rgba[1];
-  image.data[2] = rgba[2];
-  image.data[3] = rgba[3];
-  ctx.putImageData(image, x, y);
+  writeLayerRgba(layer, x, y, rgba);
 }
 
 function loadImage(preview: { pngBase64: string }): Promise<HTMLImageElement> {
@@ -133,6 +131,10 @@ function createLayerBuffer(width: number, height: number, name: string): LayerBu
     blendMode: "normal",
     canvas,
     ctx,
+    pixelCache: null,
+    cacheWidth: 0,
+    cacheHeight: 0,
+    cacheDirty: false,
   };
 }
 
@@ -167,6 +169,12 @@ export function getDirtyTexturePaths(): string[] {
 
 export function getTextureCanvas(path: string): HTMLCanvasElement | null {
   return docsMap().get(path)?.compositeCanvas ?? null;
+}
+
+export function getActiveLayerCanvas(path: string): HTMLCanvasElement | null {
+  const doc = docsMap().get(path);
+  if (!doc) return null;
+  return activeLayer(doc).canvas;
 }
 
 export function getOriginalTextureCanvas(path: string): HTMLCanvasElement | null {
@@ -316,7 +324,7 @@ export function pasteRegion(path: string, x: number, y: number): PixelChange[] {
         clipboard.data.data[si + 2],
         clipboard.data.data[si + 3],
       ];
-      const before = readRgba(layer.ctx, px, py);
+      const before = readLayerRgba(layer, px, py);
       changes.push({ x: px, y: py, before, after, layerId: layer.id });
     }
   }
@@ -390,6 +398,7 @@ export async function ensureTextureDocument(
 
     const baseLayer = createLayerBuffer(width, height, "Layer 1");
     baseLayer.ctx.drawImage(image, 0, 0);
+    invalidateLayerPixelCache(baseLayer);
     originalCtx.drawImage(image, 0, 0);
 
     const doc: TextureDoc = {
@@ -443,7 +452,7 @@ export function getLayerPixel(
   const doc = docsMap().get(path);
   const layer = doc ? getLayer(doc, layerId) : null;
   if (!doc || !layer || !inBounds(doc, x, y)) return null;
-  return readRgba(layer.ctx, x, y);
+  return readLayerRgba(layer, x, y);
 }
 
 function applyChanges(
@@ -527,7 +536,7 @@ export function undoTexture(handle: ProjectHandle | null, path: string): boolean
   for (const change of inverse) {
     const layer = getLayer(doc, change.layerId);
     if (!layer) continue;
-    writeRgba(layer.ctx, change.x, change.y, change.after);
+    writeRgba(layer, change.x, change.y, change.after);
   }
 
   compositeDocument(doc);

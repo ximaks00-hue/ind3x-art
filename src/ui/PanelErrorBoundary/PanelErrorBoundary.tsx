@@ -27,6 +27,12 @@ export class PanelErrorBoundary extends Component<
     console.error(`[${this.props.name}] render error`, error, info.componentStack);
   }
 
+  componentDidUpdate(prevProps: PanelErrorBoundaryProps): void {
+    if (prevProps.children !== this.props.children && this.state.error) {
+      this.setState({ error: null });
+    }
+  }
+
   private handleRetry = (): void => {
     this.setState({ error: null });
     this.props.onRetry?.();

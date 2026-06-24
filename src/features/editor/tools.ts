@@ -2,9 +2,9 @@ import type { EditorTool } from "../../state/editorStore";
 import type { PixelChange, Rgba } from "./textureDocument";
 import {
   getActiveLayerContext,
+  getActiveLayerCanvas,
   getLayerPixel,
   getPixel,
-  getTextureCanvas,
 } from "./textureDocument";
 
 export function hexToRgba(hex: string): Rgba {
@@ -29,6 +29,16 @@ export function rgbaToHex([r, g, b]: Rgba): string {
 
 function rgbaEqual(a: Rgba, b: Rgba): boolean {
   return a[0] === b[0] && a[1] === b[1] && a[2] === b[2] && a[3] === b[3];
+}
+
+export function rgbaWithinTolerance(a: Rgba, b: Rgba, tolerance: number): boolean {
+  if (tolerance <= 0) return rgbaEqual(a, b);
+  return (
+    Math.abs(a[0] - b[0]) <= tolerance &&
+    Math.abs(a[1] - b[1]) <= tolerance &&
+    Math.abs(a[2] - b[2]) <= tolerance &&
+    Math.abs(a[3] - b[3]) <= tolerance
+  );
 }
 
 function toolColor(tool: EditorTool, color: string): Rgba {
@@ -184,7 +194,7 @@ export function pixelPerfectFilter(points: [number, number][]): [number, number]
   return out;
 }
 
-function rectPixels(
+export function rectPixels(
   x0: number,
   y0: number,
   x1: number,
@@ -338,21 +348,25 @@ export function floodFillChanges(
   startX: number,
   startY: number,
   fillColor: string,
+  tolerance = 0,
 ): PixelChange[] {
   const layer = getActiveLayerContext(path);
   if (!layer || layer.locked) return [];
+  if (
+    startX < 0 ||
+    startY < 0 ||
+    startX >= layer.width ||
+    startY >= layer.height
+  ) {
+    return [];
+  }
 
-  const start = getPixel(path, startX, startY);
+  const start = getLayerPixel(path, layer.layerId, startX, startY);
   if (!start) return [];
 
   const replacement = hexToRgba(fillColor);
-  if (rgbaEqual(start, replacement)) return [];
+  if (rgbaWithinTolerance(start, replacement, tolerance)) return [];
 
-  const canvas = getTextureCanvas(path);
-  if (!canvas) return [];
-
-  const width = canvas.width;
-  const height = canvas.height;
   const changes: PixelChange[] = [];
   const stack: [number, number][] = [[startX, startY]];
   const visited = new Set<string>();
@@ -361,17 +375,17 @@ export function floodFillChanges(
   const readPixel = (x: number, y: number): Rgba | null => {
     const key = `${x},${y}`;
     if (filled.has(key)) return filled.get(key)!;
-    return getPixel(path, x, y);
+    return getLayerPixel(path, layer.layerId, x, y);
   };
 
   while (stack.length > 0) {
     const [x, y] = stack.pop()!;
     const key = `${x},${y}`;
     if (visited.has(key)) continue;
-    if (x < 0 || y < 0 || x >= width || y >= height) continue;
+    if (x < 0 || y < 0 || x >= layer.width || y >= layer.height) continue;
 
     const pixel = readPixel(x, y);
-    if (!pixel || !rgbaEqual(pixel, start)) continue;
+    if (!pixel || !rgbaWithinTolerance(pixel, start, tolerance)) continue;
 
     visited.add(key);
     const change = createPixelChange(path, x, y, replacement, layer.layerId);
@@ -393,7 +407,7 @@ export function pickColor(path: string, x: number, y: number): string | null {
 }
 
 /** Mid-point ellipse algorithm — returns pixel list on the ellipse perimeter. */
-function ellipsePixels(
+export function ellipsePixels(
   x0: number,
   y0: number,
   x1: number,
@@ -424,7 +438,7 @@ function ellipsePixels(
 }
 
 /** Fill interior of ellipse using scanline fill. */
-function ellipseFillPixels(
+export function ellipseFillPixels(
   x0: number,
   y0: number,
   x1: number,
@@ -456,11 +470,14 @@ export function magicWandSelection(
   startY: number,
   tolerance: number,
 ): [number, number, number, number] | null {
-  const canvas = getTextureCanvas(path);
-  if (!canvas) return null;
+  const layer = getActiveLayerContext(path);
+  const canvas = getActiveLayerCanvas(path);
+  if (!layer || !canvas) return null;
 
-  const width = canvas.width;
-  const height = canvas.height;
+  const width = layer.width;
+  const height = layer.height;
+  if (startX < 0 || startY < 0 || startX >= width || startY >= height) return null;
+
   const ctx = canvas.getContext("2d");
   if (!ctx) return null;
 

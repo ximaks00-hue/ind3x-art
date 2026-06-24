@@ -11,7 +11,7 @@ use crate::save::restore_backup_by_id;
 use crate::save::{
     create_backup, list_backups, prepare_textures, restore_backup_from_known_path, save_prepared_textures,
 };
-use crate::source::safe_join_under_root;
+use crate::source::{safe_join_under_root, validate_relative_asset_path};
 use crate::state::SharedState;
 
 use super::helpers::{
@@ -36,7 +36,8 @@ pub fn save_texture_mcmeta(
     let _parsed: serde_json::Value = serde_json::from_str(&mcmeta_json)
         .map_err(|e| CoreError::Internal(format!("invalid mcmeta JSON: {e}")))?;
 
-    let mcmeta_path = format!("{}.mcmeta", texture_path);
+    let texture_path = validate_relative_asset_path(&texture_path)?;
+    let mcmeta_path = format!("{texture_path}.mcmeta");
     let bytes = mcmeta_json.into_bytes();
 
     use crate::dto::SourceKind;

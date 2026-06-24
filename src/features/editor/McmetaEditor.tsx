@@ -2,6 +2,8 @@ import { useState } from "react";
 
 import type { ProjectHandle, TextureAnimationMeta } from "../../ipc/types";
 import { ipc } from "../../ipc/client";
+import { formatIpcError } from "../../ipc/errors";
+import { useUiStore } from "../../state/uiStore";
 import { useEditorStore } from "../../state/editorStore";
 import styles from "./McmetaEditor.module.css";
 
@@ -41,6 +43,7 @@ function McmetaEditorForm({
   const [frametime, setFrametime] = useState(meta.frametime);
   const [interpolate, setInterpolate] = useState(meta.interpolate);
   const [saving, setSaving] = useState(false);
+  const pushToast = useUiStore((s) => s.pushToast);
 
   const applyLocal = () => {
     setAnimationOverride(texturePath, {
@@ -100,6 +103,8 @@ function McmetaEditorForm({
             };
             await ipc.saveTextureMcmeta(handle, texturePath, JSON.stringify(payload));
             setAnimationOverride(texturePath, { ...meta, frametime, interpolate });
+          } catch (error) {
+            pushToast(`Failed to save .mcmeta: ${formatIpcError(error)}`, "error");
           } finally {
             setSaving(false);
           }
