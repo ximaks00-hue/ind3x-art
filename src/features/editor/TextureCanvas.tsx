@@ -4,23 +4,22 @@ import type { ProjectHandle } from "../../ipc/types";
 import type { SelectedFace } from "../../state/selectionStore";
 import { useEditorStore } from "../../state/editorStore";
 import { faceUvRegion } from "../viewer3d/uvMapping";
+import { pickColor } from "./tools";
+import { applyBrushAt, commitShapeAt } from "./paintEngine";
 import {
-  collectStrokeChanges,
-  ellipseToolChanges,
-  floodFillChanges,
-  linePixels,
-  lineToolChanges,
-  magicWandSelection,
-  pickColor,
-  rectToolChanges,
-} from "./tools";
+  buildPaintStrokeContext,
+  isShapeTool as isShapeToolShared,
+  paintAtTexturePixel,
+} from "./paintInteraction";
+import { drawShapePreview as drawShapePreviewOnCanvas } from "./shapePreviewDraw";
 import {
   canRedo,
   canUndo,
   commitChanges,
   ensureTextureDocument,
-  getActiveLayerId,
   getTextureCanvas,
+  peekRedoLabel,
+  peekUndoLabel,
   subscribeTextureDocuments,
 } from "./textureDocument";
 import { usePixelWorker } from "./usePixelWorker";
@@ -30,19 +29,6 @@ import styles from "./TextureCanvas.module.css";
 interface TextureCanvasProps {
   handle: ProjectHandle;
   selectedFace: SelectedFace;
-}
-
-function hexToRgbaInline(hex: string): [number, number, number, number] {
-  const h = hex.replace("#", "");
-  const r = parseInt(h.slice(0, 2), 16);
-  const g = parseInt(h.slice(2, 4), 16);
-  const b = parseInt(h.slice(4, 6), 16);
-  const a = h.length >= 8 ? parseInt(h.slice(6, 8), 16) : 255;
-  return [r, g, b, a];
-}
-
-function getActiveLayerIdForPath(path: string): string | null {
-  return getActiveLayerId(path);
 }
 
 function canvasToTexture(
@@ -58,7 +44,7 @@ function canvasToTexture(
 }
 
 function isShapeTool(tool: string): tool is "line" | "rect" | "ellipse" {
-  return tool === "line" || tool === "rect" || tool === "ellipse";
+  return isShapeToolShared(tool as import("../../state/editorStore").EditorTool);
 }
 
 function isSelectionTool(tool: string): tool is "select" | "move" {
@@ -79,7 +65,9 @@ function TextureCanvasInner({ handle, selectedFace }: TextureCanvasProps) {
   const tool = useEditorStore((s) => s.tool);
   const color = useEditorStore((s) => s.color);
   const setColor = useEditorStore((s) => s.setColor);
-  const symmetryX = useEditorStore((s) => s.symmetryX);
+  const brushSize = useEditorStore((s) => s.brushSize);
+  const stabilizer = useEditorStore((s) => s.stabilizer);
+  const onionSkin = useEditorStore((s) => s.onionSkin);
   const rectFilled = useEditorStore((s) => s.rectFilled);
   const revision = useEditorStore((s) => s.revision);
   const bumpRevision = useEditorStore((s) => s.bumpRevision);
@@ -106,6 +94,12 @@ function TextureCanvasInner({ handle, selectedFace }: TextureCanvasProps) {
     w: number;
     h: number;
   } | null>(null);
+  const stabilizerRef = useRef<[number, number][]>([]);
+
+  const paintCtx = useCallback(
+    () => buildPaintStrokeContext(handle, selectedFace.texturePath),
+    [handle, selectedFace.texturePath],
+  );
 
   const faceForRegion = useCallback(
     () => ({
@@ -114,6 +108,7 @@ function TextureCanvasInner({ handle, selectedFace }: TextureCanvasProps) {
       texture: selectedFace.texturePath,
       rotation: selectedFace.rotation,
       tintindex: selectedFace.tintindex,
+      cullface: null,
     }),
     [selectedFace],
   );
@@ -156,17 +151,49 @@ function TextureCanvasInner({ handle, selectedFace }: TextureCanvasProps) {
 
     ctx.imageSmoothingEnabled = false;
     ctx.clearRect(0, 0, view.width, view.height);
-    ctx.drawImage(
-      source,
-      srcRegion.x,
-      srcRegion.y,
-      srcRegion.width,
-      srcRegion.height,
-      0,
-      0,
-      view.width,
-      view.height,
-    );
+
+    const drawRegion = (
+      regionSlice: { x: number; y: number; width: number; height: number },
+      alpha = 1,
+    ) => {
+      ctx.save();
+      ctx.globalAlpha = alpha;
+      ctx.drawImage(
+        source,
+        regionSlice.x,
+        regionSlice.y,
+        regionSlice.width,
+        regionSlice.height,
+        0,
+        0,
+        view.width,
+        view.height,
+      );
+      ctx.restore();
+    };
+
+    if (animMeta && animMeta.frames.length > 0 && onionSkin) {
+      const frameH = animMeta.frameHeight || source.height / animMeta.frames.length;
+      const prevIdx = (activeFrame - 1 + animMeta.frames.length) % animMeta.frames.length;
+      const nextIdx = (activeFrame + 1) % animMeta.frames.length;
+      for (const [idx, alpha] of [
+        [prevIdx, 0.28],
+        [nextIdx, 0.22],
+      ] as const) {
+        const row = animMeta.frames[idx] ?? idx;
+        drawRegion(
+          {
+            x: region.x,
+            y: row * frameH + region.y,
+            width: region.width,
+            height: Math.min(region.height, frameH),
+          },
+          alpha,
+        );
+      }
+    }
+
+    drawRegion(srcRegion, 1);
 
     if (scale >= 4) {
       ctx.strokeStyle = "rgba(255,255,255,0.08)";
@@ -183,7 +210,14 @@ function TextureCanvasInner({ handle, selectedFace }: TextureCanvasProps) {
       }
       ctx.stroke();
     }
-  }, [selectedFace.texturePath, zoom, faceForRegion, activeFrame, activeTextureMeta]);
+  }, [
+    selectedFace.texturePath,
+    zoom,
+    faceForRegion,
+    activeFrame,
+    activeTextureMeta,
+    onionSkin,
+  ]);
 
   const clearOverlay = useCallback(() => {
     const overlay = overlayRef.current;
@@ -236,59 +270,25 @@ function TextureCanvasInner({ handle, selectedFace }: TextureCanvasProps) {
       const overlay = overlayRef.current;
       const view = canvasRef.current;
       const source = getTextureCanvas(selectedFace.texturePath);
-      if (!start || !overlay || !view || !source) return;
+      if (!start || !overlay || !view || !source || !isShapeTool(tool)) return;
 
       const region = faceUvRegion(faceForRegion(), source.width, source.height);
       const ctx = overlay.getContext("2d");
       if (!ctx) return;
 
-      const toLocal = ([tx, ty]: [number, number]): [number, number] => [
-        ((tx - region.x) / region.width) * view.width,
-        ((ty - region.y) / region.height) * view.height,
-      ];
-
-      const [x0, y0] = toLocal(start);
-      const [x1, y1] = toLocal(end);
-
-      clearOverlay();
-      ctx.strokeStyle = color;
-      ctx.lineWidth = 1;
-      ctx.globalAlpha = 0.85;
-
-      if (tool === "line") {
-        ctx.beginPath();
-        ctx.moveTo(x0, y0);
-        ctx.lineTo(x1, y1);
-        ctx.stroke();
-      } else if (tool === "ellipse") {
-        const cx = (x0 + x1) / 2;
-        const cy = (y0 + y1) / 2;
-        const rx = Math.abs(x1 - x0) / 2;
-        const ry = Math.abs(y1 - y0) / 2;
-        ctx.beginPath();
-        ctx.ellipse(cx, cy, rx, ry, 0, 0, Math.PI * 2);
-        if (rectFilled) {
-          ctx.fillStyle = color;
-          ctx.globalAlpha = 0.35;
-          ctx.fill();
-          ctx.globalAlpha = 0.85;
-        }
-        ctx.stroke();
-      } else {
-        const left = Math.min(x0, x1);
-        const top = Math.min(y0, y1);
-        const w = Math.abs(x1 - x0);
-        const h = Math.abs(y1 - y0);
-        if (rectFilled) {
-          ctx.fillStyle = color;
-          ctx.globalAlpha = 0.35;
-          ctx.fillRect(left, top, w, h);
-          ctx.globalAlpha = 0.85;
-        }
-        ctx.strokeRect(left, top, w, h);
-      }
+      drawShapePreviewOnCanvas(
+        ctx,
+        tool,
+        color,
+        rectFilled,
+        start,
+        end,
+        region,
+        view.width,
+        view.height,
+      );
     },
-    [clearOverlay, color, faceForRegion, rectFilled, selectedFace.texturePath, tool],
+    [color, faceForRegion, rectFilled, selectedFace.texturePath, tool],
   );
 
   useEffect(() => {
@@ -323,116 +323,43 @@ function TextureCanvasInner({ handle, selectedFace }: TextureCanvasProps) {
         return;
       }
 
-      if (tool === "fill") {
-        const worker = pixelWorkerRef.current;
-        const canvas = getTextureCanvas(path);
-        if (worker && canvas) {
-          // Offload flood fill to worker
-          const ctx = canvas.getContext("2d");
-          if (ctx) {
-            const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-            const [fr, fg, fb, fa] = hexToRgbaInline(color);
-            worker
-              .floodFill({
-                imageData,
-                startX: tx,
-                startY: ty,
-                fillR: fr,
-                fillG: fg,
-                fillB: fb,
-                fillA: fa,
-                tolerance: 0,
-              })
-              .then((filled) => {
-                // Compute changed pixels by diffing
-                const origData = imageData.data;
-                const newData = filled.data;
-                const changes: Array<{
-                  x: number;
-                  y: number;
-                  before: [number, number, number, number];
-                  after: [number, number, number, number];
-                  layerId: string;
-                }> = [];
-                const layerId = getActiveLayerIdForPath(path);
-                if (!layerId) return;
-                for (let i = 0; i < origData.length; i += 4) {
-                  if (
-                    origData[i] !== newData[i] ||
-                    origData[i + 1] !== newData[i + 1] ||
-                    origData[i + 2] !== newData[i + 2] ||
-                    origData[i + 3] !== newData[i + 3]
-                  ) {
-                    const px = (i / 4) % canvas.width;
-                    const py = Math.floor(i / 4 / canvas.width);
-                    changes.push({
-                      x: px,
-                      y: py,
-                      before: [
-                        origData[i],
-                        origData[i + 1],
-                        origData[i + 2],
-                        origData[i + 3],
-                      ],
-                      after: [newData[i], newData[i + 1], newData[i + 2], newData[i + 3]],
-                      layerId,
-                    });
-                  }
-                }
-                if (changes.length > 0) {
-                  commitChanges(handle, path, changes);
-                  bumpRevision();
-                }
-              })
-              .catch(() => {
-                // Fallback to synchronous fill on error
-                const changes = floodFillChanges(path, tx, ty, color);
-                commitChanges(handle, path, changes);
-                bumpRevision();
-              });
-            return;
-          }
-        }
-        // Synchronous fallback
-        const changes = floodFillChanges(path, tx, ty, color);
-        commitChanges(handle, path, changes);
-        bumpRevision();
-        return;
-      }
-
-      if (tool === "wand") {
-        // Magic wand: tolerance flood-select by color proximity
-        const TOLERANCE = 30;
-        const sel = magicWandSelection(path, tx, ty, TOLERANCE);
-        if (sel) {
-          setSelection(sel);
-          selectionRef.current = sel;
-          drawSelectionOverlay(sel);
-        }
+      if (tool === "fill" || tool === "wand") {
+        void paintAtTexturePixel(paintCtx(), tx, ty, false, null, {
+          pixelWorker: pixelWorkerRef.current,
+          callbacks: {
+            onWandSelection: (sel) => {
+              setSelection(sel);
+              selectionRef.current = sel;
+              drawSelectionOverlay(sel);
+            },
+            onComplete: () => bumpRevision(),
+          },
+        });
         return;
       }
 
       if (isShapeTool(tool)) return;
 
-      const points: [number, number][] =
-        isStroke && lastPixelRef.current
-          ? linePixels(lastPixelRef.current[0], lastPixelRef.current[1], tx, ty)
-          : [[tx, ty]];
-
-      const changes = collectStrokeChanges(path, points, tool, color, symmetryX);
-      commitChanges(handle, path, changes);
-      lastPixelRef.current = [tx, ty];
+      const last = lastPixelRef.current;
+      const next = applyBrushAt(
+        handle,
+        paintCtx(),
+        tx,
+        ty,
+        isStroke,
+        last ? { x: last[0], y: last[1] } : null,
+      );
+      lastPixelRef.current = [next.x, next.y];
       bumpRevision();
     },
     [
       handle,
       selectedFace.texturePath,
       tool,
-      color,
       setColor,
       pushRecentColor,
       bumpRevision,
-      symmetryX,
+      paintCtx,
       setSelection,
       drawSelectionOverlay,
       pixelWorkerRef,
@@ -443,56 +370,17 @@ function TextureCanvasInner({ handle, selectedFace }: TextureCanvasProps) {
     (end: [number, number]) => {
       const start = shapeStartRef.current;
       if (!start) return;
-      const path = selectedFace.texturePath;
-      const changes =
-        tool === "line"
-          ? lineToolChanges(
-              path,
-              start[0],
-              start[1],
-              end[0],
-              end[1],
-              "pencil",
-              color,
-              symmetryX,
-            )
-          : tool === "ellipse"
-            ? ellipseToolChanges(
-                path,
-                start[0],
-                start[1],
-                end[0],
-                end[1],
-                color,
-                rectFilled,
-                symmetryX,
-              )
-            : rectToolChanges(
-                path,
-                start[0],
-                start[1],
-                end[0],
-                end[1],
-                "pencil",
-                color,
-                rectFilled,
-                symmetryX,
-              );
-      commitChanges(handle, path, changes);
+      commitShapeAt(
+        handle,
+        paintCtx(),
+        { x: start[0], y: start[1] },
+        { x: end[0], y: end[1] },
+      );
       shapeStartRef.current = null;
       clearOverlay();
       bumpRevision();
     },
-    [
-      handle,
-      selectedFace.texturePath,
-      tool,
-      color,
-      symmetryX,
-      rectFilled,
-      clearOverlay,
-      bumpRevision,
-    ],
+    [handle, paintCtx, clearOverlay, bumpRevision],
   );
 
   const pointerToTexture = useCallback(
@@ -573,9 +461,40 @@ function TextureCanvasInner({ handle, selectedFace }: TextureCanvasProps) {
   };
 
   const onPointerMove = (event: React.PointerEvent<HTMLCanvasElement>) => {
-    const point = pointerToTexture(event);
+    let point = pointerToTexture(event);
+    if (point && stabilizer > 0) {
+      stabilizerRef.current.push(point);
+      if (stabilizerRef.current.length > stabilizer) stabilizerRef.current.shift();
+      const pts = stabilizerRef.current;
+      const avgX = Math.round(pts.reduce((s, p) => s + p[0], 0) / pts.length);
+      const avgY = Math.round(pts.reduce((s, p) => s + p[1], 0) / pts.length);
+      point = [avgX, avgY];
+    }
     setHoverPixel(point);
     setCursor(point ? point[0] : null, point ? point[1] : null);
+
+    if (point && overlayRef.current) {
+      const overlay = overlayRef.current;
+      const source = getTextureCanvas(selectedFace.texturePath);
+      if (source) {
+        const region = faceUvRegion(faceForRegion(), source.width, source.height);
+        const ctx = overlay.getContext("2d");
+        if (ctx) {
+          const scaleX = overlay.width / region.width;
+          const scaleY = overlay.height / region.height;
+          const lx = (point[0] - region.x) * scaleX;
+          const ly = (point[1] - region.y) * scaleY;
+          ctx.clearRect(0, 0, overlay.width, overlay.height);
+          if (selectionRef.current) drawSelectionOverlay(selectionRef.current);
+          const r = (brushSize / 2) * scaleX;
+          ctx.strokeStyle = "rgba(99, 140, 255, 0.85)";
+          ctx.lineWidth = 1;
+          ctx.beginPath();
+          ctx.arc(lx, ly, Math.max(1, r), 0, Math.PI * 2);
+          ctx.stroke();
+        }
+      }
+    }
 
     if (!paintingRef.current) return;
 
@@ -737,7 +656,12 @@ function TextureCanvasInner({ handle, selectedFace }: TextureCanvasProps) {
       </div>
       <div className={styles.historyRow}>
         <span className={styles.historyHint}>
-          Undo Ctrl+Z · Shift+fill rect · Symmetry X
+          {peekUndoLabel(selectedFace.texturePath)
+            ? `Undo: ${peekUndoLabel(selectedFace.texturePath)}`
+            : "Undo Ctrl+Z"}
+          {peekRedoLabel(selectedFace.texturePath)
+            ? ` · Redo: ${peekRedoLabel(selectedFace.texturePath)}`
+            : ""}
         </span>
         <span className={styles.historyState}>
           {canUndo(selectedFace.texturePath) ? "edited" : "clean"}

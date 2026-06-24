@@ -3,11 +3,12 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 
 import { ipc } from "../../ipc/client";
 import type { AssetEntry } from "../../ipc/types";
-import { ASSET_KIND_LABELS } from "../../ipc/types";
 import { useProjectStore } from "../../state/projectStore";
+import { useSettingsStore } from "../../state/settingsStore";
 import { useUiStore } from "../../state/uiStore";
 import { ContextMenu, type ContextMenuItem } from "../../ui/ContextMenu/ContextMenu";
-import { SkeletonBlock } from "../../ui/Skeleton/Skeleton";
+import { ExplorerAssetList } from "./ExplorerAssetList";
+import { ExplorerHeader } from "./ExplorerHeader";
 import {
   buildFlatRows,
   buildFilesystemRows,
@@ -15,31 +16,27 @@ import {
   type ExplorerRow,
 } from "./buildTree";
 import { FacetBar } from "./FacetBar";
-import { filterAssetsFuzzy } from "./fuzzy";
+import { InspectorPanel } from "./InspectorPanel";
 import styles from "./ExplorerPanel.module.css";
-import { TextureThumbnail } from "./TextureThumbnail";
+import { useAssetQuery } from "./useAssetQuery";
+import { useExplorerInspector } from "./useExplorerInspector";
+import { useThumbnailBatchPrefetch } from "./useThumbnailBatchPrefetch";
 
-function applyFilters(
-  assets: AssetEntry[],
-  kindFilter: string,
-  namespaceFilter: string,
-  search: string,
-  fuzzy: boolean,
-): AssetEntry[] {
-  let result = assets;
-  if (kindFilter !== "all") {
-    result = result.filter((e) => e.kind === kindFilter);
-  }
-  if (namespaceFilter) {
-    result = result.filter((e) => e.namespace === namespaceFilter);
-  }
-  if (search.trim()) {
-    result = filterAssetsFuzzy(result, search, fuzzy);
-  }
-  return result;
+function assetRows(rows: ExplorerRow[]): ExplorerRow[] {
+  return rows.filter((r): r is ExplorerRow & { type: "asset" } => r.type === "asset");
 }
 
-export function ExplorerPanel() {
+export function ExplorerPanel({
+  onOpenJar,
+  onOpenFolder,
+  onOpenRecent,
+  onTryDemo,
+}: {
+  onOpenJar?: () => void;
+  onOpenFolder?: () => void;
+  onOpenRecent?: (path: string, kind: "jar" | "folder") => void;
+  onTryDemo?: () => void;
+} = {}) {
   const parentRef = useRef<HTMLDivElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
   const [debouncedSearch, setDebouncedSearch] = useState("");
@@ -48,34 +45,45 @@ export function ExplorerPanel() {
     y: number;
     entry: AssetEntry;
   } | null>(null);
-  const explorerFocusTick = useUiStore((s) => s.explorerFocusTick);
+  const [focusRowIndex, setFocusRowIndex] = useState(0);
 
-  const {
-    handle,
-    assets,
-    assetTotal,
-    facets,
-    sourcePath,
-    indexStatus,
-    kindFilter,
-    namespaceFilter,
-    search,
-    fuzzySearch,
-    viewMode,
-    collapsedGroups,
-    selectedAssetId,
-    setFacets,
-    setKindFilter,
-    setNamespaceFilter,
-    setSearch,
-    setFuzzySearch,
-    setViewMode,
-    toggleGroupCollapsed,
-    setSelectedAssetId,
-  } = useProjectStore();
+  const explorerFocusTick = useUiStore((s) => s.explorerFocusTick);
+  const handle = useProjectStore((s) => s.handle);
+  const assets = useProjectStore((s) => s.assets);
+  const assetTotal = useProjectStore((s) => s.queryTotal);
+  const queryLoading = useProjectStore((s) => s.queryLoading);
+  const queryHasMore = useProjectStore((s) => s.queryHasMore);
+  const facets = useProjectStore((s) => s.facets);
+  const sourcePath = useProjectStore((s) => s.sourcePath);
+  const indexStatus = useProjectStore((s) => s.indexStatus);
+  const kindFilter = useProjectStore((s) => s.kindFilter);
+  const namespaceFilter = useProjectStore((s) => s.namespaceFilter);
+  const search = useProjectStore((s) => s.search);
+  const fuzzySearch = useProjectStore((s) => s.fuzzySearch);
+  const viewMode = useProjectStore((s) => s.viewMode);
+  const collapsedGroups = useProjectStore((s) => s.collapsedGroups);
+  const selectedAssetId = useProjectStore((s) => s.selectedAssetId);
+  const validationById = useProjectStore((s) => s.validationById);
+  const setFacets = useProjectStore((s) => s.setFacets);
+  const setKindFilter = useProjectStore((s) => s.setKindFilter);
+  const setNamespaceFilter = useProjectStore((s) => s.setNamespaceFilter);
+  const setSearch = useProjectStore((s) => s.setSearch);
+  const setFuzzySearch = useProjectStore((s) => s.setFuzzySearch);
+  const setViewMode = useProjectStore((s) => s.setViewMode);
+  const toggleGroupCollapsed = useProjectStore((s) => s.toggleGroupCollapsed);
+  const setAllGroupsCollapsed = useProjectStore((s) => s.setAllGroupsCollapsed);
+
+  const pinnedAssetIds = useSettingsStore((s) => s.pinnedAssetIds);
+  const recentAssetIds = useSettingsStore((s) => s.recentAssetIds);
+  const recentProjects = useSettingsStore((s) => s.recentProjects);
+  const togglePinnedAsset = useSettingsStore((s) => s.togglePinnedAsset);
+
+  const { inspector, inspectorLoading, pickAsset, pickAssetById } =
+    useExplorerInspector(handle);
+  const { loadMore } = useAssetQuery(debouncedSearch);
 
   useEffect(() => {
-    const t = setTimeout(() => setDebouncedSearch(search), 150);
+    const t = setTimeout(() => setDebouncedSearch(search), 200);
     return () => clearTimeout(t);
   }, [search]);
 
@@ -97,37 +105,108 @@ export function ExplorerPanel() {
       .catch(() => setFacets(null));
   }, [handle, setFacets]);
 
-  const filtered = useMemo(
-    () => applyFilters(assets, kindFilter, namespaceFilter, debouncedSearch, fuzzySearch),
-    [assets, kindFilter, namespaceFilter, debouncedSearch, fuzzySearch],
-  );
-
   const collapsedSet = useMemo(
     () => new Set(Object.keys(collapsedGroups).filter((k) => collapsedGroups[k])),
     [collapsedGroups],
   );
 
   const rows: ExplorerRow[] = useMemo(() => {
-    if (viewMode === "grouped") return buildGroupedRows(filtered, collapsedSet);
-    if (viewMode === "tree") return buildFilesystemRows(filtered, collapsedSet);
-    return buildFlatRows(filtered);
-  }, [filtered, viewMode, collapsedSet]);
+    if (viewMode === "grouped") return buildGroupedRows(assets, collapsedSet);
+    if (viewMode === "tree") return buildFilesystemRows(assets, collapsedSet);
+    return buildFlatRows(assets);
+  }, [assets, viewMode, collapsedSet]);
+
+  const navigableRows = useMemo(() => assetRows(rows), [rows]);
 
   const virtualizer = useVirtualizer({
     count: rows.length,
     getScrollElement: () => parentRef.current,
-    estimateSize: (index) => {
-      const row = rows[index];
-      return row.type === "group" ? 32 : 40;
-    },
+    estimateSize: (index) => (rows[index]?.type === "group" ? 32 : 40),
     overscan: 16,
   });
 
+  const virtualItems = virtualizer.getVirtualItems();
+
+  const visibleTexturePaths = useMemo(() => {
+    const paths: string[] = [];
+    for (const vRow of virtualItems) {
+      const row = rows[vRow.index];
+      if (row?.type === "asset" && row.entry.kind === "texture") {
+        paths.push(row.entry.path);
+      }
+    }
+    return paths;
+  }, [virtualItems, rows]);
+
+  useThumbnailBatchPrefetch(visibleTexturePaths);
+
+  useEffect(() => {
+    const last = virtualItems[virtualItems.length - 1];
+    if (last && last.index >= rows.length - 12 && queryHasMore && !queryLoading) {
+      loadMore();
+    }
+  }, [virtualItems, rows.length, queryHasMore, queryLoading, loadMore]);
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement | null;
+      if (
+        target &&
+        (target.tagName === "INPUT" ||
+          target.tagName === "TEXTAREA" ||
+          target.isContentEditable)
+      ) {
+        return;
+      }
+
+      if (event.key === "/" && !event.ctrlKey && !event.metaKey) {
+        event.preventDefault();
+        searchRef.current?.focus();
+        return;
+      }
+
+      if (!navigableRows.length) return;
+
+      if (event.key === "ArrowDown") {
+        event.preventDefault();
+        setFocusRowIndex((i) => Math.min(i + 1, navigableRows.length - 1));
+        return;
+      }
+      if (event.key === "ArrowUp") {
+        event.preventDefault();
+        setFocusRowIndex((i) => Math.max(i - 1, 0));
+        return;
+      }
+      if (event.key === "Enter") {
+        const row = navigableRows[focusRowIndex];
+        if (row?.type === "asset") {
+          event.preventDefault();
+          pickAsset(row.entry);
+        }
+      }
+    };
+
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [navigableRows, focusRowIndex, pickAsset]);
+
+  const groupIds = useMemo(
+    () => rows.filter((r) => r.type === "group").map((r) => r.id),
+    [rows],
+  );
+
   const contextMenuItems: ContextMenuItem[] = contextMenu
     ? [
-        { id: "select", label: "Open", icon: "↗" },
-        { id: "copy-path", label: "Copy path", icon: "⎘", shortcut: "Ctrl+C" },
-        { id: "copy-id", label: "Copy ID", icon: "⎘" },
+        { id: "select", label: "Open in viewer", icon: "↗" },
+        { id: "copy-path", label: "Copy asset path", icon: "⎘" },
+        { id: "reveal", label: "Open containing folder", icon: "📁" },
+        {
+          id: "find-models",
+          label: "Find models using this",
+          icon: "🔍",
+          disabled: contextMenu.entry.kind !== "texture",
+        },
+        { id: "pin", label: "Pin favorite", icon: "★" },
         { id: "sep1", label: "", separator: true },
         {
           id: "copy-ns",
@@ -140,17 +219,24 @@ export function ExplorerPanel() {
 
   const handleContextMenuSelect = useCallback(
     (id: string) => {
-      if (!contextMenu) return;
+      if (!contextMenu || !handle) return;
       const { entry } = contextMenu;
-      if (id === "select") setSelectedAssetId(entry.id);
+      if (id === "select") pickAsset(entry);
       if (id === "copy-path") void navigator.clipboard.writeText(entry.path);
-      if (id === "copy-id") void navigator.clipboard.writeText(entry.id);
+      if (id === "reveal") void ipc.revealAssetInFolder(handle, entry.path);
+      if (id === "find-models" && entry.kind === "texture") {
+        setKindFilter("blockModel");
+        setSearch(entry.displayName);
+      }
+      if (id === "pin") togglePinnedAsset(entry.id);
     },
-    [contextMenu, setSelectedAssetId],
+    [contextMenu, handle, pickAsset, setKindFilter, setSearch, togglePinnedAsset],
   );
 
+  const shownCount = assetTotal > 0 ? Math.min(assets.length, assetTotal) : assets.length;
+
   return (
-    <div className={styles.panel}>
+    <div className={styles.panel} data-tour="tour-explorer hint-explorer">
       {contextMenu && (
         <ContextMenu
           items={contextMenuItems}
@@ -160,62 +246,72 @@ export function ExplorerPanel() {
           onClose={() => setContextMenu(null)}
         />
       )}
-      <div className={styles.header}>
-        <div className={styles.headerTop}>
-          <h2 className={styles.title}>Assets</h2>
-          <div className={styles.viewToggle}>
-            <button
-              type="button"
-              className={viewMode === "grouped" ? styles.toggleActive : styles.toggle}
-              onClick={() => setViewMode("grouped")}
-              title="Grouped by namespace and kind"
-            >
-              Kind
-            </button>
-            <button
-              type="button"
-              className={viewMode === "tree" ? styles.toggleActive : styles.toggle}
-              onClick={() => setViewMode("tree")}
-              title="Filesystem-like path tree"
-            >
-              Tree
-            </button>
-            <button
-              type="button"
-              className={viewMode === "flat" ? styles.toggleActive : styles.toggle}
-              onClick={() => setViewMode("flat")}
-              title="Flat list"
-            >
-              List
-            </button>
-          </div>
+
+      <ExplorerHeader
+        viewMode={viewMode}
+        indexStatus={indexStatus}
+        shownCount={shownCount}
+        assetTotal={assetTotal}
+        queryLoading={queryLoading}
+        sourcePath={sourcePath}
+        onViewModeChange={setViewMode}
+        onExpandAll={() => setAllGroupsCollapsed(false, groupIds)}
+        onCollapseAll={() => setAllGroupsCollapsed(true, groupIds)}
+      />
+
+      {(pinnedAssetIds.length > 0 || recentAssetIds.length > 0) && (
+        <div className={styles.quickSection}>
+          {pinnedAssetIds.length > 0 && (
+            <div className={styles.quickRow}>
+              <span className={styles.quickLabel}>Pinned</span>
+              {pinnedAssetIds.slice(0, 8).map((id) => (
+                <button
+                  key={id}
+                  type="button"
+                  className={styles.quickChip}
+                  onClick={() => void pickAssetById(id)}
+                  title={id}
+                >
+                  ★
+                </button>
+              ))}
+            </div>
+          )}
+          {recentAssetIds.length > 0 && (
+            <div className={styles.quickRow}>
+              <span className={styles.quickLabel}>Recent</span>
+              {recentAssetIds.slice(0, 6).map((id) => (
+                <button
+                  key={id}
+                  type="button"
+                  className={styles.quickChip}
+                  onClick={() => void pickAssetById(id)}
+                  title={id}
+                >
+                  {id.split(":").pop()?.split("/").pop() ?? id}
+                </button>
+              ))}
+            </div>
+          )}
         </div>
-        <p className={styles.subtitle}>
-          {indexStatus === "done"
-            ? `${filtered.length.toLocaleString()} / ${assetTotal.toLocaleString()} shown`
-            : indexStatus === "running"
-              ? "Indexing…"
-              : "No source open"}
-        </p>
-        {sourcePath && <p className={styles.sourcePath}>{sourcePath}</p>}
-      </div>
+      )}
 
       <div className={styles.filters}>
         <input
           ref={searchRef}
           className={styles.search}
           type="search"
-          placeholder="Fuzzy search… (Ctrl+F)"
+          placeholder="Search assets… (/ or Ctrl+F)"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          disabled={!assets.length}
+          disabled={!handle}
         />
         <label className={styles.fuzzyToggle}>
           <input
             type="checkbox"
             checked={fuzzySearch}
             onChange={(e) => setFuzzySearch(e.target.checked)}
-            disabled={!assets.length}
+            disabled={!handle}
           />
           Fuzzy
         </label>
@@ -229,78 +325,42 @@ export function ExplorerPanel() {
         onNamespaceSelect={setNamespaceFilter}
       />
 
-      <div ref={parentRef} className={styles.list}>
-        {indexStatus === "running" && rows.length === 0 ? (
-          <SkeletonBlock rows={8} />
-        ) : !rows.length ? (
-          <div className={styles.placeholder}>
-            <p>
-              {indexStatus === "idle"
-                ? "Open a JAR mod or resource folder to browse textures, models, and blockstates."
-                : "No assets match the current filters."}
-            </p>
-          </div>
-        ) : (
-          <div
-            className={styles.listInner}
-            style={{ height: `${virtualizer.getTotalSize()}px` }}
-          >
-            {virtualizer.getVirtualItems().map((vRow) => {
-              const row = rows[vRow.index];
-              if (row.type === "group") {
-                const collapsed = collapsedGroups[row.id];
-                return (
-                  <button
-                    key={row.id}
-                    type="button"
-                    className={styles.groupRow}
-                    style={{
-                      transform: `translateY(${vRow.start}px)`,
-                      paddingLeft: `${12 + row.depth * 14}px`,
-                    }}
-                    onClick={() => toggleGroupCollapsed(row.id)}
-                  >
-                    <span className={styles.chevron}>{collapsed ? "▸" : "▾"}</span>
-                    <span className={styles.groupLabel}>{row.label}</span>
-                    <span className={styles.groupCount}>{row.count}</span>
-                  </button>
-                );
-              }
+      <ExplorerAssetList
+        parentRef={parentRef}
+        handle={handle}
+        indexStatus={indexStatus}
+        rows={rows}
+        navigableRows={navigableRows as (ExplorerRow & { type: "asset" })[]}
+        virtualizer={virtualizer}
+        virtualItems={virtualItems}
+        queryLoading={queryLoading}
+        viewMode={viewMode}
+        collapsedGroups={collapsedGroups}
+        selectedAssetId={selectedAssetId}
+        focusRowIndex={focusRowIndex}
+        validationById={validationById}
+        pinnedAssetIds={pinnedAssetIds}
+        recentProjects={recentProjects}
+        onToggleGroup={toggleGroupCollapsed}
+        onPickAsset={pickAsset}
+        onContextMenu={(x, y, entry) => setContextMenu({ x, y, entry })}
+        onOpenJar={onOpenJar}
+        onOpenFolder={onOpenFolder}
+        onOpenRecent={onOpenRecent}
+        onTryDemo={onTryDemo}
+      />
 
-              const { entry } = row;
-              const isTexture = entry.kind === "texture";
-              return (
-                <button
-                  key={entry.id}
-                  type="button"
-                  className={selectedAssetId === entry.id ? styles.rowActive : styles.row}
-                  style={{
-                    transform: `translateY(${vRow.start}px)`,
-                    paddingLeft: `${12 + row.depth * 14}px`,
-                  }}
-                  onClick={() => setSelectedAssetId(entry.id)}
-                  onContextMenu={(e) => {
-                    e.preventDefault();
-                    setContextMenu({ x: e.clientX, y: e.clientY, entry });
-                  }}
-                >
-                  {isTexture ? (
-                    <TextureThumbnail assetPath={entry.path} />
-                  ) : (
-                    <span className={styles.kindIcon}>
-                      {ASSET_KIND_LABELS[entry.kind].charAt(0)}
-                    </span>
-                  )}
-                  <span className={styles.name}>{entry.displayName}</span>
-                  {viewMode === "flat" && (
-                    <span className={styles.ns}>{entry.namespace}</span>
-                  )}
-                </button>
-              );
-            })}
-          </div>
-        )}
-      </div>
+      <InspectorPanel
+        details={inspector}
+        loading={inspectorLoading}
+        isFavorite={Boolean(inspector && pinnedAssetIds.includes(inspector.id))}
+        onToggleFavorite={() => {
+          if (inspector) togglePinnedAsset(inspector.id);
+        }}
+        onSelectRelated={(assetId) => {
+          void pickAssetById(assetId);
+        }}
+      />
     </div>
   );
 }

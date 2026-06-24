@@ -1,3 +1,5 @@
+import type { LucideIcon } from "lucide-react";
+
 export type CommandGroup =
   | "file"
   | "view"
@@ -5,6 +7,7 @@ export type CommandGroup =
   | "navigation"
   | "export"
   | "recent"
+  | "settings"
   | "help";
 
 export interface AppCommand {
@@ -14,6 +17,9 @@ export interface AppCommand {
   shortcut?: string;
   keywords?: string;
   disabled?: boolean;
+  icon?: LucideIcon;
+  /** Shown when palette query starts with `>` */
+  settingsQuery?: boolean;
   run: () => void | Promise<void>;
 }
 
@@ -24,5 +30,6 @@ export const COMMAND_GROUP_LABELS: Record<CommandGroup, string> = {
   navigation: "Navigation",
   export: "Export",
   recent: "Recent",
+  settings: "Settings",
   help: "Help",
 };

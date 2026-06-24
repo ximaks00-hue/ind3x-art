@@ -1,0 +1,30 @@
+.bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px;
+}
+
+.btn,
+.active {
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-content: center;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-border);
+  background: var(--color-bg-input);
+  color: var(--color-text-muted);
+  cursor: pointer;
+  font-size: 13px;
+  line-height: 1;
+}
+
+.active {
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+  background: var(--color-bg-accent-subtle);
+}
+
+.icon {
+  pointer-events: none;
+}

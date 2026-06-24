@@ -1,15 +1,17 @@
 import type { ProjectHandle } from "../../ipc/types";
 import type { EditorTool } from "../../state/editorStore";
-import { useEditorStore } from "../../state/editorStore";
 import {
-  collectStrokeChanges,
-  floodFillChanges,
-  linePixels,
-  lineToolChanges,
-  pickColor,
-} from "./tools";
-import { commitChanges, ensureTextureDocument } from "./textureDocument";
+  buildPaintStrokeContext,
+  commitPaintShape,
+  isClickOnlyTool,
+  isShapeTool,
+  paintAtTexturePixel,
+} from "./paintInteraction";
+import { paintLine, pickAtPixel, type PaintStrokeContext } from "./paintEngine";
 
+export { pickAtPixel, buildPaintStrokeContext, type PaintStrokeContext };
+
+/** @deprecated Prefer buildPaintStrokeContext + paintAtTexturePixel */
 export async function paintAtPixel(
   handle: ProjectHandle,
   texturePath: string,
@@ -20,31 +22,15 @@ export async function paintAtPixel(
   isStroke: boolean,
   lastPixel: [number, number] | null,
 ): Promise<[number, number] | null> {
-  await ensureTextureDocument(handle, texturePath);
-  const { symmetryX } = useEditorStore.getState();
-
-  if (tool === "picker") {
-    const picked = pickColor(texturePath, x, y);
-    if (picked) useEditorStore.getState().setColor(picked);
-    return [x, y];
-  }
-
-  if (tool === "fill") {
-    const changes = floodFillChanges(texturePath, x, y, color);
-    commitChanges(handle, texturePath, changes);
-    return [x, y];
-  }
-
-  if (tool === "line" || tool === "rect") {
-    return [x, y];
-  }
-
-  const points: [number, number][] =
-    isStroke && lastPixel ? linePixels(lastPixel[0], lastPixel[1], x, y) : [[x, y]];
-
-  const changes = collectStrokeChanges(texturePath, points, tool, color, symmetryX);
-  commitChanges(handle, texturePath, changes);
-  return [x, y];
+  const ctx = buildPaintStrokeContext(handle, texturePath, { tool, color });
+  const result = await paintAtTexturePixel(
+    ctx,
+    x,
+    y,
+    isStroke,
+    lastPixel ? { x: lastPixel[0], y: lastPixel[1] } : null,
+  );
+  return result ? [result.x, result.y] : null;
 }
 
 export async function paintLineOnTexture(
@@ -56,21 +42,8 @@ export async function paintLineOnTexture(
   y1: number,
   color: string,
 ): Promise<void> {
-  await ensureTextureDocument(handle, texturePath);
-  const { symmetryX } = useEditorStore.getState();
-  const changes = lineToolChanges(
-    texturePath,
-    x0,
-    y0,
-    x1,
-    y1,
-    "pencil",
-    color,
-    symmetryX,
-  );
-  commitChanges(handle, texturePath, changes);
+  const ctx = buildPaintStrokeContext(handle, texturePath, { tool: "line", color });
+  await paintLine(handle, texturePath, { x: x0, y: y0 }, { x: x1, y: y1 }, ctx);
 }
 
-export function pickAtPixel(texturePath: string, x: number, y: number): string | null {
-  return pickColor(texturePath, x, y);
-}
+export { isClickOnlyTool, isShapeTool, commitPaintShape, paintAtTexturePixel };

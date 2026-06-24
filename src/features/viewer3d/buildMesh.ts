@@ -14,6 +14,7 @@ import {
   type FacePickData,
   type SelectedFace,
 } from "../../state/selectionStore";
+import { elementRescaleFactor } from "../../lib/elementRotation";
 import { buildItemExtrusion } from "./itemExtrusion";
 import { loadTexture, tintColorForIndex } from "./textureLoader";
 import { faceThreeUvs } from "./uvMapping";
@@ -38,7 +39,7 @@ const BLOCK = 1 / 16;
  * non-standard shapes.
  */
 function shouldCullFace(
-  cullface: string | undefined,
+  cullface: string | null | undefined,
   from: [number, number, number],
   to: [number, number, number],
 ): boolean {
@@ -200,7 +201,7 @@ function wrapElementRotation(
   );
 
   if (rotation.rescale && rotation.angle !== 0) {
-    const factor = 1 / Math.cos(THREE.MathUtils.degToRad(rotation.angle));
+    const factor = elementRescaleFactor(rotation.angle, true);
     pivot.scale.set(factor, factor, factor);
   }
 
@@ -319,9 +320,33 @@ export function buildFaceHighlight(
   model: RenderableModel,
   selected: SelectedFace,
 ): THREE.Object3D | null {
-  const cuboid = model.cuboids[selected.cuboidIndex];
+  return buildFaceOverlayNode(
+    model,
+    selected.cuboidIndex,
+    selected.faceIndex,
+    new THREE.MeshBasicMaterial({
+      color: 0x638cff,
+      transparent: true,
+      opacity: 0.42,
+      depthTest: true,
+      side: THREE.DoubleSide,
+      polygonOffset: true,
+      polygonOffsetFactor: -1,
+      polygonOffsetUnits: -1,
+    }),
+  );
+}
+
+/** Face-aligned mesh for canvas texture overlays (shape preview, etc.). */
+export function buildFaceOverlayNode(
+  model: RenderableModel,
+  cuboidIndex: number,
+  faceIndex: number,
+  material: THREE.Material,
+): THREE.Object3D | null {
+  const cuboid = model.cuboids[cuboidIndex];
   if (!cuboid) return null;
-  const face = cuboid.faces[selected.faceIndex];
+  const face = cuboid.faces[faceIndex];
   if (!face) return null;
 
   const geometry = buildFaceGeometry(
@@ -331,25 +356,14 @@ export function buildFaceHighlight(
     face,
     model.modelRotation,
   );
-  const material = new THREE.MeshBasicMaterial({
-    color: 0x638cff,
-    transparent: true,
-    opacity: 0.42,
-    depthTest: true,
-    side: THREE.DoubleSide,
-    polygonOffset: true,
-    polygonOffsetFactor: -1,
-    polygonOffsetUnits: -1,
-  });
   const mesh = new THREE.Mesh(geometry, material);
 
   const cuboidGroup = new THREE.Group();
   cuboidGroup.add(mesh);
 
-  const node = cuboid.rotation
+  return cuboid.rotation
     ? wrapElementRotation(cuboidGroup, cuboid.rotation)
     : cuboidGroup;
-  return node;
 }
 
 export function disposeObject3D(object: THREE.Object3D): void {

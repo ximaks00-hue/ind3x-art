@@ -1,9 +1,13 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Clock } from "lucide-react";
 
 import { useFocusTrap } from "../../hooks/useFocusTrap";
 import { fuzzyScore } from "../../features/explorer/fuzzy";
 import type { AppCommand } from "../../commands/types";
 import { COMMAND_GROUP_LABELS } from "../../commands/types";
+import { COMMAND_GROUP_ICONS } from "../../commands/commandGroupIcons";
+import { Icon } from "../icons/Icon";
+import { useUiStore } from "../../state/uiStore";
 import styles from "./CommandPalette.module.css";
 
 interface CommandPaletteProps {
@@ -12,23 +16,48 @@ interface CommandPaletteProps {
   onClose: () => void;
 }
 
-function filterCommands(commands: AppCommand[], query: string): AppCommand[] {
-  const q = query.trim();
-  if (!q) return commands.filter((c) => !c.disabled);
+function filterCommands(
+  commands: AppCommand[],
+  query: string,
+  recentIds: string[],
+): AppCommand[] {
+  const trimmed = query.trim();
+  const settingsMode = trimmed.startsWith(">");
+  const search = settingsMode ? trimmed.slice(1).trim() : trimmed;
 
-  const scored = commands
-    .filter((c) => !c.disabled)
-    .map((command) => {
-      const hay = `${command.label} ${command.keywords ?? ""} ${command.group}`;
-      const score = fuzzyScore(q, hay);
-      return score !== null ? { command, score } : null;
-    })
-    .filter((x): x is { command: AppCommand; score: number } => x !== null);
+  let pool = commands.filter((c) => !c.disabled);
+  if (settingsMode) {
+    pool = pool.filter((c) => c.settingsQuery || c.group === "settings");
+  }
 
-  scored.sort(
-    (a, b) => b.score - a.score || a.command.label.localeCompare(b.command.label),
-  );
-  return scored.map((s) => s.command);
+  let filtered: AppCommand[];
+  if (!search) {
+    filtered = pool;
+  } else {
+    const scored = pool
+      .map((command) => {
+        const hay = `${command.label} ${command.keywords ?? ""} ${command.group}`;
+        const score = fuzzyScore(search, hay);
+        return score !== null ? { command, score } : null;
+      })
+      .filter((x): x is { command: AppCommand; score: number } => x !== null);
+
+    scored.sort(
+      (a, b) => b.score - a.score || a.command.label.localeCompare(b.command.label),
+    );
+    filtered = scored.map((s) => s.command);
+  }
+
+  if (!search && recentIds.length > 0) {
+    const recentSet = new Set(recentIds);
+    const recent = recentIds
+      .map((id) => filtered.find((c) => c.id === id))
+      .filter((c): c is AppCommand => c != null);
+    const rest = filtered.filter((c) => !recentSet.has(c.id));
+    return [...recent, ...rest];
+  }
+
+  return filtered;
 }
 
 export function CommandPalette({ open, commands, onClose }: CommandPaletteProps) {
@@ -41,13 +70,29 @@ function CommandPaletteInner({ commands, onClose }: Omit<CommandPaletteProps, "o
   const [activeIndex, setActiveIndex] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
   const trapRef = useFocusTrap(true);
+  const recentCommandIds = useUiStore((s) => s.recentCommandIds);
+  const pushRecentCommand = useUiStore((s) => s.pushRecentCommand);
 
-  const filtered = useMemo(() => filterCommands(commands, query), [commands, query]);
+  const filtered = useMemo(
+    () => filterCommands(commands, query, recentCommandIds),
+    [commands, query, recentCommandIds],
+  );
+
+  const recentIdSet = useMemo(() => new Set(recentCommandIds), [recentCommandIds]);
+  const settingsMode = query.trim().startsWith(">");
 
   useEffect(() => {
     const t = window.setTimeout(() => inputRef.current?.focus(), 0);
     return () => window.clearTimeout(t);
   }, []);
+
+  const runCommand = useCallback(
+    (command: AppCommand) => {
+      pushRecentCommand(command.id);
+      void Promise.resolve(command.run()).finally(onClose);
+    },
+    [pushRecentCommand, onClose],
+  );
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -71,13 +116,13 @@ function CommandPaletteInner({ commands, onClose }: Omit<CommandPaletteProps, "o
 
       if (event.key === "Enter" && filtered[activeIndex]) {
         event.preventDefault();
-        void Promise.resolve(filtered[activeIndex].run()).finally(onClose);
+        runCommand(filtered[activeIndex]);
       }
     };
 
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [filtered, activeIndex, onClose]);
+  }, [filtered, activeIndex, onClose, runCommand]);
 
   let lastGroup: string | null = null;
 
@@ -95,7 +140,9 @@ function CommandPaletteInner({ commands, onClose }: Omit<CommandPaletteProps, "o
           ref={inputRef}
           className={styles.input}
           type="search"
-          placeholder="Type a command…"
+          placeholder={
+            settingsMode ? "Search settings…" : "Type a command…  (> for settings)"
+          }
           value={query}
           onChange={(e) => {
             setQuery(e.target.value);
@@ -105,15 +152,20 @@ function CommandPaletteInner({ commands, onClose }: Omit<CommandPaletteProps, "o
         />
         <ul className={styles.list} role="listbox">
           {filtered.length === 0 ? (
-            <li className={styles.empty}>No matching commands</li>
+            <li className={styles.empty}>
+              {settingsMode ? "No matching settings" : "No matching commands"}
+            </li>
           ) : (
             filtered.map((command, index) => {
               const showHeader = command.group !== lastGroup;
               lastGroup = command.group;
+              const GroupIcon = COMMAND_GROUP_ICONS[command.group];
+              const isRecent = !query.trim() && recentIdSet.has(command.id);
               return (
                 <li key={command.id}>
                   {showHeader && (
                     <div className={styles.groupLabel}>
+                      <Icon icon={GroupIcon} size={16} />
                       {COMMAND_GROUP_LABELS[command.group]}
                     </div>
                   )}
@@ -121,11 +173,21 @@ function CommandPaletteInner({ commands, onClose }: Omit<CommandPaletteProps, "o
                     type="button"
                     className={index === activeIndex ? styles.itemActive : styles.item}
                     onMouseEnter={() => setActiveIndex(index)}
-                    onClick={() => {
-                      void Promise.resolve(command.run()).finally(onClose);
-                    }}
+                    onClick={() => runCommand(command)}
                   >
-                    <span>{command.label}</span>
+                    <span className={styles.itemMain}>
+                      {command.icon ? (
+                        <Icon icon={command.icon} size={16} />
+                      ) : (
+                        <Icon icon={GroupIcon} size={16} />
+                      )}
+                      <span>{command.label}</span>
+                      {isRecent && (
+                        <span className={styles.recentBadge} title="Recent">
+                          <Icon icon={Clock} size={16} />
+                        </span>
+                      )}
+                    </span>
                     {command.shortcut && (
                       <kbd className={styles.shortcut}>{command.shortcut}</kbd>
                     )}
@@ -138,6 +200,7 @@ function CommandPaletteInner({ commands, onClose }: Omit<CommandPaletteProps, "o
         <div className={styles.footer}>
           <span>↑↓ navigate</span>
           <span>↵ run</span>
+          <span>&gt; settings</span>
           <span>esc close</span>
         </div>
       </div>

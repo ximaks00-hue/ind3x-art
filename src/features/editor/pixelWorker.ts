@@ -82,7 +82,60 @@ function floodFill(args: FloodFillArgs): ImageData {
   return result;
 }
 
-const workerApi = { floodFill };
+export interface MagicWandArgs {
+  imageData: ImageData;
+  startX: number;
+  startY: number;
+  tolerance: number;
+}
+
+function magicWand(args: MagicWandArgs): [number, number, number, number] | null {
+  const { imageData, startX, startY, tolerance } = args;
+  const { width, height, data } = imageData;
+  const idx = (x: number, y: number) => (y * width + x) * 4;
+  const si = idx(startX, startY);
+  const sr = data[si];
+  const sg = data[si + 1];
+  const sb = data[si + 2];
+  const sa = data[si + 3];
+
+  const matches = (x: number, y: number): boolean => {
+    const i = idx(x, y);
+    return (
+      Math.abs(data[i] - sr) <= tolerance &&
+      Math.abs(data[i + 1] - sg) <= tolerance &&
+      Math.abs(data[i + 2] - sb) <= tolerance &&
+      Math.abs(data[i + 3] - sa) <= tolerance
+    );
+  };
+
+  let minX = startX;
+  let maxX = startX;
+  let minY = startY;
+  let maxY = startY;
+  let found = false;
+  const stack: [number, number][] = [[startX, startY]];
+  const visited = new Uint8Array(width * height);
+
+  while (stack.length > 0) {
+    const [x, y] = stack.pop()!;
+    if (x < 0 || y < 0 || x >= width || y >= height) continue;
+    const vi = y * width + x;
+    if (visited[vi]) continue;
+    if (!matches(x, y)) continue;
+    visited[vi] = 1;
+    found = true;
+    if (x < minX) minX = x;
+    if (x > maxX) maxX = x;
+    if (y < minY) minY = y;
+    if (y > maxY) maxY = y;
+    stack.push([x + 1, y], [x - 1, y], [x, y + 1], [x, y - 1]);
+  }
+
+  return found ? [minX, minY, maxX, maxY] : null;
+}
+
+const workerApi = { floodFill, magicWand };
 export type PixelWorkerApi = typeof workerApi;
 
 Comlink.expose(workerApi);

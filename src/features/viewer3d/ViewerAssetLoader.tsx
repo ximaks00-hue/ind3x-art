@@ -25,6 +25,8 @@ interface ViewerAssetLoaderProps {
   selected: AssetEntry;
   /** When set, resolves that blockstate variant; otherwise picks the first. */
   variantKey?: string;
+  /** When viewing a texture, resolve this linked model path instead of auto-pick. */
+  linkedModelPath?: string;
   onLoaded: (state: ViewerAssetState) => void;
 }
 
@@ -32,6 +34,7 @@ export function ViewerAssetLoader({
   handle,
   selected,
   variantKey,
+  linkedModelPath,
   onLoaded,
 }: ViewerAssetLoaderProps) {
   const clearSelection = useSelectionStore((s) => s.clearSelection);
@@ -73,6 +76,7 @@ export function ViewerAssetLoader({
             handle,
             selected.path,
             selected.kind === "blockstate" ? resolvedVariantKey : undefined,
+            linkedModelPath,
           ),
           selected.kind === "texture"
             ? ipc.modelsForTexture(handle, selected.path)
@@ -106,7 +110,7 @@ export function ViewerAssetLoader({
     return () => {
       cancelled = true;
     };
-  }, [handle, selected, variantKey, onLoaded, setActiveTextureMeta]);
+  }, [handle, selected, variantKey, linkedModelPath, onLoaded, setActiveTextureMeta]);
 
   return null;
 }

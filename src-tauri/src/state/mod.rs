@@ -3,11 +3,11 @@ pub mod query;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, RwLock};
 
 use sled::Db;
 
-use crate::dto::{AppInfo, AssetEntry, ProjectHandle, SourceKind};
+use crate::dto::{AppInfo, AssetEntry, ModelRefInfo, ProjectHandle, SourceKind};
 use crate::logging;
 use crate::model::types::ResolvedModel;
 use crate::source::AssetSource;
@@ -21,7 +21,8 @@ pub struct Project {
     pub entries: Vec<AssetEntry>,
     #[allow(dead_code)]
     pub source: Box<dyn AssetSource>,
-    pub model_cache: Mutex<HashMap<String, ResolvedModel>>,
+    pub model_cache: std::sync::Mutex<HashMap<String, ResolvedModel>>,
+    pub texture_model_index: HashMap<String, Vec<ModelRefInfo>>,
     pub save_journal: Vec<crate::dto::SaveJournalEntry>,
 }
 
@@ -35,8 +36,14 @@ pub struct AppState {
 
 impl Default for AppState {
     fn default() -> Self {
-        let db = sled::open(std::env::temp_dir().join("ind3x-art-cache"))
-            .expect("failed to open index cache database");
+        let cache_dir = std::env::temp_dir().join(format!(
+            "ind3x-art-cache/{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0)
+        ));
+        let db = sled::open(cache_dir).expect("failed to open index cache database");
 
         Self {
             next_handle: AtomicU64::new(1),
@@ -87,4 +94,23 @@ impl AppState {
     }
 }
 
-pub type SharedState = std::sync::Mutex<AppState>;
+#[derive(Clone)]
+pub struct SharedState(pub Arc<RwLock<AppState>>);
+
+impl SharedState {
+    pub fn new(state: AppState) -> Self {
+        Self(Arc::new(RwLock::new(state)))
+    }
+
+    pub fn read(
+        &self,
+    ) -> std::sync::RwLockReadGuard<'_, AppState> {
+        self.0.read().expect("state poisoned")
+    }
+
+    pub fn write(
+        &self,
+    ) -> std::sync::RwLockWriteGuard<'_, AppState> {
+        self.0.write().expect("state poisoned")
+    }
+}

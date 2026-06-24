@@ -1,26 +1,41 @@
 import { lazy, Suspense } from "react";
 
+import { ViewerLoadingState } from "./ViewerLoadingState";
 import styles from "./ViewerPanel.module.css";
 
 const ViewerPanel = lazy(() =>
   import("./ViewerPanel").then((module) => ({ default: module.ViewerPanel })),
 );
 
+interface ViewerPanelLazyProps {
+  onOpenJar?: () => void;
+  onOpenFolder?: () => void;
+  onOpenRecent?: (path: string, kind: "jar" | "folder") => void;
+  onTryDemo?: () => void;
+}
+
 function ViewerPanelFallback() {
   return (
     <div className={styles.panel}>
-      <div className={styles.message}>
-        <p>3D Viewer</p>
-        <p className={styles.hint}>Loading renderer…</p>
-      </div>
+      <ViewerLoadingState label="Loading renderer…" />
     </div>
   );
 }
 
-export function ViewerPanelLazy() {
+export function ViewerPanelLazy({
+  onOpenJar,
+  onOpenFolder,
+  onOpenRecent,
+  onTryDemo,
+}: ViewerPanelLazyProps) {
   return (
     <Suspense fallback={<ViewerPanelFallback />}>
-      <ViewerPanel />
+      <ViewerPanel
+        onOpenJar={onOpenJar}
+        onOpenFolder={onOpenFolder}
+        onOpenRecent={onOpenRecent}
+        onTryDemo={onTryDemo}
+      />
     </Suspense>
   );
 }

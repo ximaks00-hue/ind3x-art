@@ -1,0 +1,60 @@
+/** Minecraft-inspired palette presets for terrain and items. */
+export const MINECRAFT_PALETTES = {
+  terrain: {
+    label: "Terrain",
+    colors: [
+      "#7f7f7f",
+      "#8b8b8b",
+      "#c6c6c6",
+      "#555555",
+      "#3f3f3f",
+      "#6b5b3a",
+      "#8b6914",
+      "#5a7a32",
+      "#3d5c28",
+      "#4a6741",
+      "#8b7355",
+      "#6e4c2e",
+      "#9c7f4f",
+      "#b8b8b8",
+      "#707070",
+      "#404040",
+    ],
+  },
+  items: {
+    label: "Items",
+    colors: [
+      "#ffffff",
+      "#ff5555",
+      "#ffaa00",
+      "#ffff55",
+      "#55ff55",
+      "#55ffff",
+      "#5555ff",
+      "#ff55ff",
+      "#aaaaaa",
+      "#ff7777",
+      "#ffcc66",
+      "#aaffaa",
+      "#77aaff",
+      "#cc77ff",
+      "#c0c0c0",
+      "#8b4513",
+    ],
+  },
+  stone: {
+    label: "Stone",
+    colors: [
+      "#7d7d7d",
+      "#8f8f8f",
+      "#a0a0a0",
+      "#6e6e6e",
+      "#5c5c5c",
+      "#4a4a4a",
+      "#bdbdbd",
+      "#9e9e9e",
+    ],
+  },
+} as const;
+
+export type MinecraftPaletteId = keyof typeof MINECRAFT_PALETTES;

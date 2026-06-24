@@ -2,9 +2,11 @@ import { renderHook, act } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const pushToast = vi.fn();
+const triggerSaveFlash = vi.fn();
 
 vi.mock("../state/uiStore", () => ({
-  useUiStore: (selector: (state: unknown) => unknown) => selector({ pushToast }),
+  useUiStore: (selector: (state: unknown) => unknown) =>
+    selector({ pushToast, triggerSaveFlash }),
 }));
 
 vi.mock("../state/projectStore", () => ({
@@ -59,5 +61,6 @@ describe("useSaveWorkflow", () => {
 
     expect(saveDirtyTextures).toHaveBeenCalledWith({ id: 1 }, { mode: "overwrite" });
     expect(pushToast).toHaveBeenCalledWith("Saved 1 texture(s)", "success");
+    expect(triggerSaveFlash).toHaveBeenCalled();
   });
 });

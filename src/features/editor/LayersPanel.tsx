@@ -121,6 +121,17 @@ function LayersPanelContent({ texturePath }: { texturePath: string }) {
               >
                 {layer.visible ? "◉" : "○"}
               </button>
+              <button
+                type="button"
+                className={styles.iconBtn}
+                data-on={!layer.locked}
+                onClick={() =>
+                  updateTextureLayer(texturePath, layer.id, { locked: !layer.locked })
+                }
+                title={layer.locked ? "Unlock layer" : "Lock layer"}
+              >
+                {layer.locked ? "🔒" : "🔓"}
+              </button>
               <select
                 className={styles.blendSelect}
                 value={layer.blendMode}

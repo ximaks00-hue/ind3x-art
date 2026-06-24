@@ -12,6 +12,14 @@ pub struct AppInfo {
     pub log_dir: Option<String>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct LogTailResponse {
+    pub log_dir: Option<String>,
+    pub file: Option<String>,
+    pub lines: Vec<String>,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub enum AssetKind {
@@ -35,6 +43,9 @@ pub struct AssetEntry {
     /// Path inside the source (zip entry or relative file path), forward slashes.
     pub path: String,
     pub display_name: String,
+    /// Number of models referencing this texture (textures only).
+    #[serde(default)]
+    pub linked_model_count: Option<u32>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
@@ -54,7 +65,7 @@ pub struct OpenSourceResult {
     pub pack_format: Option<u32>,
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, Type)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, Type, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub enum SourceKind {
     Jar,
@@ -108,6 +119,46 @@ pub struct AssetPage {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct AssetWarning {
+    pub code: String,
+    pub message: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct RelationshipNode {
+    pub id: String,
+    pub label: String,
+    pub kind: String,
+    pub path: String,
+    pub children: Vec<RelationshipNode>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct AssetDetails {
+    pub id: String,
+    pub kind: AssetKind,
+    pub path: String,
+    pub namespace: String,
+    pub display_name: String,
+    pub pack_format: Option<u32>,
+    pub texture_width: Option<u32>,
+    pub texture_height: Option<u32>,
+    pub linked_models: Vec<ModelRefInfo>,
+    pub relationships: Vec<RelationshipNode>,
+    pub warnings: Vec<AssetWarning>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct TexturePreviewBatch {
+    pub path: String,
+    pub preview: Option<TexturePreview>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
 #[serde(tag = "type", rename_all = "camelCase")]
 pub enum IndexEvent {
     Started { total: u64 },
@@ -118,7 +169,12 @@ pub enum IndexEvent {
     },
     Asset { entry: AssetEntry },
     Warning { path: String, reason: String },
-    Done { duration_ms: u64, from_cache: bool },
+    Done {
+        #[serde(rename = "durationMs")]
+        duration_ms: u64,
+        #[serde(rename = "fromCache")]
+        from_cache: bool,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
@@ -217,6 +273,8 @@ pub struct VariantKey {
     pub y: i16,
     pub z: i16,
     pub uvlock: bool,
+    #[serde(default)]
+    pub weight: Option<u32>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
@@ -233,7 +291,7 @@ pub struct ModelRefInfo {
 pub struct TextureSaveEntry {
     pub path: String,
     pub png_base64: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(default)]
     pub target_path: Option<String>,
 }
 
@@ -250,9 +308,9 @@ pub enum SaveMode {
 #[serde(rename_all = "camelCase")]
 pub struct SaveOptions {
     pub mode: SaveMode,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(default)]
     pub target_path: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(default)]
     pub namespace: Option<String>,
 }
 

@@ -138,6 +138,7 @@ export async function buildItemExtrusion(
     texture: texturePath,
     rotation: 0,
     tintindex: -1,
+    cullface: null,
   };
 
   // Front + back planes

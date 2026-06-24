@@ -1,0 +1,32 @@
+.controls {
+  display: flex;
+  align-items: stretch;
+  height: 100%;
+  margin-left: var(--space-2);
+  flex-shrink: 0;
+}
+
+.btn {
+  display: grid;
+  place-items: center;
+  width: 46px;
+  height: 100%;
+  border: none;
+  background: transparent;
+  color: var(--color-text-secondary);
+  border-radius: 0;
+}
+
+.btn:hover {
+  background: var(--color-bg-panel-hover);
+  color: var(--color-text-primary);
+}
+
+.close:hover {
+  background: #c42b1c;
+  color: #fff;
+}
+
+.btn:active:not(:disabled) {
+  transform: none;
+}

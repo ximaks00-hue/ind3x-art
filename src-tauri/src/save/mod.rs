@@ -13,7 +13,6 @@ pub mod jar;
 pub mod modes;
 
 pub use backup::{create_backup, list_backups, restore_backup, restore_backup_by_id};
-pub use folder::write_texture_to_folder;
 pub use jar::rebuild_jar_atomic;
 
 #[derive(Debug, Clone)]
@@ -114,13 +113,8 @@ pub fn export_textures_to_folder(
 ) -> CoreResult<Vec<String>> {
     let mut saved_paths = Vec::with_capacity(textures.len());
     for texture in textures {
-        let rel = normalize_zip_path(&texture.path);
-        let dest = target_root.join(rel.replace('/', std::path::MAIN_SEPARATOR_STR));
-        if let Some(parent) = dest.parent() {
-            std::fs::create_dir_all(parent)?;
-        }
-        std::fs::write(&dest, &texture.bytes)?;
-        saved_paths.push(rel);
+        folder::write_texture_to_folder(target_root, &texture.path, &texture.bytes)?;
+        saved_paths.push(normalize_zip_path(&texture.path));
     }
     Ok(saved_paths)
 }
@@ -196,23 +190,55 @@ pub fn save_textures_to_source(
         SourceKind::Folder => {
             let mut saved_paths = Vec::with_capacity(textures.len());
             let mut first_backup: Option<String> = None;
+            let stamp = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .map(|d| d.as_secs())
+                .unwrap_or(0);
+            let staging = source_path.join(format!(".ind3x-staging-{stamp}"));
+            std::fs::create_dir_all(&staging)?;
 
-            for texture in textures {
-                if let Some(backup) = backup_folder_file(source_path, &texture.path)? {
-                    if first_backup.is_none() {
-                        first_backup = Some(
-                            backup
-                                .parent()
-                                .and_then(|p| p.parent())
-                                .map(|p| p.to_string_lossy().to_string())
-                                .unwrap_or_else(|| backup.to_string_lossy().to_string()),
-                        );
+            let result = (|| -> CoreResult<()> {
+                for texture in &textures {
+                    if let Some(backup) = backup_folder_file(source_path, &texture.path)? {
+                        if first_backup.is_none() {
+                            first_backup = Some(
+                                backup
+                                    .parent()
+                                    .and_then(|p| p.parent())
+                                    .map(|p| p.to_string_lossy().to_string())
+                                    .unwrap_or_else(|| backup.to_string_lossy().to_string()),
+                            );
+                        }
                     }
+                    let rel = normalize_zip_path(&texture.path);
+                    let staged = staging.join(rel.replace('/', std::path::MAIN_SEPARATOR_STR));
+                    if let Some(parent) = staged.parent() {
+                        std::fs::create_dir_all(parent)?;
+                    }
+                    std::fs::write(&staged, &texture.bytes)?;
                 }
-                write_texture_to_folder(source_path, &texture.path, &texture.bytes)?;
-                saved_paths.push(texture.path);
-            }
 
+                for texture in &textures {
+                    let rel = normalize_zip_path(&texture.path);
+                    let staged = staging.join(rel.replace('/', std::path::MAIN_SEPARATOR_STR));
+                    let dest = source_path.join(rel.replace('/', std::path::MAIN_SEPARATOR_STR));
+                    if let Some(parent) = dest.parent() {
+                        std::fs::create_dir_all(parent)?;
+                    }
+                    if staged.exists() {
+                        std::fs::rename(&staged, &dest).or_else(|_| {
+                            std::fs::copy(&staged, &dest)?;
+                            std::fs::remove_file(&staged)?;
+                            Ok::<(), std::io::Error>(())
+                        })?;
+                    }
+                    saved_paths.push(texture.path.clone());
+                }
+                Ok(())
+            })();
+
+            let _ = std::fs::remove_dir_all(&staging);
+            result?;
             Ok((saved_paths, first_backup))
         }
     }
@@ -221,6 +247,7 @@ pub fn save_textures_to_source(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::save::folder::write_texture_to_folder;
     use crate::source::{AssetSource, FolderSource};
 
     fn sample_png() -> Vec<u8> {

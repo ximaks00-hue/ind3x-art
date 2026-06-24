@@ -3,12 +3,16 @@ import {
   copyRegion,
   hasClipboard,
   pasteRegion,
+  redoTexture,
+  undoTexture,
 } from "../features/editor/textureDocument";
 import { useGlobalHotkeys } from "../hooks/useGlobalHotkeys";
 import type { AppCommand } from "../commands/types";
+import { useInteractionStore } from "../state/interactionStore";
 import { useEditorStore } from "../state/editorStore";
 import { useProjectStore } from "../state/projectStore";
 import { useSelectionStore } from "../state/selectionStore";
+import { useSettingsStore } from "../state/settingsStore";
 import { useUiStore } from "../state/uiStore";
 import { useViewerStore } from "../state/viewerStore";
 
@@ -26,11 +30,15 @@ export function useAppHotkeyBindings(
   const selectedFace = useSelectionStore((s) => s.selectedFace);
   const toggleInteractionMode = useSelectionStore((s) => s.toggleInteractionMode);
   const setTool = useEditorStore((s) => s.setTool);
-  const toggleComparator = useEditorStore((s) => s.toggleComparator);
+  const toggleComparator = useInteractionStore((s) => s.cycleComparator);
+  const bumpRevision = useEditorStore((s) => s.bumpRevision);
+  const rectFilled = useEditorStore((s) => s.rectFilled);
+  const setRectFilled = useEditorStore((s) => s.setRectFilled);
   const editorZoom = useEditorStore((s) => s.zoom);
   const setZoom = useEditorStore((s) => s.setZoom);
   const stepFrame = useEditorStore((s) => s.stepFrame);
   const requestExplorerFocus = useUiStore((s) => s.requestExplorerFocus);
+  const toggleFocusMode = useSettingsStore((s) => s.toggleFocusMode);
   const setCameraPreset = useViewerStore((s) => s.setCameraPreset);
   const pushToast = useUiStore((s) => s.pushToast);
 
@@ -41,7 +49,11 @@ export function useAppHotkeyBindings(
       onTogglePaintMode: toggleInteractionMode,
       onSetTool: setTool,
       onFocusExplorer: requestExplorerFocus,
-      onToggleComparator: toggleComparator,
+      onToggleFocusMode: toggleFocusMode,
+      onToggleComparator: () => {
+        const current = useViewerStore.getState().currentRenderable;
+        toggleComparator(current);
+      },
       onSetCameraPreset: setCameraPreset,
       onZoomIn: () => setZoom(editorZoom * 2),
       onZoomOut: () => setZoom(Math.round(editorZoom / 2)),
@@ -86,6 +98,15 @@ export function useAppHotkeyBindings(
         );
         if (changes.length > 0) commitChanges(handle, path, changes);
       },
+      onUndo: () => {
+        if (!handle || !selectedFace) return;
+        if (undoTexture(handle, selectedFace.texturePath)) bumpRevision();
+      },
+      onRedo: () => {
+        if (!handle || !selectedFace) return;
+        if (redoTexture(handle, selectedFace.texturePath)) bumpRevision();
+      },
+      onToggleRectFilled: () => setRectFilled(!rectFilled),
       commands,
     },
     enabled,

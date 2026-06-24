@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { lazy, Suspense, useEffect, useMemo, useState } from "react";
 
 import { AppDialogs } from "./app/AppDialogs";
 import { useAppBootstrap } from "./app/useAppBootstrap";
@@ -6,34 +6,56 @@ import { useAppCommandBindings } from "./app/useAppCommandBindings";
 import { useAppHotkeyBindings } from "./app/useAppHotkeyBindings";
 import { useProjectSource } from "./app/useProjectSource";
 import { useSaveWorkflow } from "./app/useSaveWorkflow";
+import type { ScreenshotExportOptions } from "./lib/exportScreenshot";
 import { EditorPanel } from "./features/editor/EditorPanel";
 import { ExplorerPanel } from "./features/explorer/ExplorerPanel";
 import { ViewerPanelLazy } from "./features/viewer3d/ViewerPanelLazy";
-import { useEditorStore } from "./state/editorStore";
+import { getActiveLayerIndex } from "./features/editor/documentStore";
+import { useDirtyTextureCount } from "./features/save/useDirtyTextures";
+import { useEditorStore, TOOL_LABELS } from "./state/editorStore";
 import { useProjectStore } from "./state/projectStore";
 import { useSelectionStore } from "./state/selectionStore";
+import { useSettingsStore } from "./state/settingsStore";
 import { useUiStore } from "./state/uiStore";
 import { CAMERA_PRESET_LABELS, useViewerStore } from "./state/viewerStore";
 import { AppShell } from "./ui/AppShell/AppShell";
+import { TooltipHints } from "./ui/Onboarding/TooltipHints";
+import { SessionRestoreDialog } from "./ui/SessionRestore/SessionRestoreDialog";
 import { StatusBar } from "./ui/StatusBar/StatusBar";
 import { TitleBar } from "./ui/TitleBar/TitleBar";
 
+const OnboardingTour = lazy(() =>
+  import("./ui/Onboarding/OnboardingTour").then((m) => ({ default: m.OnboardingTour })),
+);
+
 function App() {
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [saveMessageOverride, setSaveMessageOverride] = useState<string | null>(null);
+  const [exportScreenshotOpen, setExportScreenshotOpen] = useState(false);
+  const [sessionRestoreDismissed, setSessionRestoreDismissed] = useState(false);
 
-  const { appInfo, ipcHealthy } = useAppBootstrap();
+  const { ipcHealthy } = useAppBootstrap();
 
-  const { handle, indexStatus, indexProgress, indexStage, fromCache, sourcePath } =
-    useProjectStore();
+  const { handle, indexStatus, queryTotal, sourcePath } = useProjectStore();
+  const lastSessionPath = useSettingsStore((s) => s.lastSessionPath);
+  const incrementSessionCount = useSettingsStore((s) => s.incrementSessionCount);
+  const onboardingCompleted = useSettingsStore((s) => s.onboardingCompleted);
 
   const interactionMode = useSelectionStore((s) => s.interactionMode);
   const selectedFace = useSelectionStore((s) => s.selectedFace);
+  const editorTool = useEditorStore((s) => s.tool);
   const editorZoom = useEditorStore((s) => s.zoom);
   const editorCursorX = useEditorStore((s) => s.cursorX);
   const editorCursorY = useEditorStore((s) => s.cursorY);
   const viewerFps = useViewerStore((s) => s.fps);
   const cameraPreset = useViewerStore((s) => s.cameraPreset);
+  const dirtyCount = useDirtyTextureCount();
+
+  const editorRevision = useEditorStore((s) => s.revision);
+  const layerInfo = useMemo(() => {
+    if (!selectedFace) return null;
+    void editorRevision;
+    return getActiveLayerIndex(selectedFace.texturePath);
+  }, [selectedFace, editorRevision]);
 
   const commandPaletteOpen = useUiStore((s) => s.commandPaletteOpen);
   const shortcutsHelpOpen = useUiStore((s) => s.shortcutsHelpOpen);
@@ -48,24 +70,43 @@ function App() {
     return match?.[1];
   }, [selectedFace?.texturePath]);
 
-  const { opening, openJar, openFolder, openSource, subscribeSourceEvents } =
-    useProjectSource(() => {
-      setSaveMessageOverride(null);
-    });
+  const {
+    opening,
+    openJar,
+    openFolder,
+    openDemoPack,
+    openSource,
+    subscribeSourceEvents,
+  } = useProjectSource();
+
+  const openRecent = (path: string) => {
+    void openSource(path);
+  };
+
+  useEffect(() => {
+    incrementSessionCount();
+  }, [incrementSessionCount]);
 
   useEffect(() => subscribeSourceEvents(), [subscribeSourceEvents]);
 
+  const sessionRestoreOpen = Boolean(
+    !handle && !opening && lastSessionPath && !sessionRestoreDismissed && ipcHealthy,
+  );
+
   const saveWorkflow = useSaveWorkflow({ openSource, opening });
 
-  const commands = useAppCommandBindings(
-    { openJar, openFolder, openSource },
+  const { commands, handleExportScreenshot } = useAppCommandBindings(
+    { openJar, openFolder, openSource, openDemoPack },
     saveWorkflow,
     () => setSettingsOpen(true),
+    () => setExportScreenshotOpen(true),
   );
 
   useAppHotkeyBindings(commands, saveWorkflow, !opening && !saveWorkflow.saving);
 
-  const saveMessage = saveMessageOverride ?? saveWorkflow.saveMessage;
+  const onExportScreenshot = (options: ScreenshotExportOptions) => {
+    handleExportScreenshot(options);
+  };
 
   return (
     <>
@@ -81,26 +122,38 @@ function App() {
             dirtyCount={saveWorkflow.dirtyCount}
           />
         }
-        leftPanel={<ExplorerPanel />}
-        center={<ViewerPanelLazy />}
+        leftPanel={
+          <ExplorerPanel
+            onOpenJar={() => void openJar()}
+            onOpenFolder={() => void openFolder()}
+            onOpenRecent={openRecent}
+            onTryDemo={() => void openDemoPack()}
+          />
+        }
+        center={
+          <ViewerPanelLazy
+            onOpenJar={() => void openJar()}
+            onOpenFolder={() => void openFolder()}
+            onOpenRecent={openRecent}
+            onTryDemo={() => void openDemoPack()}
+          />
+        }
         rightPanel={<EditorPanel />}
         statusBar={
           <StatusBar
-            version={appInfo?.version}
             ipcHealthy={ipcHealthy}
+            assetCount={indexStatus === "done" ? queryTotal : undefined}
             indexStatus={indexStatus}
-            indexProgress={indexProgress}
-            interactionMode={interactionMode}
-            cameraPreset={CAMERA_PRESET_LABELS[cameraPreset]}
-            fps={viewerFps}
-            saveMessage={saveMessage ?? undefined}
-            indexStage={
-              fromCache && indexStatus === "done" ? `${indexStage} (cache)` : indexStage
-            }
-            namespace={defaultSaveNamespace}
-            zoom={editorZoom}
-            cursorX={editorCursorX}
-            cursorY={editorCursorY}
+            toolLabel={selectedFace ? TOOL_LABELS[editorTool] : undefined}
+            layerIndex={layerInfo?.index}
+            layerTotal={layerInfo?.total}
+            dirtyCount={dirtyCount}
+            zoom={selectedFace ? editorZoom : undefined}
+            cursorX={selectedFace ? editorCursorX : undefined}
+            cursorY={selectedFace ? editorCursorY : undefined}
+            interactionMode={handle ? interactionMode : undefined}
+            cameraPreset={handle ? CAMERA_PRESET_LABELS[cameraPreset] : undefined}
+            fps={handle ? viewerFps : undefined}
           />
         }
       />
@@ -110,6 +163,7 @@ function App() {
         saveDialogOpen={saveWorkflow.saveDialogOpen}
         backupDialogOpen={saveWorkflow.backupDialogOpen}
         settingsOpen={settingsOpen}
+        exportScreenshotOpen={exportScreenshotOpen}
         dirtyCount={saveWorkflow.dirtyCount}
         defaultSaveNamespace={defaultSaveNamespace}
         handle={handle}
@@ -119,9 +173,27 @@ function App() {
         onCloseSaveDialog={() => saveWorkflow.setSaveDialogOpen(false)}
         onCloseBackupDialog={() => saveWorkflow.setBackupDialogOpen(false)}
         onCloseSettings={() => setSettingsOpen(false)}
+        onCloseExportScreenshot={() => setExportScreenshotOpen(false)}
+        onExportScreenshot={onExportScreenshot}
         onSaveDialogSubmit={(submit) => void saveWorkflow.handleSaveDialogSubmit(submit)}
         onBackupRestored={() => {
           if (sourcePath) void openSource(sourcePath);
+        }}
+      />
+      {!onboardingCompleted && (
+        <Suspense fallback={null}>
+          <OnboardingTour />
+        </Suspense>
+      )}
+      <TooltipHints />
+      <SessionRestoreDialog
+        open={sessionRestoreOpen}
+        path={lastSessionPath ?? ""}
+        onConfirm={() => {
+          if (lastSessionPath) void openSource(lastSessionPath);
+        }}
+        onDecline={() => {
+          setSessionRestoreDismissed(true);
         }}
       />
     </>

@@ -110,6 +110,80 @@ function mirrorX(points: [number, number][], width: number): [number, number][] 
   return [...points, ...mirrored];
 }
 
+function mirrorY(points: [number, number][], height: number): [number, number][] {
+  const mirrored = points.map(([x, y]) => [x, height - 1 - y] as [number, number]);
+  return [...points, ...mirrored];
+}
+
+function applySymmetry(
+  points: [number, number][],
+  width: number,
+  height: number,
+  symmetryX: boolean,
+  symmetryY: boolean,
+): [number, number][] {
+  let out = points;
+  if (symmetryX) out = mirrorX(out, width);
+  if (symmetryY) out = mirrorY(out, height);
+  return out;
+}
+
+function brushDisk(cx: number, cy: number, size: number): [number, number][] {
+  if (size <= 1) return [[cx, cy]];
+  const r = size / 2;
+  const pts: [number, number][] = [];
+  for (let dy = -Math.ceil(r); dy <= Math.ceil(r); dy += 1) {
+    for (let dx = -Math.ceil(r); dx <= Math.ceil(r); dx += 1) {
+      if (dx * dx + dy * dy <= r * r + 0.25) pts.push([cx + dx, cy + dy]);
+    }
+  }
+  return pts;
+}
+
+function expandBrushPoints(points: [number, number][], size: number): [number, number][] {
+  if (size <= 1) return points;
+  const out: [number, number][] = [];
+  const seen = new Set<string>();
+  for (const [x, y] of points) {
+    for (const [bx, by] of brushDisk(x, y, size)) {
+      const key = `${bx},${by}`;
+      if (!seen.has(key)) {
+        seen.add(key);
+        out.push([bx, by]);
+      }
+    }
+  }
+  return out;
+}
+
+function blendRgba(before: Rgba, after: Rgba, opacity: number): Rgba {
+  const t = Math.max(0, Math.min(1, opacity));
+  return [
+    Math.round(before[0] + (after[0] - before[0]) * t),
+    Math.round(before[1] + (after[1] - before[1]) * t),
+    Math.round(before[2] + (after[2] - before[2]) * t),
+    Math.round(before[3] + (after[3] - before[3]) * t),
+  ];
+}
+
+export function pixelPerfectFilter(points: [number, number][]): [number, number][] {
+  if (points.length < 3) return points;
+  const out: [number, number][] = [points[0]];
+  for (let i = 1; i < points.length - 1; i += 1) {
+    const prev = out[out.length - 1];
+    const cur = points[i];
+    const next = points[i + 1];
+    const dx1 = Math.sign(cur[0] - prev[0]);
+    const dy1 = Math.sign(cur[1] - prev[1]);
+    const dx2 = Math.sign(next[0] - cur[0]);
+    const dy2 = Math.sign(next[1] - cur[1]);
+    if (dx1 !== 0 && dy1 !== 0 && dx1 === dx2 && dy1 === dy2) continue;
+    out.push(cur);
+  }
+  out.push(points[points.length - 1]);
+  return out;
+}
+
 function rectPixels(
   x0: number,
   y0: number,
@@ -157,11 +231,22 @@ export function collectStrokeChanges(
   tool: EditorTool,
   color: string,
   symmetryX = false,
+  symmetryY = false,
+  brushSize = 1,
+  brushOpacity = 1,
 ): PixelChange[] {
   const layer = getActiveLayerContext(path);
   if (!layer || layer.locked) return [];
 
-  const allPoints = symmetryX ? mirrorX(points, layer.width) : points;
+  let strokePoints = points;
+  if (brushSize > 1) strokePoints = expandBrushPoints(strokePoints, brushSize);
+  const allPoints = applySymmetry(
+    strokePoints,
+    layer.width,
+    layer.height,
+    symmetryX,
+    symmetryY,
+  );
   const changes: PixelChange[] = [];
   const seen = new Set<string>();
   const fillRgba = hexToRgba(color);
@@ -181,6 +266,11 @@ export function collectStrokeChanges(
       after = toolColor(tool, color);
     }
 
+    if (brushOpacity < 1 && tool !== "eraser") {
+      const src = getLayerPixel(path, layer.layerId, x, y) ?? ([0, 0, 0, 0] as Rgba);
+      after = blendRgba(src, after, brushOpacity);
+    }
+
     const before = getLayerPixel(path, layer.layerId, x, y);
     if (!before || rgbaEqual(before, after)) continue;
     changes.push({ x, y, before, after, layerId: layer.layerId });
@@ -198,8 +288,23 @@ export function lineToolChanges(
   tool: EditorTool,
   color: string,
   symmetryX = false,
+  symmetryY = false,
+  brushSize = 1,
+  brushOpacity = 1,
+  pixelPerfect = false,
 ): PixelChange[] {
-  return collectStrokeChanges(path, linePixels(x0, y0, x1, y1), tool, color, symmetryX);
+  let pts = linePixels(x0, y0, x1, y1);
+  if (pixelPerfect) pts = pixelPerfectFilter(pts);
+  return collectStrokeChanges(
+    path,
+    pts,
+    tool,
+    color,
+    symmetryX,
+    symmetryY,
+    brushSize,
+    brushOpacity,
+  );
 }
 
 export function rectToolChanges(
@@ -212,6 +317,9 @@ export function rectToolChanges(
   color: string,
   filled: boolean,
   symmetryX = false,
+  symmetryY = false,
+  brushSize = 1,
+  brushOpacity = 1,
 ): PixelChange[] {
   return collectStrokeChanges(
     path,
@@ -219,6 +327,9 @@ export function rectToolChanges(
     tool,
     color,
     symmetryX,
+    symmetryY,
+    brushSize,
+    brushOpacity,
   );
 }
 
@@ -409,7 +520,19 @@ export function ellipseToolChanges(
   color: string,
   filled: boolean,
   symmetryX: boolean,
+  symmetryY = false,
+  brushSize = 1,
+  brushOpacity = 1,
 ): PixelChange[] {
   const pts = filled ? ellipseFillPixels(x0, y0, x1, y1) : ellipsePixels(x0, y0, x1, y1);
-  return collectStrokeChanges(path, pts, "pencil", color, symmetryX);
+  return collectStrokeChanges(
+    path,
+    pts,
+    "pencil",
+    color,
+    symmetryX,
+    symmetryY,
+    brushSize,
+    brushOpacity,
+  );
 }

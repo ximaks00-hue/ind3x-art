@@ -1,11 +1,14 @@
+use specta::Type;
 use thiserror::Error;
 
-#[derive(Debug, Error)]
+#[derive(Debug, Error, Type)]
 pub enum CoreError {
     #[error("I/O error: {0}")]
+    #[specta(skip)]
     Io(#[from] std::io::Error),
 
     #[error("cache error: {0}")]
+    #[specta(skip)]
     Cache(#[from] sled::Error),
 
     #[error("archive error: {0}")]
@@ -14,11 +17,23 @@ pub enum CoreError {
     #[error("operation cancelled")]
     Cancelled,
 
+    #[error("project not found")]
+    ProjectNotFound,
+
+    #[error("asset not found: {0}")]
+    AssetNotFound(String),
+
+    #[error("model not found: {0}")]
+    ModelNotFound(String),
+
+    #[error("invalid pack: {0}")]
+    InvalidPack(String),
+
     #[error("internal error: {0}")]
     Internal(String),
 }
 
-#[derive(Debug, serde::Serialize)]
+#[derive(Debug, serde::Serialize, Type)]
 pub struct CoreErrorPayload {
     pub code: String,
     pub message: String,
@@ -32,6 +47,10 @@ impl CoreError {
                 CoreError::Cache(_) => "cache",
                 CoreError::Archive(_) => "archive",
                 CoreError::Cancelled => "cancelled",
+                CoreError::ProjectNotFound => "projectNotFound",
+                CoreError::AssetNotFound(_) => "assetNotFound",
+                CoreError::ModelNotFound(_) => "modelNotFound",
+                CoreError::InvalidPack(_) => "invalidPack",
                 CoreError::Internal(_) => "internal",
             }
             .to_string(),

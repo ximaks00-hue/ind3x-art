@@ -12,6 +12,30 @@ use crate::model::types::{
 };
 use crate::resolve::ModelRegistry;
 
+pub fn compile_texture_preview(
+    texture_path: &str,
+    registry: &ModelRegistry<'_>,
+) -> CoreResult<RenderableModel> {
+    let mut texture_refs = HashMap::new();
+    texture_refs.insert("layer0".to_string(), texture_path.to_string());
+
+    let mut texture_meta = HashMap::new();
+    if let Ok(Some(meta)) = registry.texture_meta_for_path(texture_path) {
+        texture_meta.insert(texture_path.to_string(), meta);
+    }
+
+    Ok(RenderableModel {
+        kind: RenderableKind::ItemGenerated,
+        cuboids: vec![],
+        texture_refs,
+        texture_meta,
+        model_rotation: ModelRotation::default(),
+        display: HashMap::new(),
+        ambient_occlusion: true,
+        model_id: format!("texture:{texture_path}"),
+    })
+}
+
 pub fn compile_renderable(
     resolved: &ResolvedModel,
     namespace: &str,
@@ -21,6 +45,8 @@ pub fn compile_renderable(
 ) -> CoreResult<RenderableModel> {
     let kind = if resolved.is_item_generated {
         RenderableKind::ItemGenerated
+    } else if resolved.model_id.contains(":item/") {
+        RenderableKind::ItemModel
     } else {
         RenderableKind::Block
     };
@@ -242,11 +268,12 @@ pub fn list_variant_keys(blockstate: &crate::model::types::RawBlockstate) -> Vec
                 y: model.y,
                 z: model.z,
                 uvlock: model.uvlock,
+                weight: None,
             })
             .collect();
     }
 
-    crate::resolve::collect_variant_models(blockstate)
+    crate::resolve::list_all_variant_models(blockstate)
         .into_iter()
         .map(|(model, key)| VariantKey {
             key,
@@ -255,6 +282,94 @@ pub fn list_variant_keys(blockstate: &crate::model::types::RawBlockstate) -> Vec
             y: model.y,
             z: model.z,
             uvlock: model.uvlock,
+            weight: if model.weight > 1 {
+                Some(model.weight)
+            } else {
+                None
+            },
         })
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::PathBuf;
+
+    use super::{compile_renderable, compile_texture_preview};
+    use crate::model::normalize::PackInfo;
+    use crate::resolve::ModelRegistry;
+    use crate::source::FolderSource;
+
+    fn fixture_root() -> PathBuf {
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../tests/fixtures/simple_pack")
+    }
+
+    #[test]
+    fn compiles_stone_block_from_fixture() {
+        let source = FolderSource::new(&fixture_root()).expect("fixture");
+        let mut cache = std::collections::HashMap::new();
+        let pack = PackInfo::default();
+        let mut registry = ModelRegistry::new(&source, &mut cache, pack);
+        let resolved = registry
+            .resolve_model("minecraft", "block/test_stone")
+            .expect("resolve test_stone");
+        let renderable =
+            compile_renderable(&resolved, "minecraft", None, &pack, &registry).expect("compile");
+        assert_eq!(renderable.kind, crate::dto::RenderableKind::Block);
+        assert!(!renderable.cuboids.is_empty());
+    }
+
+    #[test]
+    fn compiles_custom_item_elements_as_item_model() {
+        let source = FolderSource::new(&fixture_root()).expect("fixture");
+        let mut cache = std::collections::HashMap::new();
+        let pack = PackInfo::default();
+        let mut registry = ModelRegistry::new(&source, &mut cache, pack);
+        if registry
+            .resolve_model("minecraft", "item/generated")
+            .is_ok()
+        {
+            let resolved = registry
+                .resolve_model("minecraft", "block/cross")
+                .expect("cross model");
+            let renderable =
+                compile_renderable(&resolved, "minecraft", None, &pack, &registry).expect("compile");
+            assert_eq!(renderable.kind, crate::dto::RenderableKind::Block);
+            assert!(!renderable.cuboids.is_empty());
+        }
+    }
+
+    #[test]
+    fn texture_preview_has_layer_ref() {
+        let source = FolderSource::new(&fixture_root()).expect("fixture");
+        let mut cache = std::collections::HashMap::new();
+        let pack = PackInfo::default();
+        let registry = ModelRegistry::new(&source, &mut cache, pack);
+        let preview = compile_texture_preview(
+            "assets/minecraft/textures/block/test_stone.png",
+            &registry,
+        )
+        .expect("preview");
+        assert!(preview.texture_refs.contains_key("layer0"));
+    }
+
+    #[test]
+    fn compile_populates_texture_refs_for_stone() {
+        let source = FolderSource::new(&fixture_root()).expect("fixture");
+        let mut cache = std::collections::HashMap::new();
+        let pack = PackInfo::default();
+        let mut registry = ModelRegistry::new(&source, &mut cache, pack);
+        let resolved = registry
+            .resolve_model("minecraft", "block/test_stone")
+            .expect("resolve test_stone");
+        let renderable =
+            compile_renderable(&resolved, "minecraft", None, &pack, &registry).expect("compile");
+        assert!(!renderable.texture_refs.is_empty());
+        assert!(renderable
+            .texture_refs
+            .values()
+            .any(|p| p.contains("test_stone")));
+        assert!(!renderable.cuboids.is_empty());
+        assert!(renderable.cuboids.iter().all(|c| !c.faces.is_empty()));
+    }
 }

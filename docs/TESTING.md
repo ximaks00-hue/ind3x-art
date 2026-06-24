@@ -66,8 +66,22 @@ cargo clippy -- -D warnings
 
 Fixtures: `tests/fixtures/simple_pack`, `multipart_pack`, `legacy_pack`.
 
+## Native WebDriver E2E (optional)
+
+Scaffold tests live in `e2e/native/`. They are **not** part of the default `npm run ci` pipeline unless `TAURI_WEBDRIVER_URL` is configured in GitHub Actions (optional `native-e2e` job).
+
+```powershell
+# With tauri-driver / WebDriver listening on port 4444:
+$env:TAURI_WEBDRIVER_URL = "http://127.0.0.1:4444"
+npm run test:e2e:native
+```
+
+See [tauri-driver](https://github.com/chippers/tauri-driver) for wiring.
+
 ## CI parity
 
 `npm run ci` matches `.github/workflows/ci.yml`:
 
 `typecheck` → `gen:types` → `lint` → `format:check` → `test:unit` → `clippy` → `test` → `build` → `test:e2e` → `test:e2e:integration`
+
+Optional workflow job `native-e2e` runs when `TAURI_WEBDRIVER_URL` is set as a repo variable or secret.

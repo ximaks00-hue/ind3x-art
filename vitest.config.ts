@@ -8,5 +8,21 @@ export default defineConfig({
     include: ["src/**/*.test.{ts,tsx}"],
     globals: false,
     setupFiles: ["src/test/setup.ts"],
+    coverage: {
+      provider: "v8",
+      reporter: ["text", "lcov"],
+      include: [
+        "src/features/editor/paintEngine.ts",
+        "src/features/editor/tools.ts",
+        "src/features/viewer3d/uvMapping.ts",
+        "src/features/editor/textureDocument.ts",
+      ],
+      thresholds: {
+        lines: 70,
+        functions: 70,
+        branches: 65,
+        statements: 70,
+      },
+    },
   },
 });

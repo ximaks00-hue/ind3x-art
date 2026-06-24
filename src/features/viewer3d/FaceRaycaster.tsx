@@ -10,7 +10,14 @@ import {
   type SelectedFace,
   useSelectionStore,
 } from "../../state/selectionStore";
-import { pickAtPixel, paintAtPixel, paintLineOnTexture } from "../editor/paintAt";
+import { usePixelWorker } from "../editor/usePixelWorker";
+import {
+  buildPaintStrokeContext,
+  commitPaintShape,
+  isClickOnlyTool,
+  isShapeTool,
+  paintAtTexturePixel,
+} from "../editor/paintInteraction";
 import { ensureTextureDocument } from "../editor/textureDocument";
 import { isFacePickData } from "./buildMesh";
 import { hitUvToPixel } from "./uvMapping";
@@ -44,13 +51,17 @@ export function FaceRaycaster({ model, handle }: FaceRaycasterProps) {
   const interactionMode = useSelectionStore((s) => s.interactionMode);
   const setSelectedFace = useSelectionStore((s) => s.setSelectedFace);
   const tool = useEditorStore((s) => s.tool);
-  const color = useEditorStore((s) => s.color);
   const setColor = useEditorStore((s) => s.setColor);
+  const pushRecentColor = useEditorStore((s) => s.pushRecentColor);
   const bumpRevision = useEditorStore((s) => s.bumpRevision);
+  const setFaceShapeDraft = useEditorStore((s) => s.setFaceShapeDraft);
+  const pixelWorkerRef = usePixelWorker();
 
   const paintingRef = useRef(false);
-  const lastPixelRef = useRef<[number, number] | null>(null);
-  const lineStartRef = useRef<[number, number] | null>(null);
+  const lastPixelRef = useRef<{ x: number; y: number } | null>(null);
+  const shapeStartRef = useRef<{ x: number; y: number } | null>(null);
+  const activeTextureRef = useRef<string | null>(null);
+  const activePickRef = useRef<FacePickData | null>(null);
 
   useEffect(() => {
     const canvas = gl.domElement;
@@ -78,6 +89,41 @@ export function FaceRaycaster({ model, handle }: FaceRaycasterProps) {
       return null;
     };
 
+    const paintCtx = (texturePath: string) =>
+      buildPaintStrokeContext(handle, texturePath);
+
+    const runPaint = async (
+      texturePath: string,
+      x: number,
+      y: number,
+      isStroke: boolean,
+    ) => {
+      const ctx = paintCtx(texturePath);
+      const last = await paintAtTexturePixel(ctx, x, y, isStroke, lastPixelRef.current, {
+        pixelWorker: pixelWorkerRef.current,
+        callbacks: {
+          onColorPicked: (hex) => {
+            setColor(hex);
+            pushRecentColor(hex);
+          },
+          onComplete: () => bumpRevision(),
+        },
+      });
+      lastPixelRef.current = last;
+    };
+
+    const updateShapeDraft = (pick: FacePickData, pixel: [number, number]) => {
+      const start = shapeStartRef.current;
+      if (!start) return;
+      setFaceShapeDraft({
+        cuboidIndex: pick.cuboidIndex,
+        faceIndex: pick.faceIndex,
+        texturePath: pick.face.texture,
+        start: [start.x, start.y],
+        end: pixel,
+      });
+    };
+
     const onPointerDown = (event: PointerEvent) => {
       if (interactionMode !== "paint" || event.button !== 0) return;
 
@@ -85,13 +131,14 @@ export function FaceRaycaster({ model, handle }: FaceRaycasterProps) {
       if (!result) return;
 
       const { pick, hitU, hitV, pixel } = result;
+      const texturePath = pick.face.texture;
       setSelectedFace(buildSelection(pick, hitU, hitV, pixel));
+      activeTextureRef.current = texturePath;
+      activePickRef.current = pick;
 
       if (tool === "picker") {
-        void ensureTextureDocument(handle, pick.face.texture).then(() => {
-          const picked = pickAtPixel(pick.face.texture, pixel[0], pixel[1]);
-          if (picked) setColor(picked);
-          bumpRevision();
+        void ensureTextureDocument(handle, texturePath).then(() => {
+          void runPaint(texturePath, pixel[0], pixel[1], false);
         });
         return;
       }
@@ -99,83 +146,62 @@ export function FaceRaycaster({ model, handle }: FaceRaycasterProps) {
       paintingRef.current = true;
       lastPixelRef.current = null;
 
-      if (tool === "line") {
-        lineStartRef.current = pixel;
+      if (isShapeTool(tool)) {
+        shapeStartRef.current = { x: pixel[0], y: pixel[1] };
+        updateShapeDraft(pick, pixel);
         return;
       }
 
-      void (async () => {
-        const last = await paintAtPixel(
-          handle,
-          pick.face.texture,
-          pixel[0],
-          pixel[1],
-          tool,
-          color,
-          false,
-          null,
-        );
-        lastPixelRef.current = last;
-        bumpRevision();
-      })();
+      if (isClickOnlyTool(tool)) {
+        void runPaint(texturePath, pixel[0], pixel[1], false);
+        paintingRef.current = false;
+        return;
+      }
 
+      void runPaint(texturePath, pixel[0], pixel[1], false);
       event.stopPropagation();
     };
 
     const onPointerMove = (event: PointerEvent) => {
-      if (
-        interactionMode !== "paint" ||
-        !paintingRef.current ||
-        (event.buttons & 1) === 0
-      ) {
+      if (interactionMode !== "paint" || (event.buttons & 1) === 0) return;
+
+      if (isShapeTool(tool) && shapeStartRef.current) {
+        const result = castHit(event);
+        if (result) updateShapeDraft(result.pick, result.pixel);
         return;
       }
-      if (tool === "fill" || tool === "picker" || tool === "line" || tool === "rect") {
-        return;
-      }
+
+      if (!paintingRef.current || isClickOnlyTool(tool)) return;
 
       const result = castHit(event);
       if (!result) return;
 
       const { pick, pixel } = result;
-      void (async () => {
-        const last = await paintAtPixel(
-          handle,
-          pick.face.texture,
-          pixel[0],
-          pixel[1],
-          tool,
-          color,
-          true,
-          lastPixelRef.current,
-        );
-        lastPixelRef.current = last;
-        bumpRevision();
-      })();
+      void runPaint(pick.face.texture, pixel[0], pixel[1], true);
     };
 
     const endStroke = (event: PointerEvent) => {
-      if (!paintingRef.current) return;
+      const texturePath = activeTextureRef.current;
+      const shapeStart = shapeStartRef.current;
 
-      if (tool === "line" && lineStartRef.current) {
+      if (shapeStart && texturePath && isShapeTool(tool)) {
         const result = castHit(event);
         if (result) {
-          const { pick, pixel } = result;
-          void paintLineOnTexture(
-            handle,
-            pick.face.texture,
-            lineStartRef.current[0],
-            lineStartRef.current[1],
-            pixel[0],
-            pixel[1],
-            color,
-          ).then(() => bumpRevision());
+          const ctx = paintCtx(texturePath);
+          commitPaintShape(ctx, shapeStart, {
+            x: result.pixel[0],
+            y: result.pixel[1],
+          });
+          bumpRevision();
         }
       }
 
       paintingRef.current = false;
       lastPixelRef.current = null;
-      lineStartRef.current = null;
+      shapeStartRef.current = null;
+      activeTextureRef.current = null;
+      activePickRef.current = null;
+      setFaceShapeDraft(null);
     };
 
     canvas.addEventListener("pointerdown", onPointerDown);
@@ -187,6 +213,7 @@ export function FaceRaycaster({ model, handle }: FaceRaycasterProps) {
       canvas.removeEventListener("pointermove", onPointerMove);
       canvas.removeEventListener("pointerup", endStroke);
       canvas.removeEventListener("pointerleave", endStroke);
+      setFaceShapeDraft(null);
     };
   }, [
     camera,
@@ -196,10 +223,12 @@ export function FaceRaycaster({ model, handle }: FaceRaycasterProps) {
     model,
     handle,
     tool,
-    color,
     setSelectedFace,
     setColor,
+    pushRecentColor,
     bumpRevision,
+    setFaceShapeDraft,
+    pixelWorkerRef,
   ]);
 
   return null;

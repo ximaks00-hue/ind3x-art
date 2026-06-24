@@ -110,3 +110,66 @@ fn asset_kind_key(kind: AssetKind) -> &'static str {
         AssetKind::Other => "other",
     }
 }
+
+#[cfg(test)]
+mod query_bench {
+    use std::time::Instant;
+
+    use crate::dto::{AssetFilter, PageReq};
+    use crate::index::classify::classify_path;
+
+    fn make_bench_entries() -> Vec<crate::dto::AssetEntry> {
+        const NAMESPACES: &[&str] = &["minecraft", "create"];
+        (0..5_000)
+            .map(|i| {
+                classify_path(&format!(
+                    "assets/{}/textures/block/tex_{i:05}.png",
+                    NAMESPACES[i % NAMESPACES.len()]
+                ))
+                .expect("classify")
+            })
+            .collect()
+    }
+
+    #[test]
+    fn bench_query_assets_page_200() {
+        let entries = make_bench_entries();
+
+        let mut app = crate::state::AppState::default();
+        let handle = app.alloc_handle().id;
+        app.projects.insert(
+            handle,
+            crate::state::Project {
+                source_path: std::path::PathBuf::from("."),
+                source_kind: crate::dto::SourceKind::Folder,
+                fingerprint: "bench".to_string(),
+                pack_format: None,
+                entries,
+                source: Box::new(
+                    crate::source::FolderSource::new(std::path::Path::new(".")).unwrap(),
+                ),
+                model_cache: std::sync::Mutex::new(std::collections::HashMap::new()),
+                texture_model_index: std::collections::HashMap::new(),
+                save_journal: Vec::new(),
+            },
+        );
+
+        let t = Instant::now();
+        let page = app
+            .query_assets(
+                handle,
+                AssetFilter::default(),
+                PageReq {
+                    offset: 0,
+                    limit: 200,
+                },
+            )
+            .expect("page");
+        let elapsed_ms = t.elapsed().as_millis();
+        assert_eq!(page.entries.len(), 200);
+        assert!(
+            elapsed_ms < 30,
+            "query_assets page 200 took {elapsed_ms} ms — exceeds 30 ms budget"
+        );
+    }
+}

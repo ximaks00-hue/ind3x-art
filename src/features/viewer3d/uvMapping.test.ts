@@ -15,6 +15,7 @@ const face = (uv: [number, number, number, number], rotation = 0): RenderFace =>
   uv,
   rotation,
   tintindex: 0,
+  cullface: null,
 });
 
 describe("blockUvRotationAddition", () => {

@@ -99,6 +99,7 @@ fn entry(namespace: &str, path: &str, kind: AssetKind, display_name: String) -> 
         namespace: namespace.to_string(),
         path: path.to_string(),
         display_name,
+        linked_model_count: None,
     }
 }
 

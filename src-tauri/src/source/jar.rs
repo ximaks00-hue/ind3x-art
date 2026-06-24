@@ -1,6 +1,8 @@
 use std::fs::File;
 use std::io::Read;
 use std::path::{Path, PathBuf};
+use std::sync::Mutex;
+use std::time::SystemTime;
 
 use zip::read::ZipArchive;
 
@@ -10,6 +12,7 @@ use crate::source::{normalize_zip_path, AssetSource};
 
 pub struct JarSource {
     path: PathBuf,
+    archive: Mutex<Option<(SystemTime, ZipArchive<File>)>>,
 }
 
 impl JarSource {
@@ -22,17 +25,46 @@ impl JarSource {
         }
         Ok(Self {
             path: path.to_path_buf(),
+            archive: Mutex::new(None),
         })
+    }
+
+    pub fn invalidate_cache(&self) {
+        if let Ok(mut guard) = self.archive.lock() {
+            *guard = None;
+        }
     }
 
     fn with_archive<T, F>(&self, f: F) -> CoreResult<T>
     where
         F: FnOnce(&mut ZipArchive<File>) -> CoreResult<T>,
     {
-        let file = File::open(&self.path)?;
-        let mut archive = ZipArchive::new(file)
-            .map_err(|e| CoreError::Internal(format!("invalid zip/jar: {e}")))?;
-        f(&mut archive)
+        let meta = std::fs::metadata(&self.path)?;
+        let modified = meta
+            .modified()
+            .unwrap_or(SystemTime::UNIX_EPOCH);
+
+        let mut guard = self
+            .archive
+            .lock()
+            .map_err(|_| CoreError::Internal("jar archive lock poisoned".to_string()))?;
+
+        let needs_reload = guard
+            .as_ref()
+            .map(|(ts, _)| *ts != modified)
+            .unwrap_or(true);
+
+        if needs_reload {
+            let file = File::open(&self.path)?;
+            let archive = ZipArchive::new(file)
+                .map_err(|e| CoreError::Internal(format!("invalid zip/jar: {e}")))?;
+            *guard = Some((modified, archive));
+        }
+
+        let (_, archive) = guard
+            .as_mut()
+            .ok_or_else(|| CoreError::Internal("jar archive unavailable".to_string()))?;
+        f(archive)
     }
 }
 
@@ -67,9 +99,9 @@ impl AssetSource for JarSource {
     fn read(&self, path: &str) -> CoreResult<Vec<u8>> {
         let needle = normalize_zip_path(path);
         self.with_archive(|archive| {
-            let mut file = archive.by_name(&needle).map_err(|_| {
-                CoreError::Internal(format!("zip entry not found: {needle}"))
-            })?;
+            let mut file = archive
+                .by_name(&needle)
+                .map_err(|_| CoreError::Internal(format!("zip entry not found: {needle}")))?;
             let mut buf = Vec::new();
             file.read_to_end(&mut buf)?;
             Ok(buf)

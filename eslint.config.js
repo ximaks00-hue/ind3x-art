@@ -62,6 +62,13 @@ export default [
     },
   },
   {
+    files: ["src/features/viewer3d/FaceShapePreview.tsx"],
+    rules: {
+      // revision is intentionally read via void to bust preview when editor commits
+      "react-hooks/exhaustive-deps": "off",
+    },
+  },
+  {
     files: ["src/features/explorer/ExplorerPanel.tsx"],
     rules: {
       // TanStack Virtual returns unstable function refs by design.
@@ -69,6 +76,13 @@ export default [
     },
   },
   {
-    ignores: ["dist/**", "src-tauri/**", "node_modules/**", "**/*.test.ts", "**/*.test.tsx"],
+    ignores: [
+      "dist/**",
+      "src-tauri/**",
+      "node_modules/**",
+      "**/*.test.ts",
+      "**/*.test.tsx",
+      "src/ipc/bindings.ts",
+    ],
   },
 ];

@@ -95,6 +95,78 @@
   user-select: none;
 }
 
+.headerActions {
+  display: flex;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+}
+
+.miniBtn {
+  font-size: 10px;
+  padding: 2px 6px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-text-muted);
+  cursor: pointer;
+}
+
+.miniBtn:hover {
+  color: var(--color-text);
+  background: var(--color-bg-panel-hover);
+}
+
+.quickSection {
+  padding: var(--space-2) var(--space-4);
+  border-bottom: 1px solid var(--color-border);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.quickRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.quickLabel {
+  font-size: 10px;
+  color: var(--color-text-muted);
+  min-width: 44px;
+}
+
+.quickChip {
+  font-size: 10px;
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-border);
+  background: var(--color-bg-input);
+  color: var(--color-text);
+  cursor: pointer;
+  max-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rowFocused {
+  outline: 1px solid var(--color-accent);
+  outline-offset: -1px;
+}
+
+.warnBadge {
+  flex-shrink: 0;
+  font-size: 10px;
+}
+
+.pinMark {
+  flex-shrink: 0;
+  font-size: 10px;
+  color: var(--color-accent);
+}
+
 .list {
   flex: 1;
   min-height: 0;
@@ -166,6 +238,7 @@
   background: transparent;
   color: var(--color-text-primary);
   text-align: left;
+  transition: background var(--transition-normal);
 }
 
 .row:hover {
@@ -174,6 +247,22 @@
 
 .rowActive {
   background: var(--color-bg-accent-subtle);
+  animation: rowSelectPulse var(--transition-normal) ease;
+}
+
+@keyframes rowSelectPulse {
+  from {
+    background: color-mix(in srgb, var(--color-accent) 28%, var(--color-bg-panel));
+  }
+  to {
+    background: var(--color-bg-accent-subtle);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rowActive {
+    animation: none;
+  }
 }
 
 .kindIcon {
@@ -202,6 +291,16 @@
   font-size: 10px;
   color: var(--color-accent);
   flex-shrink: 0;
+}
+
+.linkBadge {
+  flex-shrink: 0;
+  font-size: 10px;
+  font-weight: 600;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--color-bg-accent-subtle);
+  color: var(--color-accent);
 }
 
 .placeholder {

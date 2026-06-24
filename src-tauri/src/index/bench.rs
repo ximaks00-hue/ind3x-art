@@ -23,7 +23,7 @@ mod tests {
     const TARGET: usize = 30_000;
     const NAMESPACES: &[&str] = &["minecraft", "betterend", "quark", "supplementaries", "create"];
 
-    fn make_fake_paths() -> Vec<PathBuf> {
+    pub(crate) fn make_fake_paths() -> Vec<PathBuf> {
         let kinds = [
             ("assets/{ns}/textures", "png"),
             ("assets/{ns}/models/block", "json"),

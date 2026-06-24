@@ -3,6 +3,7 @@ import { Channel } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
 
 import { clearTextureDocuments } from "../features/editor/textureDocument";
+import { resetThumbnailCache } from "../features/explorer/thumbnailCache";
 import { clearTextureCache } from "../features/viewer3d/textureLoader";
 import { ipc } from "../ipc/client";
 import type { IndexEvent } from "../ipc/types";
@@ -14,12 +15,12 @@ import { useUiStore } from "../state/uiStore";
 export function useProjectSource(onBeforeOpen?: () => void) {
   const [opening, setOpening] = useState(false);
   const handle = useProjectStore((s) => s.handle);
-  const sourcePath = useProjectStore((s) => s.sourcePath);
   const addRecentProject = useSettingsStore((s) => s.addRecentProject);
+  const setLastSessionPath = useSettingsStore((s) => s.setLastSessionPath);
   const clearProject = useProjectStore((s) => s.clearProject);
-  const setProject = useProjectStore((s) => s.setProject);
+  const finishOpen = useProjectStore((s) => s.finishOpen);
+  const bumpQueryRevision = useProjectStore((s) => s.bumpQueryRevision);
   const setHandle = useProjectStore((s) => s.setHandle);
-  const appendAsset = useProjectStore((s) => s.appendAsset);
   const setIndexStatus = useProjectStore((s) => s.setIndexStatus);
   const setIndexProgress = useProjectStore((s) => s.setIndexProgress);
   const setFromCache = useProjectStore((s) => s.setFromCache);
@@ -37,6 +38,7 @@ export function useProjectSource(onBeforeOpen?: () => void) {
         clearProject();
         clearSelection();
         clearTextureDocuments();
+        resetThumbnailCache();
         onBeforeOpen?.();
       }
 
@@ -61,7 +63,6 @@ export function useProjectSource(onBeforeOpen?: () => void) {
             setIndexProgress(0, 0, `${event.path}: ${event.reason}`);
             break;
           case "asset":
-            appendAsset(event.entry);
             break;
         }
       };
@@ -69,13 +70,10 @@ export function useProjectSource(onBeforeOpen?: () => void) {
       try {
         const result = await ipc.openSource(path, onEvent);
         setHandle(result);
-        const page = await ipc.queryAssets(
-          result.handle,
-          {},
-          { offset: 0, limit: 100_000 },
-        );
-        setProject(result, page.entries);
+        finishOpen(result);
+        bumpQueryRevision();
         addRecentProject(result.sourcePath, result.sourceKind);
+        setLastSessionPath(result.sourcePath);
         pushToast(`Opened ${result.entryCount.toLocaleString()} assets`, "success");
         return true;
       } catch {
@@ -94,13 +92,14 @@ export function useProjectSource(onBeforeOpen?: () => void) {
       onBeforeOpen,
       clearProject,
       clearSelection,
-      setProject,
+      finishOpen,
+      bumpQueryRevision,
       setHandle,
-      appendAsset,
       setIndexStatus,
       setIndexProgress,
       setFromCache,
       addRecentProject,
+      setLastSessionPath,
       pushToast,
     ],
   );
@@ -110,6 +109,56 @@ export function useProjectSource(onBeforeOpen?: () => void) {
     let unlistenInvalidated: (() => void) | undefined;
     let reloadPending = false;
 
+    const reindexCurrent = async () => {
+      const currentHandle = useProjectStore.getState().handle;
+      if (!currentHandle) return false;
+
+      setIndexStatus("running");
+      setIndexProgress(0, 1, "reindexing");
+
+      const onEvent = new Channel<IndexEvent>();
+      onEvent.onmessage = (event) => {
+        switch (event.type) {
+          case "started":
+            setIndexProgress(0, event.total, "reindexing");
+            break;
+          case "progress":
+            setIndexProgress(event.scanned, event.total, event.stage);
+            break;
+          case "done":
+            setIndexProgress(100, 100, event.fromCache ? "from cache" : "reindexed");
+            break;
+          case "warning":
+            setIndexProgress(0, 0, `${event.path}: ${event.reason}`);
+            break;
+          default:
+            break;
+        }
+      };
+
+      try {
+        const count = await ipc.reindexProject(currentHandle, onEvent);
+        finishOpen({
+          handle: currentHandle,
+          sourcePath: useProjectStore.getState().sourcePath ?? "",
+          sourceKind: useProjectStore.getState().sourceKind ?? "folder",
+          entryCount: count,
+          fromCache: false,
+          packFormat: null,
+        });
+        bumpQueryRevision();
+        clearTextureCache();
+        pushToast(`Reindexed ${count.toLocaleString()} assets`, "success");
+        return true;
+      } catch {
+        setIndexStatus("error");
+        pushToast("Failed to reindex project", "error");
+        return false;
+      } finally {
+        setIndexStatus("done");
+      }
+    };
+
     void ipc
       .onSourceChanged(({ path }) => {
         if (reloadPending) return;
@@ -117,7 +166,10 @@ export function useProjectSource(onBeforeOpen?: () => void) {
         pushToast(`Source changed: ${path.split(/[\\/]/).pop()} — reloading…`, "info");
         setTimeout(() => {
           reloadPending = false;
-          if (sourcePath) void openSource(sourcePath);
+          const currentHandle = useProjectStore.getState().handle;
+          if (currentHandle) {
+            void reindexCurrent();
+          }
         }, 800);
       })
       .then((fn) => {
@@ -127,6 +179,10 @@ export function useProjectSource(onBeforeOpen?: () => void) {
     void ipc
       .onCacheInvalidated(() => {
         clearTextureCache();
+        const currentHandle = useProjectStore.getState().handle;
+        if (currentHandle) {
+          void ipc.invalidateProjectIndex(currentHandle);
+        }
       })
       .then((fn) => {
         unlistenInvalidated = fn;
@@ -136,7 +192,7 @@ export function useProjectSource(onBeforeOpen?: () => void) {
       unlistenChanged?.();
       unlistenInvalidated?.();
     };
-  }, [sourcePath, pushToast, openSource]);
+  }, [pushToast, finishOpen, bumpQueryRevision, setIndexProgress, setIndexStatus]);
 
   const openJar = useCallback(async () => {
     const selected = await open({
@@ -159,11 +215,21 @@ export function useProjectSource(onBeforeOpen?: () => void) {
     }
   }, [openSource]);
 
+  const openDemoPack = useCallback(async () => {
+    try {
+      const path = await ipc.getSamplePackPath();
+      await openSource(path);
+    } catch {
+      pushToast("Demo pack not found", "error");
+    }
+  }, [openSource, pushToast]);
+
   return {
     opening,
     openSource,
     openJar,
     openFolder,
+    openDemoPack,
     subscribeSourceEvents,
   };
 }

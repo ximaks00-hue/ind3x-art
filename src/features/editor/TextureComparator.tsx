@@ -33,6 +33,7 @@ export function TextureComparator({ handle, selectedFace }: TextureComparatorPro
       texture: selectedFace.texturePath,
       rotation: selectedFace.rotation,
       tintindex: selectedFace.tintindex,
+      cullface: null,
     }),
     [selectedFace],
   );

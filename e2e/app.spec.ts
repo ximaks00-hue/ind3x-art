@@ -8,16 +8,33 @@ import { test, expect } from "@playwright/test";
  */
 
 async function waitForAppShell(page: import("@playwright/test").Page) {
+  await page.addInitScript(() => {
+    localStorage.setItem(
+      "ind3x-art-settings",
+      JSON.stringify({
+        state: {
+          onboardingCompleted: true,
+          sessionCount: 10,
+          dismissedHints: ["explorer-search", "command-palette", "paint-mode", "save"],
+        },
+        version: 0,
+      }),
+    );
+  });
   await page.goto("/");
-  await expect(page.getByText("inD3X Art")).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByText("inD3X Art").first()).toBeVisible({ timeout: 15_000 });
+}
+
+function titleBar(page: import("@playwright/test").Page) {
+  return page.getByRole("banner");
 }
 
 test.describe("App shell", () => {
   test("renders title bar and welcome screen", async ({ page }) => {
     await waitForAppShell(page);
-    await expect(page.getByRole("button", { name: "Open JAR" })).toBeVisible();
+    await expect(titleBar(page).getByRole("button", { name: "Open JAR" })).toBeVisible();
     await expect(
-      page.getByText("Open a JAR mod or resource folder"),
+      page.getByText("Open a mod JAR or resource pack folder"),
     ).toBeVisible();
   });
 
@@ -32,9 +49,9 @@ test.describe("App shell", () => {
     ).toBeVisible();
   });
 
-  test("command palette opens from Commands button", async ({ page }) => {
+  test("command palette opens from title bar button", async ({ page }) => {
     await waitForAppShell(page);
-    await page.getByRole("button", { name: "Commands" }).click();
+    await titleBar(page).getByRole("button", { name: "Open command palette" }).click();
     await expect(
       page.getByRole("searchbox", { name: "Search commands" }),
     ).toBeVisible();
@@ -42,7 +59,7 @@ test.describe("App shell", () => {
 
   test("command palette closes with Escape", async ({ page }) => {
     await waitForAppShell(page);
-    await page.getByRole("button", { name: "Commands" }).click();
+    await titleBar(page).getByRole("button", { name: "Open command palette" }).click();
     const paletteInput = page.getByRole("searchbox", { name: "Search commands" });
     await expect(paletteInput).toBeVisible();
 
@@ -87,10 +104,9 @@ test.describe("Editor panel", () => {
   });
 
   test("tool buttons are present", async ({ page }) => {
-    await expect(page.getByRole("button", { name: "Pencil" })).toBeVisible();
-    await expect(page.getByRole("button", { name: "Eraser" })).toBeVisible();
-    await expect(
-      page.getByRole("button", { name: "Fill", exact: true }),
-    ).toBeVisible();
+    const toolbar = page.getByRole("toolbar", { name: "Drawing tools" });
+    await expect(toolbar.getByRole("button", { name: "Pencil" })).toBeVisible();
+    await expect(toolbar.getByRole("button", { name: "Eraser" })).toBeVisible();
+    await expect(toolbar.getByRole("button", { name: "Fill" })).toBeVisible();
   });
 });

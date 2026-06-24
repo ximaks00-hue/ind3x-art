@@ -1,6 +1,28 @@
 .canvasWrap {
   position: absolute;
   inset: 0;
+  background:
+    radial-gradient(
+      ellipse 80% 60% at 50% 35%,
+      var(--viewer-bg-glow, rgba(99, 140, 255, 0.12)),
+      transparent 70%
+    ),
+    linear-gradient(
+      180deg,
+      var(--viewer-bg-top, #1a1f2b) 0%,
+      var(--viewer-bg-bottom, #12151c) 100%
+    );
+}
+
+.vignette {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: radial-gradient(
+    ellipse 85% 75% at 50% 45%,
+    transparent 55%,
+    color-mix(in srgb, var(--color-bg-base) 35%, transparent) 100%
+  );
 }
 
 .canvasWrap[data-interaction-mode="paint"] {

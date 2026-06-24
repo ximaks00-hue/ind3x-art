@@ -1,4 +1,20 @@
+import {
+  Archive,
+  Command,
+  Contrast,
+  FolderOpen,
+  Focus,
+  Moon,
+  Save,
+  Sun,
+} from "lucide-react";
+
+import { useWindowChrome } from "../../hooks/useWindowChrome";
+import type { Theme } from "../../state/settingsStore";
 import { useSettingsStore } from "../../state/settingsStore";
+import { Icon } from "../icons/Icon";
+import { Button } from "../primitives";
+import { WindowControls } from "../WindowControls/WindowControls";
 import styles from "./TitleBar.module.css";
 
 interface TitleBarProps {
@@ -11,6 +27,18 @@ interface TitleBarProps {
   dirtyCount?: number;
 }
 
+const THEME_ICONS: Record<Theme, typeof Sun> = {
+  dark: Moon,
+  light: Sun,
+  "high-contrast": Contrast,
+};
+
+const THEME_LABELS: Record<Theme, string> = {
+  dark: "Dark theme",
+  light: "Light theme",
+  "high-contrast": "High contrast theme",
+};
+
 export function TitleBar({
   onOpenJar,
   onOpenFolder,
@@ -20,11 +48,14 @@ export function TitleBar({
   saving = false,
   dirtyCount = 0,
 }: TitleBarProps) {
-  const { theme, toggleTheme } = useSettingsStore();
+  useWindowChrome();
+
+  const { theme, cycleTheme, toggleFocusMode, focusMode } = useSettingsStore();
+  const ThemeIcon = THEME_ICONS[theme];
 
   return (
     <div className={styles.bar}>
-      <div className={styles.brand}>
+      <div className={styles.brand} data-tauri-drag-region>
         <span className={styles.logoMark} aria-hidden />
         <div className={styles.brandText}>
           <span className={styles.name}>inD3X Art</span>
@@ -32,48 +63,68 @@ export function TitleBar({
         </div>
       </div>
 
-      <div className={styles.actions}>
-        <button
-          type="button"
-          className={styles.buttonGhost}
+      <div className={styles.actions} data-tour="tour-open">
+        <Button
+          variant="ghost"
+          className={styles.iconAction}
           onClick={onOpenCommands}
           title="Command palette (Ctrl+K)"
+          aria-label="Open command palette"
+          data-tour="hint-commands"
         >
-          Commands
-        </button>
-        <button
-          type="button"
-          className={dirtyCount > 0 ? styles.buttonSave : styles.buttonGhost}
+          <Icon icon={Command} size={16} />
+        </Button>
+        <Button
+          variant={dirtyCount > 0 ? "default" : "ghost"}
+          className={dirtyCount > 0 ? styles.buttonSave : styles.iconAction}
           onClick={onSave}
           disabled={opening || saving || dirtyCount === 0}
           title="Save textures (Ctrl+S)"
+          aria-label={dirtyCount > 0 ? `Save ${dirtyCount} textures` : "Save"}
+          data-tour="tour-save hint-save"
         >
-          {saving ? "Saving…" : dirtyCount > 0 ? `Save (${dirtyCount})` : "Save"}
-        </button>
-        <button
-          type="button"
+          <Icon icon={Save} size={16} />
+          {dirtyCount > 0 ? dirtyCount : null}
+        </Button>
+        <Button
+          variant="primary"
           className={styles.buttonPrimary}
           onClick={onOpenJar}
           disabled={opening || saving}
+          aria-label="Open JAR"
         >
+          <Icon icon={Archive} size={16} />
           {opening ? "Opening…" : "Open JAR"}
-        </button>
-        <button
-          type="button"
-          className={styles.buttonGhost}
+        </Button>
+        <Button
+          variant="ghost"
+          className={styles.iconAction}
           onClick={onOpenFolder}
           disabled={opening || saving}
+          aria-label="Open folder"
         >
-          Open Folder
-        </button>
-        <button
-          type="button"
-          className={styles.buttonGhost}
-          onClick={toggleTheme}
-          aria-label="Toggle theme"
+          <Icon icon={FolderOpen} size={16} />
+          Folder
+        </Button>
+        <Button
+          variant={focusMode ? "default" : "ghost"}
+          className={styles.iconAction}
+          onClick={toggleFocusMode}
+          aria-label="Toggle focus mode"
+          title="Focus mode — viewer + editor only (Ctrl+\\)"
         >
-          {theme === "dark" ? "Light" : "Dark"}
-        </button>
+          <Icon icon={Focus} size={16} />
+        </Button>
+        <Button
+          variant="ghost"
+          className={styles.iconAction}
+          onClick={cycleTheme}
+          aria-label={THEME_LABELS[theme]}
+          title={THEME_LABELS[theme]}
+        >
+          <Icon icon={ThemeIcon} size={16} />
+        </Button>
+        <WindowControls />
       </div>
     </div>
   );

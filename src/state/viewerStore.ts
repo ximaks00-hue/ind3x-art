@@ -1,58 +1,68 @@
 import { create } from "zustand";
 
-import type { TextureMetaInfo } from "../ipc/types";
+import type { TextureMetaInfo, RenderableModel } from "../ipc/types";
+import type { CameraPreset, DisplaySlot } from "../lib/cameraPresets";
+import type { LightingPreset } from "../lib/lightingPresets";
+import { CAMERA_PRESET_HOTKEYS, CAMERA_PRESET_LABELS } from "../lib/cameraPresets";
 
-export type CameraPreset = "free" | "front" | "iso" | "top" | "inventory";
+export type { CameraPreset, DisplaySlot } from "../lib/cameraPresets";
+export type { LightingPreset } from "../lib/lightingPresets";
+export { CAMERA_PRESET_HOTKEYS, CAMERA_PRESET_LABELS };
 
-export type DisplaySlot =
-  | "gui"
-  | "fixed"
-  | "thirdperson_righthand"
-  | "thirdperson_lefthand"
-  | "firstperson_righthand"
-  | "firstperson_lefthand"
-  | "head"
-  | "ground";
+export interface FaceZoomRequest {
+  position: [number, number, number];
+  target: [number, number, number];
+  tick: number;
+}
 
 interface ViewerState {
   cameraPreset: CameraPreset;
   cameraPresetTick: number;
+  cameraResetTick: number;
+  faceZoomRequest: FaceZoomRequest | null;
+  lightingPreset: LightingPreset;
+  showGrid: boolean;
+  showVignette: boolean;
+  showDevOverlay: boolean;
+  uvDebugMode: boolean;
   fps: number;
   displaySlot: DisplaySlot;
-  /** TextureMeta for the currently rendered model (by texture path) */
   activeTextureMeta: Record<string, TextureMetaInfo>;
-  /** VRAM texture/geometry object counts from renderer.info.memory */
+  currentRenderable: RenderableModel | null;
   vramTextures: number;
   vramGeometries: number;
   setCameraPreset: (preset: CameraPreset) => void;
+  resetCamera: () => void;
+  requestFaceZoom: (
+    position: [number, number, number],
+    target: [number, number, number],
+  ) => void;
+  setLightingPreset: (preset: LightingPreset) => void;
+  setShowGrid: (show: boolean) => void;
+  setShowVignette: (show: boolean) => void;
+  setShowDevOverlay: (show: boolean) => void;
+  setUvDebugMode: (enabled: boolean) => void;
   setFps: (fps: number) => void;
   setDisplaySlot: (slot: DisplaySlot) => void;
   setActiveTextureMeta: (meta: Record<string, TextureMetaInfo>) => void;
+  setCurrentRenderable: (model: RenderableModel | null) => void;
   setVram: (textures: number, geometries: number) => void;
 }
 
-export const CAMERA_PRESET_HOTKEYS: Record<string, CameraPreset> = {
-  "1": "iso",
-  "2": "front",
-  "3": "top",
-  "4": "inventory",
-  "5": "free",
-};
-
-export const CAMERA_PRESET_LABELS: Record<CameraPreset, string> = {
-  free: "Free",
-  front: "Front",
-  iso: "Iso",
-  top: "Top",
-  inventory: "GUI",
-};
-
 export const useViewerStore = create<ViewerState>((set) => ({
-  cameraPreset: "free",
+  cameraPreset: "iso",
   cameraPresetTick: 0,
+  cameraResetTick: 0,
+  faceZoomRequest: null,
+  lightingPreset: "studio",
+  showGrid: true,
+  showVignette: true,
+  showDevOverlay: false,
+  uvDebugMode: false,
   fps: 0,
   displaySlot: "gui",
   activeTextureMeta: {},
+  currentRenderable: null,
   vramTextures: 0,
   vramGeometries: 0,
   setCameraPreset: (cameraPreset) =>
@@ -60,8 +70,29 @@ export const useViewerStore = create<ViewerState>((set) => ({
       cameraPreset,
       cameraPresetTick: state.cameraPresetTick + 1,
     })),
+  resetCamera: () =>
+    set((state) => ({
+      cameraPreset: "iso",
+      cameraPresetTick: state.cameraPresetTick + 1,
+      cameraResetTick: state.cameraResetTick + 1,
+      faceZoomRequest: null,
+    })),
+  requestFaceZoom: (position, target) =>
+    set((state) => ({
+      faceZoomRequest: {
+        position,
+        target,
+        tick: (state.faceZoomRequest?.tick ?? 0) + 1,
+      },
+    })),
+  setLightingPreset: (lightingPreset) => set({ lightingPreset }),
+  setShowGrid: (showGrid) => set({ showGrid }),
+  setShowVignette: (showVignette) => set({ showVignette }),
+  setShowDevOverlay: (showDevOverlay) => set({ showDevOverlay }),
+  setUvDebugMode: (uvDebugMode) => set({ uvDebugMode }),
   setFps: (fps) => set({ fps }),
   setDisplaySlot: (displaySlot) => set({ displaySlot }),
   setActiveTextureMeta: (activeTextureMeta) => set({ activeTextureMeta }),
+  setCurrentRenderable: (currentRenderable) => set({ currentRenderable }),
   setVram: (vramTextures, vramGeometries) => set({ vramTextures, vramGeometries }),
 }));

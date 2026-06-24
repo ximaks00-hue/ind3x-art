@@ -20,7 +20,9 @@ pub fn read_pack_info(source: &dyn AssetSource) -> PackInfo {
             if let Ok(b) = source.read("assets/minecraft/pack.mcmeta") {
                 b
             } else {
-                return PackInfo::default();
+                return PackInfo {
+                    pack_format: detect_pack_format_heuristic(source),
+                };
             }
         }
     };
@@ -34,13 +36,32 @@ pub fn read_pack_info(source: &dyn AssetSource) -> PackInfo {
         pack_format: Option<u32>,
     }
 
-    serde_json::from_slice::<Root>(&bytes)
+    let from_mcmeta = serde_json::from_slice::<Root>(&bytes)
         .ok()
         .and_then(|root| root.pack)
-        .map(|pack| PackInfo {
-            pack_format: pack.pack_format,
-        })
-        .unwrap_or_default()
+        .and_then(|pack| pack.pack_format);
+
+    PackInfo {
+        pack_format: from_mcmeta.or_else(|| detect_pack_format_heuristic(source)),
+    }
+}
+
+/// Guess pack format from path layout when `pack.mcmeta` is missing.
+pub fn detect_pack_format_heuristic(source: &dyn AssetSource) -> Option<u32> {
+    let paths = source.list_entries().ok()?;
+    let has_legacy_blocks = paths
+        .iter()
+        .any(|p| p.contains("/textures/blocks/") || p.contains("textures/blocks/"));
+    let has_modern_block = paths
+        .iter()
+        .any(|p| p.contains("/textures/block/") || p.contains("textures/block/"));
+    if has_legacy_blocks && !has_modern_block {
+        Some(3)
+    } else if has_modern_block {
+        Some(12)
+    } else {
+        None
+    }
 }
 
 /// Normalize a resource path to the modern 1.13+ layout when needed.
@@ -58,12 +79,8 @@ pub fn normalize_resource_path(path: &str, pack: &PackInfo) -> String {
 }
 
 /// Normalize a texture reference from model JSON (`block/stone` or legacy `blocks/stone`).
-pub fn normalize_texture_ref(texture_ref: &str, pack: &PackInfo) -> String {
+pub fn normalize_texture_ref(texture_ref: &str, _pack: &PackInfo) -> String {
     if texture_ref.starts_with('#') || texture_ref.contains(':') {
-        return texture_ref.to_string();
-    }
-
-    if !pack.is_legacy() {
         return texture_ref.to_string();
     }
 
@@ -131,6 +148,19 @@ mod tests {
         assert_eq!(
             normalize_texture_ref("block/stone", &pack),
             "block/stone"
+        );
+    }
+
+    #[test]
+    fn normalizes_blocks_prefix_without_pack_mcmeta() {
+        let pack = PackInfo::default();
+        assert_eq!(
+            normalize_texture_ref("blocks/stone", &pack),
+            "block/stone"
+        );
+        assert_eq!(
+            normalize_texture_ref("items/apple", &pack),
+            "item/apple"
         );
     }
 }

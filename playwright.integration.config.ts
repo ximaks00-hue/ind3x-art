@@ -15,14 +15,14 @@ export default defineConfig({
   workers: 1,
   reporter: process.env.CI ? "list" : "html",
   use: {
-    baseURL: "http://localhost:1420",
+    baseURL: "http://localhost:1421",
     trace: "on-first-retry",
   },
   projects: [{ name: "chromium", use: { ...devices["Desktop Chrome"] } }],
   webServer: {
-    command: "npm run dev",
-    url: "http://localhost:1420",
-    reuseExistingServer: !process.env.CI,
+    command: "npm run dev -- --port 1421",
+    url: "http://localhost:1421",
+    reuseExistingServer: false,
     timeout: 120_000,
     env: {
       ...process.env,

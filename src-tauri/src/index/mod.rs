@@ -1,5 +1,8 @@
 pub mod bench;
 pub mod classify;
 pub mod indexer;
+pub mod texture_index;
 
-pub use indexer::{run_index, source_fingerprint};
+pub use indexer::{
+    cache_key_for, invalidate_index, patch_entries_for_paths, run_index, source_fingerprint,
+};

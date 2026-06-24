@@ -53,7 +53,7 @@ impl SourceWatcher {
             source_path.parent().map(Path::to_path_buf).unwrap_or(source_path.clone())
         };
 
-        watcher.watch(&watch_path, RecursiveMode::NonRecursive)?;
+        watcher.watch(&watch_path, RecursiveMode::Recursive)?;
         Ok(Self { _watcher: watcher })
     }
 }

@@ -1,0 +1,78 @@
+.toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-4);
+  border-bottom: 1px solid var(--color-border);
+  background: color-mix(in srgb, var(--color-bg-panel) 75%, transparent);
+}
+
+.group,
+.groupEnd {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.groupEnd {
+  margin-left: auto;
+  flex-direction: row;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.groupLabel {
+  font-size: 9px;
+  font-weight: 650;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+}
+
+.select {
+  max-width: 140px;
+  font-size: 11px;
+}
+
+.muted {
+  font-size: 11px;
+  color: var(--color-text-muted);
+  padding: 4px 0;
+}
+
+.btnRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px;
+}
+
+.btn,
+.btnActive {
+  font-size: 10px !important;
+  min-width: 28px;
+  padding: 2px 6px !important;
+}
+
+.btnActive {
+  color: var(--color-accent) !important;
+  border-color: var(--color-accent) !important;
+}
+
+.modeBadge {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding: 2px 8px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-border);
+  color: var(--color-text-muted);
+  flex-shrink: 0;
+}
+
+.modeBadge[data-mode="paint"] {
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+}

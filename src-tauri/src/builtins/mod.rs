@@ -362,6 +362,97 @@ fn models() -> HashMap<&'static str, RawModel> {
         .expect("builtin block/pressure_plate_up"),
     );
 
+    map.insert(
+        "block/fence_post",
+        serde_json::from_value(serde_json::json!({
+            "textures": { "texture": "#texture", "particle": "#texture" },
+            "elements": [{
+                "from": [6, 0, 6], "to": [10, 16, 10],
+                "faces": {
+                    "down":  { "uv": [6, 0, 10, 4], "texture": "#texture", "cullface": "down" },
+                    "up":    { "uv": [6, 0, 10, 4], "texture": "#texture" },
+                    "north": { "uv": [6, 0, 10, 16], "texture": "#texture" },
+                    "south": { "uv": [6, 0, 10, 16], "texture": "#texture" },
+                    "west":  { "uv": [6, 0, 10, 16], "texture": "#texture" },
+                    "east":  { "uv": [6, 0, 10, 16], "texture": "#texture" }
+                }
+            }]
+        }))
+        .expect("builtin block/fence_post"),
+    );
+
+    map.insert(
+        "block/fence_side",
+        serde_json::from_value(serde_json::json!({
+            "textures": { "texture": "#texture", "particle": "#texture" },
+            "elements": [{
+                "from": [7, 6, 0], "to": [9, 12, 8],
+                "faces": {
+                    "north": { "uv": [7, 6, 9, 12], "texture": "#texture" },
+                    "south": { "uv": [7, 6, 9, 12], "texture": "#texture" },
+                    "west":  { "uv": [7, 6, 9, 12], "texture": "#texture" },
+                    "east":  { "uv": [7, 6, 9, 12], "texture": "#texture" },
+                    "up":    { "uv": [7, 6, 9, 8], "texture": "#texture" },
+                    "down":  { "uv": [7, 6, 9, 8], "texture": "#texture" }
+                }
+            }]
+        }))
+        .expect("builtin block/fence_side"),
+    );
+
+    map.insert(
+        "block/template_fence_gate",
+        serde_json::from_value(serde_json::json!({
+            "textures": { "texture": "#texture", "particle": "#texture" },
+            "elements": [{
+                "from": [0, 0, 7], "to": [16, 16, 9],
+                "faces": {
+                    "north": { "uv": [0, 0, 16, 16], "texture": "#texture" },
+                    "south": { "uv": [0, 0, 16, 16], "texture": "#texture" }
+                }
+            }]
+        }))
+        .expect("builtin block/template_fence_gate"),
+    );
+
+    map.insert(
+        "block/door_top",
+        serde_json::from_value(serde_json::json!({
+            "textures": { "particle": "#top", "top": "#top", "bottom": "#bottom" },
+            "elements": [{
+                "from": [0, 8, 0], "to": [16, 16, 16],
+                "faces": {
+                    "north": { "uv": [0, 0, 16, 8], "texture": "#top" },
+                    "south": { "uv": [0, 0, 16, 8], "texture": "#top" },
+                    "west":  { "uv": [0, 0, 16, 8], "texture": "#top" },
+                    "east":  { "uv": [0, 0, 16, 8], "texture": "#top" },
+                    "up":    { "uv": [0, 0, 16, 16], "texture": "#top", "cullface": "up" },
+                    "down":  { "uv": [0, 0, 16, 16], "texture": "#bottom" }
+                }
+            }]
+        }))
+        .expect("builtin block/door_top"),
+    );
+
+    map.insert(
+        "block/door_bottom",
+        serde_json::from_value(serde_json::json!({
+            "textures": { "particle": "#bottom", "top": "#top", "bottom": "#bottom" },
+            "elements": [{
+                "from": [0, 0, 0], "to": [16, 8, 16],
+                "faces": {
+                    "north": { "uv": [0, 8, 16, 16], "texture": "#bottom" },
+                    "south": { "uv": [0, 8, 16, 16], "texture": "#bottom" },
+                    "west":  { "uv": [0, 8, 16, 16], "texture": "#bottom" },
+                    "east":  { "uv": [0, 8, 16, 16], "texture": "#bottom" },
+                    "up":    { "uv": [0, 0, 16, 16], "texture": "#top" },
+                    "down":  { "uv": [0, 0, 16, 16], "texture": "#bottom", "cullface": "down" }
+                }
+            }]
+        }))
+        .expect("builtin block/door_bottom"),
+    );
+
     map
 }
 

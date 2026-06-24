@@ -1,42 +1,21 @@
 import { useCallback, useEffect, useState } from "react";
 
-import type { RenderableModel } from "../../ipc/types";
+import { ipc } from "../../ipc/client";
+import { useInteractionStore } from "../../state/interactionStore";
 import { useProjectStore } from "../../state/projectStore";
 import { useSelectionStore } from "../../state/selectionStore";
-import {
-  useViewerStore,
-  type CameraPreset,
-  CAMERA_PRESET_LABELS,
-} from "../../state/viewerStore";
+import { useSettingsStore } from "../../state/settingsStore";
+import { useUiStore } from "../../state/uiStore";
+import { useViewerStore } from "../../state/viewerStore";
+import { WelcomeScreen } from "../../ui/WelcomeScreen/WelcomeScreen";
 import { ViewerAssetLoader, type ViewerAssetState } from "./ViewerAssetLoader";
 import { Scene3D } from "./Scene3D";
-import {
-  BIOME_TINT_PALETTES,
-  clearTextureCache,
-  setActiveBiome,
-  getActiveBiome,
-} from "./textureLoader";
+import { ViewerEmptyState } from "./ViewerEmptyState";
+import { ViewerErrorState } from "./ViewerErrorState";
+import { ViewerLoadingState } from "./ViewerLoadingState";
+import { ViewerToolbar } from "./ViewerToolbar";
+import { clearTextureCache } from "./textureLoader";
 import styles from "./ViewerPanel.module.css";
-
-const BIOME_NAMES = Object.keys(BIOME_TINT_PALETTES);
-
-const DISPLAY_SLOTS = [
-  "gui",
-  "fixed",
-  "thirdperson_righthand",
-  "thirdperson_lefthand",
-  "firstperson_righthand",
-  "firstperson_lefthand",
-  "head",
-  "ground",
-] as const;
-
-const CAMERA_PRESETS: { id: CameraPreset; label: string; hotkey: string }[] = [
-  { id: "iso", label: "Iso", hotkey: "1" },
-  { id: "front", label: "Front", hotkey: "2" },
-  { id: "top", label: "Top", hotkey: "3" },
-  { id: "inventory", label: "GUI", hotkey: "4" },
-];
 
 const EMPTY_ASSET_STATE: ViewerAssetState = {
   renderable: null,
@@ -47,188 +26,234 @@ const EMPTY_ASSET_STATE: ViewerAssetState = {
   error: null,
 };
 
-export function ViewerPanel() {
-  const handle = useProjectStore((s) => s.handle);
-  const selectedAssetId = useProjectStore((s) => s.selectedAssetId);
-  const assets = useProjectStore((s) => s.assets);
-  const selected = assets.find((a) => a.id === selectedAssetId);
+interface ViewerPanelProps {
+  onOpenJar?: () => void;
+  onOpenFolder?: () => void;
+  onOpenRecent?: (path: string, kind: "jar" | "folder") => void;
+  onTryDemo?: () => void;
+}
 
-  const interactionMode = useSelectionStore((s) => s.interactionMode);
-  const setCameraPreset = useViewerStore((s) => s.setCameraPreset);
-  const cameraPreset = useViewerStore((s) => s.cameraPreset);
-  const storeDisplaySlot = useViewerStore((s) => s.displaySlot);
-  const setStoreDisplaySlot = useViewerStore((s) => s.setDisplaySlot);
+export function ViewerPanel({
+  onOpenJar,
+  onOpenFolder,
+  onOpenRecent,
+  onTryDemo,
+}: ViewerPanelProps) {
+  const handle = useProjectStore((s) => s.handle);
+  const selected = useProjectStore((s) => s.selectedAsset);
+
+  return (
+    <ViewerPanelBody
+      key={selected?.id ?? "_none"}
+      handle={handle}
+      selected={selected}
+      onOpenJar={onOpenJar}
+      onOpenFolder={onOpenFolder}
+      onOpenRecent={onOpenRecent}
+      onTryDemo={onTryDemo}
+    />
+  );
+}
+
+function ViewerPanelBody({
+  handle,
+  selected,
+  onOpenJar,
+  onOpenFolder,
+  onOpenRecent,
+  onTryDemo,
+}: ViewerPanelProps & {
+  handle: ReturnType<typeof useProjectStore.getState>["handle"];
+  selected: ReturnType<typeof useProjectStore.getState>["selectedAsset"];
+}) {
+  const recentProjects = useSettingsStore((s) => s.recentProjects);
+  const pushToast = useUiStore((s) => s.pushToast);
+  const setInteractionMode = useSelectionStore((s) => s.setInteractionMode);
+  const setComparatorMode = useInteractionStore((s) => s.setComparatorMode);
+
+  const showGrid = useViewerStore((s) => s.showGrid);
+  const setShowGrid = useViewerStore((s) => s.setShowGrid);
+  const setShowVignette = useViewerStore((s) => s.setShowVignette);
+  const setLightingPreset = useViewerStore((s) => s.setLightingPreset);
+  const setShowDevOverlay = useViewerStore((s) => s.setShowDevOverlay);
+  const resetCamera = useViewerStore((s) => s.resetCamera);
+  const setCurrentRenderable = useViewerStore((s) => s.setCurrentRenderable);
+
+  const settingsLighting = useSettingsStore((s) => s.viewerLightingPreset);
+  const settingsGrid = useSettingsStore((s) => s.viewerShowGrid);
+  const settingsVignette = useSettingsStore((s) => s.viewerShowVignette);
+  const settingsDevOverlay = useSettingsStore((s) => s.viewerShowDevOverlay);
+
+  const comparatorMode = useInteractionStore((s) => s.comparatorMode);
+  const viewerBeforeModel = useInteractionStore((s) => s.viewerBeforeModel);
+
+  const [biome, setBiome] = useState("plains");
+  const [assetState, setAssetState] = useState<ViewerAssetState>(EMPTY_ASSET_STATE);
+
+  useEffect(() => {
+    resetCamera();
+    setCurrentRenderable(null);
+  }, [resetCamera, setCurrentRenderable]);
+
+  useEffect(() => {
+    setLightingPreset(settingsLighting);
+    setShowGrid(settingsGrid);
+    setShowVignette(settingsVignette);
+    setShowDevOverlay(settingsDevOverlay);
+  }, [
+    settingsLighting,
+    settingsGrid,
+    settingsVignette,
+    settingsDevOverlay,
+    setLightingPreset,
+    setShowGrid,
+    setShowVignette,
+    setShowDevOverlay,
+  ]);
 
   const [variantPick, setVariantPick] = useState<{
     assetId: string;
     key: string;
   } | null>(null);
-  const [biome, setBiome] = useState(getActiveBiome());
-  const [comparatorEnabled, setComparatorEnabled] = useState(false);
-  const [beforeModel, setBeforeModel] = useState<RenderableModel | null>(null);
-  const [assetState, setAssetState] = useState<ViewerAssetState>(EMPTY_ASSET_STATE);
+  const [linkedModelPick, setLinkedModelPick] = useState<{
+    assetId: string;
+    path: string;
+  } | null>(null);
 
-  const variantOverride =
-    selected && variantPick?.assetId === selected.id ? variantPick.key : undefined;
+  const variantOverride = variantPick?.key;
 
-  const onLoaded = useCallback((state: ViewerAssetState) => {
-    setAssetState(state);
-  }, []);
+  const { renderable, linkedModels, variants, variantKey, loading, error } = assetState;
+
+  const linkedModelOverride =
+    linkedModelPick?.path ??
+    (selected?.kind === "texture" && linkedModels.length >= 3
+      ? linkedModels[0]?.path
+      : undefined);
+
+  const onLoaded = useCallback(
+    (state: ViewerAssetState) => {
+      setAssetState(state);
+      setCurrentRenderable(state.renderable);
+    },
+    [setCurrentRenderable],
+  );
 
   useEffect(() => {
     return () => {
       clearTextureCache();
+      setCurrentRenderable(null);
     };
-  }, []);
+  }, [setCurrentRenderable]);
 
   useEffect(() => {
     if (!handle) clearTextureCache();
   }, [handle]);
 
-  const { renderable, linkedModels, variants, variantKey, loading, error } = assetState;
-
   const faceCount = renderable?.cuboids.reduce((n, c) => n + c.faces.length, 0) ?? 0;
-
   const animatedCount = renderable
     ? Object.values(renderable.textureMeta).filter((m) => m.animation).length
     : 0;
 
   const loaderKey =
-    selected && handle ? `${handle.id}:${selected.id}:${variantOverride ?? ""}` : "idle";
+    selected && handle
+      ? `${handle.id}:${selected.id}:${variantOverride ?? ""}:${linkedModelOverride ?? ""}`
+      : "idle";
+
+  const linkedSelectValue = linkedModelPick?.path ?? linkedModels[0]?.path ?? "";
+
+  const handleShowFlatPreview = useCallback(() => {
+    setInteractionMode("paint");
+    setComparatorMode("2d");
+    pushToast("Switched to 2D flat compare — pick a face to preview", "info");
+  }, [pushToast, setComparatorMode, setInteractionMode]);
+
+  const handlePickModel = useCallback(() => {
+    if (linkedModels.length > 0) {
+      setLinkedModelPick({ assetId: selected!.id, path: linkedModels[0]!.path });
+      pushToast("Try another linked model from the toolbar picker", "info");
+    }
+  }, [linkedModels, pushToast, selected]);
+
+  const handleReportIssue = useCallback(() => {
+    void ipc.revealLogDir();
+  }, []);
 
   return (
-    <div className={styles.panel}>
+    <div className={styles.panel} data-tour="tour-viewer hint-viewer">
       {selected && handle && (
         <ViewerAssetLoader
           key={loaderKey}
           handle={handle}
           selected={selected}
           variantKey={variantOverride}
+          linkedModelPath={linkedModelOverride}
           onLoaded={onLoaded}
         />
       )}
-      <div className={styles.toolbar}>
+
+      <div className={styles.header}>
         <span className={styles.badge}>3D Viewer</span>
         <span className={styles.hint}>
           {selected ? selected.displayName : "No selection"}
         </span>
-        <div className={styles.toolbarActions}>
-          {variants.length > 1 && selected && (
-            <select
-              className={styles.variantSelect}
-              value={variantKey ?? ""}
-              aria-label="Block variant"
-              onChange={(e) =>
-                setVariantPick({ assetId: selected.id, key: e.target.value })
-              }
-            >
-              {variants.map((variant) => (
-                <option key={variant.key} value={variant.key}>
-                  {variant.key}
-                </option>
-              ))}
-            </select>
-          )}
-          <select
-            className={styles.variantSelect}
-            value={biome}
-            aria-label="Biome tint"
-            title="Biome tint palette"
-            onChange={(e) => {
-              setBiome(e.target.value);
-              setActiveBiome(e.target.value);
-              clearTextureCache();
-            }}
-          >
-            {BIOME_NAMES.map((b) => (
-              <option key={b} value={b}>
-                {b}
-              </option>
-            ))}
-          </select>
-          {renderable && Object.keys(renderable.display).length > 0 && (
-            <select
-              className={styles.variantSelect}
-              value={storeDisplaySlot}
-              aria-label="Display slot"
-              title="Item display slot"
-              onChange={(e) =>
-                setStoreDisplaySlot(e.target.value as typeof storeDisplaySlot)
-              }
-            >
-              {DISPLAY_SLOTS.filter((s) => renderable.display[s]).map((s) => (
-                <option key={s} value={s}>
-                  {s}
-                </option>
-              ))}
-            </select>
-          )}
-          <div className={styles.cameraPresets}>
-            {CAMERA_PRESETS.map((preset) => (
-              <button
-                key={preset.id}
-                type="button"
-                className={styles.presetBtn}
-                data-active={cameraPreset === preset.id}
-                onClick={() => setCameraPreset(preset.id)}
-                title={`${CAMERA_PRESET_LABELS[preset.id]} (${preset.hotkey})`}
-              >
-                {preset.label}
-                <span className={styles.presetHotkey}>{preset.hotkey}</span>
-              </button>
-            ))}
-            <button
-              type="button"
-              className={styles.presetBtn}
-              data-active={cameraPreset === "free"}
-              onClick={() => setCameraPreset("free")}
-              title="Free camera (5)"
-            >
-              Free
-              <span className={styles.presetHotkey}>5</span>
-            </button>
-          </div>
-          <button
-            type="button"
-            className={styles.presetBtn}
-            data-active={comparatorEnabled}
-            title="3D before/after comparator"
-            onClick={() => {
-              if (!comparatorEnabled && renderable) {
-                setBeforeModel(renderable);
-              }
-              setComparatorEnabled((v) => !v);
-            }}
-          >
-            Compare
-          </button>
-          <span className={styles.modeBadge} data-mode={interactionMode}>
-            {interactionMode === "orbit" ? "Orbit" : "Paint"}
-          </span>
-        </div>
       </div>
+
+      <ViewerToolbar
+        selected={selected}
+        renderable={renderable}
+        variants={variants}
+        variantKey={variantKey}
+        linkedModels={linkedModels}
+        linkedModelPath={linkedSelectValue}
+        biome={biome}
+        onVariantChange={(key) =>
+          selected && setVariantPick({ assetId: selected.id, key })
+        }
+        onLinkedModelChange={(path) =>
+          selected && setLinkedModelPick({ assetId: selected.id, path })
+        }
+        onBiomeChange={setBiome}
+      />
+
       <div className={styles.stage}>
-        <div className={styles.grid} aria-hidden />
-        {!selected ? (
-          <div className={styles.message}>
-            <p>Select an asset in the explorer to preview its in-game model.</p>
-          </div>
+        {showGrid && <div className={styles.grid} aria-hidden />}
+        {!handle ? (
+          <WelcomeScreen
+            variant="hero"
+            recentProjects={recentProjects}
+            onOpenJar={() => onOpenJar?.()}
+            onOpenFolder={() => onOpenFolder?.()}
+            onOpenRecent={onOpenRecent}
+            onTryDemo={onTryDemo}
+          />
+        ) : !selected ? (
+          <ViewerEmptyState
+            onOpenJar={() => onOpenJar?.()}
+            onOpenFolder={() => onOpenFolder?.()}
+          />
         ) : loading ? (
-          <div className={styles.message}>
-            <p>Resolving model…</p>
-          </div>
+          <ViewerLoadingState />
         ) : error ? (
-          <div className={styles.message}>
-            <p className={styles.selectedTitle}>{selected.displayName}</p>
-            <p className={styles.error}>{error}</p>
-          </div>
+          <ViewerErrorState
+            title={selected.displayName}
+            error={error}
+            isTexture={selected.kind === "texture"}
+            hasLinkedModels={linkedModels.length > 0}
+            onShowFlatPreview={
+              selected.kind === "texture" || selected.kind === "blockModel"
+                ? handleShowFlatPreview
+                : undefined
+            }
+            onPickModel={linkedModels.length > 0 ? handlePickModel : undefined}
+            onReportIssue={handleReportIssue}
+          />
         ) : renderable && handle ? (
           <>
-            {comparatorEnabled && beforeModel ? (
+            {comparatorMode === "3d" && viewerBeforeModel ? (
               <div className={styles.comparator3d}>
                 <div className={styles.comparatorPane}>
                   <span className={styles.comparatorLabel}>Before</span>
-                  <Scene3D model={beforeModel} handle={handle} />
+                  <Scene3D model={viewerBeforeModel} handle={handle} />
                 </div>
                 <div className={styles.comparatorDivider} />
                 <div className={styles.comparatorPane}>
@@ -253,6 +278,7 @@ export function ViewerPanel() {
                 <p className={styles.linkedHint}>
                   {linkedModels.length} linked model
                   {linkedModels.length === 1 ? "" : "s"}
+                  {linkedModels.length >= 3 ? " · use Model picker" : ""}
                 </p>
               )}
             </div>

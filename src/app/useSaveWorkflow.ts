@@ -6,6 +6,7 @@ import { restoreLatestBackup, saveDirtyTextures } from "../features/save/saveTex
 import type { SaveDialogSubmit } from "../features/save/SaveDialog";
 import { useDirtyTextureCount } from "../features/save/useDirtyTextures";
 import type { SaveOptions } from "../ipc/types";
+import { useInteractionStore } from "../state/interactionStore";
 import { useProjectStore } from "../state/projectStore";
 import { useUiStore } from "../state/uiStore";
 
@@ -20,6 +21,7 @@ export function useSaveWorkflow({
   const sourcePath = useProjectStore((s) => s.sourcePath);
   const dirtyCount = useDirtyTextureCount();
   const pushToast = useUiStore((s) => s.pushToast);
+  const triggerSaveFlash = useUiStore((s) => s.triggerSaveFlash);
 
   const [saving, setSaving] = useState(false);
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
@@ -42,6 +44,8 @@ export function useSaveWorkflow({
           const message = `Saved ${result.savedCount} texture(s)${backup}`;
           setSaveMessage(message);
           pushToast(`Saved ${result.savedCount} texture(s)`, "success");
+          triggerSaveFlash();
+          useInteractionStore.getState().captureCompareBeforeFromSave();
         }
       } catch (error) {
         const message = error instanceof Error ? error.message : "save failed";
@@ -51,7 +55,7 @@ export function useSaveWorkflow({
         setSaving(false);
       }
     },
-    [handle, dirtyCount, saving, pushToast],
+    [handle, dirtyCount, saving, pushToast, triggerSaveFlash],
   );
 
   const handleSave = useCallback(async () => {

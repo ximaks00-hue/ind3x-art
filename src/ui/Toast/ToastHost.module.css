@@ -11,7 +11,6 @@
 .toast {
   display: flex;
   align-items: flex-start;
-  justify-content: space-between;
   gap: var(--space-3);
   padding: var(--space-3) var(--space-4);
   border-radius: var(--radius-md);
@@ -20,21 +19,82 @@
   box-shadow: var(--shadow-md);
   font-size: 12px;
   color: var(--color-text-primary);
+  animation: toastSlideIn var(--transition-normal) ease;
+}
+
+@keyframes toastSlideIn {
+  from {
+    opacity: 0;
+    transform: translateX(16px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+.iconWrap {
+  flex-shrink: 0;
+  display: grid;
+  place-items: center;
+  margin-top: 1px;
+}
+
+.success .iconWrap {
+  color: var(--color-success);
+}
+
+.error .iconWrap {
+  color: var(--color-danger);
+}
+
+.info .iconWrap {
+  color: var(--color-accent);
 }
 
 .success {
   border-color: color-mix(in srgb, var(--color-success) 40%, var(--color-border));
+  background: color-mix(
+    in srgb,
+    var(--color-bg-success-subtle) 50%,
+    var(--color-bg-panel)
+  );
 }
 
 .error {
   border-color: color-mix(in srgb, var(--color-danger) 40%, var(--color-border));
 }
 
+.message {
+  flex: 1;
+  min-width: 0;
+  line-height: 1.45;
+}
+
 .dismiss {
+  flex-shrink: 0;
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
   border: none;
+  border-radius: var(--radius-sm);
   background: transparent;
   color: var(--color-text-muted);
-  font-size: 16px;
-  line-height: 1;
   padding: 0;
+}
+
+.dismiss:hover {
+  background: var(--color-bg-panel-hover);
+  color: var(--color-text-primary);
+}
+
+.dismiss:active:not(:disabled) {
+  transform: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .toast {
+    animation: none;
+  }
 }

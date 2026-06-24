@@ -25,6 +25,19 @@
   image-rendering: pixelated;
 }
 
+.fadeIn {
+  animation: thumbFade 180ms ease-out;
+}
+
+@keyframes thumbFade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
 .placeholder {
   display: block;
   width: 100%;

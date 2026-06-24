@@ -22,11 +22,16 @@ jobs:
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
+        with:
+          components: llvm-tools-preview
 
       - name: Rust cache
         uses: swatinem/rust-cache@v2
         with:
           workspaces: src-tauri
+
+      - name: Install cargo-llvm-cov
+        uses: taiki-e/install-action@cargo-llvm-cov
 
       - name: Install dependencies
         run: npm ci
@@ -38,13 +43,23 @@ jobs:
         run: npm run gen:types
 
       - name: Verify generated types match committed export
-        run: git diff --exit-code src/ipc/generated.ts
+        run: git diff --exit-code src/ipc/bindings.ts
 
       - name: ESLint
         run: npm run lint
 
-      - name: Unit tests (Vitest)
-        run: npm run test:unit
+      - name: Unit tests with coverage (Vitest)
+        run: npm run test:unit:coverage
+
+      - name: Upload frontend coverage (Codecov)
+        if: env.CODECOV_TOKEN != ''
+        uses: codecov/codecov-action@v4
+        with:
+          files: coverage/lcov.info
+          flags: frontend
+          fail_ci_if_error: false
+        env:
+          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
 
       - name: Prettier check
         run: npm run format:check
@@ -57,14 +72,55 @@ jobs:
         run: cargo test
         working-directory: src-tauri
 
+      - name: Rust coverage (llvm-cov)
+        run: cargo llvm-cov --lcov --output-path lcov-rust.info
+        working-directory: src-tauri
+
+      - name: Upload Rust coverage (Codecov)
+        if: env.CODECOV_TOKEN != ''
+        uses: codecov/codecov-action@v4
+        with:
+          files: src-tauri/lcov-rust.info
+          flags: rust
+          fail_ci_if_error: false
+        env:
+          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+
       - name: Frontend build
         run: npm run build
+
+      - name: Bundle size budget (main chunk gzip)
+        run: npm run check:bundle-size
 
       - name: Install Playwright browsers
         run: npx playwright install chromium
 
-      - name: E2E tests
+      - name: E2E tests (smoke + visual)
         run: npm run test:e2e
 
       - name: E2E integration (fixture + mock IPC)
         run: npm run test:e2e:integration
+
+  native-e2e:
+    if: ${{ vars.TAURI_WEBDRIVER_URL != '' }}
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Playwright browsers
+        run: npx playwright install chromium
+
+      - name: Native WebDriver E2E
+        env:
+          TAURI_WEBDRIVER_URL: ${{ vars.TAURI_WEBDRIVER_URL || secrets.TAURI_WEBDRIVER_URL }}
+        run: npm run test:e2e:native

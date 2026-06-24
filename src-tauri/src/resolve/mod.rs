@@ -32,6 +32,10 @@ impl<'a> ModelRegistry<'a> {
         }
     }
 
+    pub fn pack(&self) -> &PackInfo {
+        &self.pack
+    }
+
     pub fn resolve_model(&mut self, namespace: &str, model_path: &str) -> CoreResult<ResolvedModel> {
         let model_path = normalize_model_path(model_path, &self.pack);
         let model_id = format!("{namespace}:{model_path}");
@@ -184,11 +188,11 @@ pub fn collect_variant_models(blockstate: &RawBlockstate) -> Vec<(RawVariantMode
             match value {
                 VariantValue::Single(model) => out.push((model.clone(), key.clone())),
                 VariantValue::Multiple(models) => {
-                    // Select one model by weighted random; use a stable hash-based seed so
-                    // the same blockstate always renders consistently (no rand dependency).
                     let total_weight: u32 = models.iter().map(|m| m.weight.max(1)).sum();
-                    let hash_seed = key.bytes().fold(0u32, |acc, b| acc.wrapping_mul(31).wrapping_add(b as u32));
-                    let pick = hash_seed % total_weight;
+                    let hash_seed = key
+                        .bytes()
+                        .fold(0u32, |acc, b| acc.wrapping_mul(31).wrapping_add(b as u32));
+                    let pick = hash_seed % total_weight.max(1);
                     let mut cumulative = 0u32;
                     let mut chosen = &models[0];
                     for m in models {
@@ -212,14 +216,45 @@ pub fn collect_variant_models(blockstate: &RawBlockstate) -> Vec<(RawVariantMode
     out
 }
 
+/// All variant keys for UI (expands weighted multiples into separate preview options).
+pub fn list_all_variant_models(blockstate: &RawBlockstate) -> Vec<(RawVariantModel, String)> {
+    let mut out = Vec::new();
+
+    if !blockstate.variants.is_empty() {
+        for (key, value) in &blockstate.variants {
+            match value {
+                VariantValue::Single(model) => out.push((model.clone(), key.clone())),
+                VariantValue::Multiple(models) => {
+                    for (idx, model) in models.iter().enumerate() {
+                        let suffix = if models.len() > 1 {
+                            format!("{key}#{idx}")
+                        } else {
+                            key.clone()
+                        };
+                        out.push((model.clone(), suffix));
+                    }
+                }
+            }
+        }
+        return out;
+    }
+
+    if blockstate.multipart.is_some() {
+        return crate::model::multipart::multipart_variant_keys(blockstate);
+    }
+
+    out
+}
+
 pub fn find_models_for_texture(
     registry: &mut ModelRegistry<'_>,
     entries: &[crate::dto::AssetEntry],
+    texture_asset_path: &str,
     texture_stem: &str,
-    texture_namespace: &str,
 ) -> CoreResult<Vec<ModelRefInfo>> {
     let mut results = Vec::new();
     let mut seen = HashSet::new();
+    let pack = *registry.pack();
 
     for entry in entries {
         match entry.kind {
@@ -228,7 +263,8 @@ pub fn find_models_for_texture(
                     crate::model::types::model_id_from_asset_path(&entry.path)
                 {
                     if let Ok(resolved) = registry.resolve_model(&ns, &model_path) {
-                        if resolved.references_texture(&ns, texture_stem) {
+                        if resolved.references_texture(&ns, texture_stem, texture_asset_path, &pack)
+                        {
                             let id = format!("{ns}:{model_path}");
                             if seen.insert(id.clone()) {
                                 results.push(ModelRefInfo {
@@ -250,7 +286,12 @@ pub fn find_models_for_texture(
                         for (variant, key) in variants {
                             let (m_ns, m_path) = normalize_model_ref(&variant.model, &ns);
                             if let Ok(resolved) = registry.resolve_model(&m_ns, &m_path) {
-                                if resolved.references_texture(texture_namespace, texture_stem) {
+                                if resolved.references_texture(
+                                    &m_ns,
+                                    texture_stem,
+                                    texture_asset_path,
+                                    &pack,
+                                ) {
                                     let id = format!("{m_ns}:{m_path}");
                                     if seen.insert(id.clone()) {
                                         results.push(ModelRefInfo {
@@ -324,7 +365,7 @@ mod tests {
         let resolved = registry
             .resolve_model("minecraft", "block/test_stone")
             .expect("resolve");
-        let paths = resolved.texture_paths("minecraft");
+        let paths = resolved.texture_paths("minecraft", &PackInfo::default());
         assert!(paths.iter().any(|p| p.ends_with("test_stone.png")));
     }
 
@@ -334,12 +375,81 @@ mod tests {
         let source = FolderSource::new(&root).expect("folder");
         let pack = crate::model::normalize::read_pack_info(&source);
         let mut cache = std::collections::HashMap::new();
-        let mut registry = ModelRegistry::new(&source, &mut cache, pack);
+        let mut registry = ModelRegistry::new(&source, &mut cache, pack.clone());
         let resolved = registry
             .resolve_model("minecraft", "block/legacy_stone")
             .expect("resolve");
-        let paths = resolved.texture_paths("minecraft");
+        let paths = resolved.texture_paths("minecraft", &pack);
         assert!(paths.iter().any(|p| p.contains("legacy_stone.png")));
+    }
+
+    #[test]
+    fn finds_models_in_simple_pack() {
+        use super::find_models_for_texture;
+        use crate::index::classify::classify_path;
+        use crate::model::types::texture_stem_from_entry_path;
+
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../tests/fixtures/simple_pack");
+        let source = FolderSource::new(&root).expect("folder");
+        let mut cache = std::collections::HashMap::new();
+        let mut registry = ModelRegistry::new(&source, &mut cache, PackInfo::default());
+        let texture_path = "assets/minecraft/textures/block/test_stone.png";
+        let model_entry = classify_path("assets/minecraft/models/block/test_stone.json").unwrap();
+        let entries = vec![model_entry];
+        let stem = texture_stem_from_entry_path(texture_path);
+        let models = find_models_for_texture(&mut registry, &entries, texture_path, &stem)
+            .expect("find");
+        assert_eq!(models.len(), 1);
+        assert!(models[0].model_id.contains("test_stone"));
+    }
+
+    #[test]
+    fn finds_models_with_blocks_texture_alias() {
+        use super::find_models_for_texture;
+        use crate::dto::AssetKind;
+        use crate::index::classify::classify_path;
+        use crate::model::types::texture_stem_from_entry_path;
+
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../tests/fixtures/simple_pack");
+        let source = FolderSource::new(&root).expect("folder");
+        let mut cache = std::collections::HashMap::new();
+        let mut registry = ModelRegistry::new(&source, &mut cache, PackInfo::default());
+        let texture_path = "assets/minecraft/textures/block/test_stone.png";
+        let model_entry =
+            classify_path("assets/minecraft/models/block/test_stone_blocks_ref.json").unwrap();
+        assert_eq!(model_entry.kind, AssetKind::BlockModel);
+        let entries = vec![model_entry];
+        let stem = texture_stem_from_entry_path(texture_path);
+        let models = find_models_for_texture(&mut registry, &entries, texture_path, &stem)
+            .expect("find");
+        assert_eq!(models.len(), 1);
+    }
+
+    #[test]
+    fn finds_models_for_legacy_texture_path() {
+        use super::find_models_for_texture;
+        use crate::dto::{AssetEntry, AssetKind};
+        use crate::model::types::texture_stem_from_entry_path;
+
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../tests/fixtures/legacy_pack");
+        let source = FolderSource::new(&root).expect("folder");
+        let pack = crate::model::normalize::read_pack_info(&source);
+        let mut cache = std::collections::HashMap::new();
+        let mut registry = ModelRegistry::new(&source, &mut cache, pack);
+        let texture_path = "assets/minecraft/textures/block/legacy_stone.png";
+        let entries = vec![AssetEntry {
+            id: "minecraft:assets/minecraft/models/block/legacy_stone.json".to_string(),
+            kind: AssetKind::BlockModel,
+            namespace: "minecraft".to_string(),
+            path: "assets/minecraft/models/block/legacy_stone.json".to_string(),
+            display_name: "legacy_stone".to_string(),
+            linked_model_count: None,
+        }];
+        let stem = texture_stem_from_entry_path(texture_path);
+        let models = find_models_for_texture(&mut registry, &entries, texture_path, &stem)
+            .expect("find");
+        assert_eq!(models.len(), 1);
+        assert!(models[0].model_id.contains("legacy_stone"));
     }
 
     #[test]

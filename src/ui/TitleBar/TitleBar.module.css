@@ -3,7 +3,7 @@
   align-items: center;
   justify-content: space-between;
   height: 100%;
-  padding: 0 var(--space-4);
+  padding: 0 0 0 var(--space-4);
   gap: var(--space-4);
 }
 
@@ -12,15 +12,35 @@
   align-items: center;
   gap: var(--space-3);
   min-width: 0;
+  flex: 1;
+  height: 100%;
+  padding-right: var(--space-4);
 }
 
 .logoMark {
   width: 22px;
   height: 22px;
   border-radius: 6px;
-  background: linear-gradient(135deg, var(--color-accent), #3dd68c);
+  background: linear-gradient(135deg, var(--color-accent), var(--color-accent-teal));
   box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.12) inset;
   flex-shrink: 0;
+  animation: logoIdlePulse 3.2s ease-in-out infinite;
+}
+
+@keyframes logoIdlePulse {
+  0%,
+  100% {
+    transform: scale(1);
+    box-shadow:
+      0 0 0 1px rgba(255, 255, 255, 0.12) inset,
+      0 0 0 0 rgba(99, 140, 255, 0);
+  }
+  50% {
+    transform: scale(1.04);
+    box-shadow:
+      0 0 0 1px rgba(255, 255, 255, 0.16) inset,
+      0 0 12px rgba(99, 140, 255, 0.25);
+  }
 }
 
 .brandText {
@@ -44,15 +64,28 @@
 
 .actions {
   display: flex;
-  align-items: center;
-  gap: var(--space-2);
+  align-items: stretch;
+  gap: var(--space-1);
   flex-shrink: 0;
+  height: 100%;
 }
 
-.buttonPrimary,
-.buttonGhost {
+.iconAction {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 32px;
+  padding: 0 10px;
   border-radius: var(--radius-sm);
-  padding: 7px 12px;
+}
+
+.buttonPrimary {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border-radius: var(--radius-sm);
+  padding: 0 12px;
+  min-height: 32px;
   border: 1px solid transparent;
   transition:
     background var(--transition-fast),
@@ -75,36 +108,27 @@
   background: var(--color-accent-pressed);
 }
 
-.buttonGhost {
-  background: transparent;
-  color: var(--color-text-secondary);
-  border-color: var(--color-border);
-}
-
-.buttonGhost:hover:not(:disabled) {
-  background: var(--color-bg-panel-hover);
-  color: var(--color-text-primary);
-}
-
-.buttonGhost:disabled {
-  opacity: 0.55;
-  cursor: not-allowed;
-}
-
 .buttonSave {
   border-radius: var(--radius-sm);
-  padding: 7px 12px;
+  padding: 0 10px;
+  min-height: 32px;
   border: 1px solid color-mix(in srgb, var(--color-accent) 60%, transparent);
   background: color-mix(in srgb, var(--color-accent) 18%, transparent);
   color: var(--color-accent);
-  cursor: pointer;
 }
 
 .buttonSave:hover:not(:disabled) {
   background: color-mix(in srgb, var(--color-accent) 28%, transparent);
 }
 
-.buttonSave:disabled {
+.buttonSave:disabled,
+.buttonPrimary:disabled {
   opacity: 0.55;
   cursor: not-allowed;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .logoMark {
+    animation: none;
+  }
 }

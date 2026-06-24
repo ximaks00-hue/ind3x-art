@@ -1,20 +1,24 @@
 import type {
   AppInfo,
+  AssetDetails,
   AssetEntry,
   AssetFacets,
   AssetFilter,
   AssetPage,
+  AssetWarning,
   BackupInfo,
   IndexEvent,
   ModelRefInfo,
   OpenSourceResult,
   PageReq,
   ProjectHandle,
+  RelationshipNode,
   RenderableModel,
   SaveJournalEntry,
   SaveTexturesResult,
   SaveOptions,
   TexturePreview,
+  TexturePreviewBatch,
   TextureSaveEntry,
   VariantKey,
 } from "./types";
@@ -27,6 +31,7 @@ function fixtureFace(direction: string) {
     uv: [0, 0, 16, 16] as [number, number, number, number],
     rotation: 0,
     tintindex: 0,
+    cullface: null,
   };
 }
 
@@ -65,6 +70,47 @@ const FIXTURE_ASSETS: AssetEntry[] = [
   },
 ];
 
+function fixtureAssetDetails(entry: AssetEntry): AssetDetails {
+  const linkedModels: ModelRefInfo[] =
+    entry.kind === "texture"
+      ? [
+          {
+            modelId: "minecraft:block/test_stone",
+            path: "assets/minecraft/models/block/test_stone.json",
+            kind: "blockModel",
+            label: "test_stone",
+          },
+        ]
+      : [];
+
+  const relationships: RelationshipNode[] = linkedModels.map((m) => ({
+    id: m.modelId,
+    label: m.label,
+    kind: m.kind,
+    path: m.path,
+    children: [],
+  }));
+
+  const warnings: AssetWarning[] =
+    entry.kind === "texture" && linkedModels.length === 0
+      ? [{ code: "orphanTexture", message: "No models reference this texture" }]
+      : [];
+
+  return {
+    id: entry.id,
+    kind: entry.kind,
+    path: entry.path,
+    namespace: entry.namespace,
+    displayName: entry.displayName,
+    packFormat: 15,
+    textureWidth: entry.kind === "texture" ? 16 : null,
+    textureHeight: entry.kind === "texture" ? 16 : null,
+    linkedModels,
+    relationships,
+    warnings,
+  };
+}
+
 const FIXTURE_RENDERABLE: RenderableModel = {
   kind: "block",
   modelId: "minecraft:block/test_stone",
@@ -73,6 +119,7 @@ const FIXTURE_RENDERABLE: RenderableModel = {
       from: [0, 0, 0],
       to: [16, 16, 16],
       shade: true,
+      rotation: null,
       faces: [
         fixtureFace("north"),
         fixtureFace("south"),
@@ -88,6 +135,7 @@ const FIXTURE_RENDERABLE: RenderableModel = {
     "assets/minecraft/textures/block/test_stone.png": {
       width: 16,
       height: 16,
+      animation: null,
     },
   },
   modelRotation: { x: 0, y: 0, z: 0, uvlock: false },
@@ -98,6 +146,15 @@ const FIXTURE_RENDERABLE: RenderableModel = {
 export interface E2EApi {
   openFixture: () => Promise<void>;
   paintTestPixel: () => Promise<void>;
+  paintTestFill: () => Promise<void>;
+  setFaceShapeDraft: () => Promise<void>;
+  getFaceShapeDraft: () => Promise<{
+    cuboidIndex: number;
+    faceIndex: number;
+    texturePath: string;
+    start: [number, number];
+    end: [number, number];
+  } | null>;
   getSavedTextures: () => TextureSaveEntry[];
   isFixtureOpen: () => boolean;
 }
@@ -115,7 +172,7 @@ export function createE2eMockIpc() {
 
   const appInfo: AppInfo = {
     name: "inD3X Art",
-    version: "0.1.0-e2e",
+    version: "0.2.0-e2e",
     identifier: "art.ind3x.app",
     target: "e2e-mock",
     profile: "test",
@@ -133,9 +190,13 @@ export function createE2eMockIpc() {
       sourceKind: "folder",
       entryCount: FIXTURE_ASSETS.length,
       fromCache: false,
+      packFormat: 15,
     };
 
-    useProjectStore.getState().setProject(result, FIXTURE_ASSETS);
+    useProjectStore.getState().finishOpen(result);
+    useProjectStore
+      .getState()
+      .setQueryPage(FIXTURE_ASSETS, FIXTURE_ASSETS.length, false, 0);
     useProjectStore.getState().setIndexStatus("done");
     useProjectStore.getState().setIndexProgress(100, 100, "fixture");
   }
@@ -158,10 +219,46 @@ export function createE2eMockIpc() {
     ]);
   }
 
+  async function paintTestFill() {
+    const path = "assets/minecraft/textures/block/test_stone.png";
+    const { buildPaintStrokeContext, paintAtTexturePixel } =
+      await import("../features/editor/paintInteraction");
+    const { useEditorStore } = await import("../state/editorStore");
+    useEditorStore.setState({ tool: "fill", color: "#00ff00", fillTolerance: 0 });
+    const handle: ProjectHandle = currentHandle ?? { id: 1 };
+    const ctx = buildPaintStrokeContext(handle, path);
+    await paintAtTexturePixel(ctx, 0, 0, false, null, { pixelWorker: null });
+  }
+
+  function setFaceShapeDraft() {
+    const path = "assets/minecraft/textures/block/test_stone.png";
+    return import("../state/editorStore").then(({ useEditorStore }) => {
+      useEditorStore.setState({
+        tool: "rect",
+        faceShapeDraft: {
+          cuboidIndex: 0,
+          faceIndex: 0,
+          texturePath: path,
+          start: [0, 0],
+          end: [8, 8],
+        },
+      });
+    });
+  }
+
+  function getFaceShapeDraft() {
+    return import("../state/editorStore").then(({ useEditorStore }) => {
+      return useEditorStore.getState().faceShapeDraft;
+    });
+  }
+
   if (typeof window !== "undefined") {
     window.__E2E__ = {
       openFixture: openFixtureProject,
       paintTestPixel,
+      paintTestFill,
+      setFaceShapeDraft,
+      getFaceShapeDraft,
       getSavedTextures: () => [...savedTextures],
       isFixtureOpen: () => currentHandle !== null,
     };
@@ -169,6 +266,18 @@ export function createE2eMockIpc() {
 
   return {
     getAppInfo: async () => appInfo,
+    getSamplePackPath: async () => "tests/fixtures/simple_pack",
+    readRecentLogs: async (maxLines?: number) => ({
+      logDir: "tests/fixtures/logs",
+      file: "ind3x-art.log",
+      lines: [
+        "2026-06-23T10:00:00Z INFO ind3x_art: inD3X Art starting",
+        "2026-06-23T10:00:01Z INFO ind3x_art: mock IPC active (E2E)",
+        ...(maxLines && maxLines < 2
+          ? []
+          : ["2026-06-23T10:00:02Z DEBUG ind3x_art: index ready"]),
+      ].slice(0, maxLines ?? 200),
+    }),
     revealLogDir: async () => undefined,
     ping: async () => "pong" as const,
     openSource: async (path: string, onEvent: Channel<IndexEvent>) => {
@@ -185,6 +294,7 @@ export function createE2eMockIpc() {
         sourceKind: "folder" as const,
         entryCount: FIXTURE_ASSETS.length,
         fromCache: false,
+        packFormat: 15,
       };
     },
     closeSource: async () => {
@@ -212,6 +322,35 @@ export function createE2eMockIpc() {
         { key: "blockstate", count: 1 },
       ],
     }),
+    getAssetEntry: async (
+      _handle: ProjectHandle,
+      assetId: string,
+    ): Promise<AssetEntry> => {
+      const entry = FIXTURE_ASSETS.find((e) => e.id === assetId);
+      if (!entry) throw new Error(`Asset not found: ${assetId}`);
+      return entry;
+    },
+    getAssetDetails: async (
+      _handle: ProjectHandle,
+      assetId: string,
+    ): Promise<AssetDetails> => {
+      const entry = FIXTURE_ASSETS.find((e) => e.id === assetId);
+      if (!entry) throw new Error(`Asset not found: ${assetId}`);
+      return fixtureAssetDetails(entry);
+    },
+    revealAssetInFolder: async () => undefined,
+    getTexturePreviewsBatch: async (
+      _handle: ProjectHandle,
+      assetPaths: string[],
+    ): Promise<TexturePreviewBatch[]> =>
+      assetPaths.map((path) => ({
+        path,
+        preview: {
+          pngBase64: RED_PNG_BASE64,
+          width: 16,
+          height: 16,
+        },
+      })),
     getTexturePreview: async (): Promise<TexturePreview> => ({
       pngBase64: RED_PNG_BASE64,
       width: 16,
@@ -274,7 +413,9 @@ export function createE2eMockIpc() {
       createdAt: Math.floor(Date.now() / 1000),
       kind: "folder",
     }),
-    streamDemo: async () => undefined,
+    reindexProject: async () => 0,
+    invalidateProjectIndex: async () => undefined,
+    rollbackLastSave: async () => undefined,
     onSourceChanged: async () => () => undefined,
     onCacheInvalidated: async () => () => undefined,
   };

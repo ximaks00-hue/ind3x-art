@@ -1,7 +1,9 @@
 import { BackupManagerDialog } from "../features/save/BackupManagerDialog";
 import { SaveDialog } from "../features/save/SaveDialog";
+import { ExportScreenshotDialog } from "../features/export/ExportScreenshotDialog";
 import { SettingsPanel } from "../features/settings/SettingsPanel";
 import type { SaveDialogSubmit } from "../features/save/SaveDialog";
+import type { ScreenshotExportOptions } from "../lib/exportScreenshot";
 import type { ProjectHandle } from "../ipc/types";
 import { CommandPalette } from "../ui/CommandPalette/CommandPalette";
 import { KeyboardShortcutsHelp } from "../ui/KeyboardShortcutsHelp/KeyboardShortcutsHelp";
@@ -14,6 +16,7 @@ interface AppDialogsProps {
   saveDialogOpen: boolean;
   backupDialogOpen: boolean;
   settingsOpen: boolean;
+  exportScreenshotOpen: boolean;
   dirtyCount: number;
   defaultSaveNamespace?: string;
   handle: ProjectHandle | null;
@@ -23,6 +26,8 @@ interface AppDialogsProps {
   onCloseSaveDialog: () => void;
   onCloseBackupDialog: () => void;
   onCloseSettings: () => void;
+  onCloseExportScreenshot: () => void;
+  onExportScreenshot: (options: ScreenshotExportOptions) => void;
   onSaveDialogSubmit: (submit: SaveDialogSubmit) => void;
   onBackupRestored: () => void;
 }
@@ -33,6 +38,7 @@ export function AppDialogs({
   saveDialogOpen,
   backupDialogOpen,
   settingsOpen,
+  exportScreenshotOpen,
   dirtyCount,
   defaultSaveNamespace,
   handle,
@@ -42,6 +48,8 @@ export function AppDialogs({
   onCloseSaveDialog,
   onCloseBackupDialog,
   onCloseSettings,
+  onCloseExportScreenshot,
+  onExportScreenshot,
   onSaveDialogSubmit,
   onBackupRestored,
 }: AppDialogsProps) {
@@ -67,6 +75,11 @@ export function AppDialogs({
         onRestored={onBackupRestored}
       />
       <SettingsPanel open={settingsOpen} onClose={onCloseSettings} />
+      <ExportScreenshotDialog
+        open={exportScreenshotOpen}
+        onClose={onCloseExportScreenshot}
+        onExport={onExportScreenshot}
+      />
       <ToastHost />
     </>
   );

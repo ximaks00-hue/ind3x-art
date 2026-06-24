@@ -1,0 +1,120 @@
+.panel {
+  padding: var(--space-3);
+  border-top: 1px solid var(--color-border);
+  background: var(--color-bg-elevated);
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--space-2);
+}
+
+.title {
+  font-size: 11px;
+  font-weight: 650;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--color-text-muted);
+}
+
+.importBtn {
+  font-size: 10px;
+  padding: 2px 8px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-border);
+  background: transparent;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+}
+
+.hiddenFile {
+  display: none;
+}
+
+.ring {
+  position: relative;
+  width: 72px;
+  height: 72px;
+  margin: 0 auto var(--space-3);
+}
+
+.ringCenter {
+  position: absolute;
+  inset: 22px;
+  border-radius: 50%;
+  border: 2px solid var(--color-border);
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.2);
+}
+
+.ringSwatch {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 14px;
+  height: 14px;
+  margin: -7px 0 0 -7px;
+  border-radius: 50%;
+  border: 1px solid rgba(0, 0, 0, 0.35);
+  cursor: pointer;
+  transform-origin: center center;
+}
+
+.ringSwatch[data-active="true"] {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 1px;
+}
+
+.pickerRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-bottom: var(--space-3);
+}
+
+.colorInput {
+  width: 36px;
+  height: 28px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+}
+
+.hex {
+  font-size: 11px;
+  font-family: var(--font-mono, monospace);
+  color: var(--color-text-secondary);
+}
+
+.preset {
+  margin-bottom: var(--space-2);
+}
+
+.presetLabel {
+  display: block;
+  font-size: 10px;
+  color: var(--color-text-muted);
+  margin-bottom: 4px;
+}
+
+.swatches {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px;
+}
+
+.swatch {
+  width: 16px;
+  height: 16px;
+  border-radius: 2px;
+  border: 1px solid rgba(0, 0, 0, 0.25);
+  cursor: pointer;
+  padding: 0;
+}
+
+.swatch[data-active="true"] {
+  outline: 1px solid var(--color-accent);
+  outline-offset: 1px;
+}

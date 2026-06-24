@@ -69,4 +69,22 @@ describe("textureDocument", () => {
     expect(getDirtyTexturePaths()).toContain(path);
     expect(getPixel(path, 0, 0)).toEqual([0, 255, 0, 255]);
   });
+
+  it("undo restores pixel after commit", async () => {
+    const { undoTexture, canUndo } = await import("./textureDocument");
+    const doc = await ensureTextureDocument(handle, path);
+    const before = getPixel(path, 0, 0)!;
+    commitChanges(handle, path, [
+      {
+        x: 0,
+        y: 0,
+        before,
+        after: [0, 255, 0, 255],
+        layerId: doc.layers[0].id,
+      },
+    ]);
+    expect(canUndo(path)).toBe(true);
+    undoTexture(handle, path);
+    expect(getPixel(path, 0, 0)).toEqual(before);
+  });
 });
