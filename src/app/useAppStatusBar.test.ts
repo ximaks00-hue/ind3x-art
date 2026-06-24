@@ -74,11 +74,15 @@ describe("useAppStatusBar", () => {
     });
     useSelectionStore.setState({
       selectedFace: {
+        cuboidIndex: 0,
+        faceIndex: 0,
         texturePath: TEXTURE_PATH,
         direction: "north",
         uv: [0, 0, 16, 16],
         rotation: 0,
         tintindex: 0,
+        hitUv: [0, 0],
+        pixel: [0, 0],
       },
     });
   });

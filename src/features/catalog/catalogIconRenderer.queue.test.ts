@@ -19,7 +19,7 @@ vi.mock("three", async (importOriginal) => {
   return { ...actual, WebGLRenderer: MockWebGLRenderer };
 });
 
-vi.mock("../viewer3d/buildMesh", async (importOriginal) => {
+vi.mock("../viewer3d/buildMesh", async () => {
   const { Group } = await import("three");
   return {
     buildModelGroup: vi.fn().mockImplementation(async () => {

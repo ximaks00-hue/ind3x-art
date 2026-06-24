@@ -79,7 +79,7 @@ describe("FaceRaycaster", () => {
       selectedFace: null,
       hoveredFace: null,
     });
-    useEditorStore.setState({ tool: "brush" });
+    useEditorStore.setState({ tool: "pencil" });
   });
 
   it("registers pointer listeners on the canvas and cleans up on unmount", () => {
@@ -109,7 +109,7 @@ describe("FaceRaycaster", () => {
     )?.[1] as (event: PointerEvent) => void;
     expect(leaveHandler).toBeTypeOf("function");
 
-    leaveHandler(new Event("pointerleave"));
+    leaveHandler({} as PointerEvent);
     expect(useSelectionStore.getState().hoveredFace).toBeNull();
   });
 });
