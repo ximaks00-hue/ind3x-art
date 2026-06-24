@@ -1,13 +1,19 @@
 import { useEffect, useState } from "react";
 
+import { rebuildProjectCatalog, getCatalogEntry } from "../../app/services/catalogService";
+import { bumpProjectDataRevision } from "../../app/projectDataRevision";
 import { useFocusTrap } from "../../hooks/useFocusTrap";
 import { ipc } from "../../ipc/client";
 import { downloadShortcutsExport } from "../../lib/shortcuts";
+import { useCatalogStore } from "../catalog/catalogStore";
+import { useProjectStore } from "../../state/projectStore";
+import { useUiStore } from "../../state/uiStore";
 import {
   useSettingsStore,
   type CatalogIconMode,
   type Theme,
 } from "../../state/settingsStore";
+import { syncTextureCacheLimitsFromSettings } from "../../state/textureCacheSync";
 import { Button } from "../../ui/primitives";
 import styles from "./SettingsPanel.module.css";
 
@@ -29,9 +35,19 @@ export function SettingsPanel({ open, onClose }: Props) {
     setCatalogIconMode,
     catalogIconCacheLimit,
     setCatalogIconCacheLimit,
+    catalogShowCellLabels,
+    setCatalogShowCellLabels,
+    studioShowFloorGrid,
+    setStudioShowFloorGrid,
+    catalogLanguage,
+    setCatalogLanguage,
     uiScale,
     setUiScale,
   } = useSettingsStore();
+
+  const projectHandle = useProjectStore((s) => s.handle);
+  const pushToast = useUiStore((s) => s.pushToast);
+  const [languageBusy, setLanguageBusy] = useState(false);
 
   const [logLines, setLogLines] = useState<string[]>([]);
   const [logFile, setLogFile] = useState<string | undefined>();
@@ -50,6 +66,34 @@ export function SettingsPanel({ open, onClose }: Props) {
       setLogLines([]);
     } finally {
       setLogLoading(false);
+    }
+  }
+
+  async function handleCatalogLanguageChange(next: string) {
+    const previous = catalogLanguage;
+    setCatalogLanguage(next);
+    if (!projectHandle) return;
+    setLanguageBusy(true);
+    try {
+      await rebuildProjectCatalog(projectHandle, next);
+      bumpProjectDataRevision();
+      const selectedId = useCatalogStore.getState().selectedId;
+      if (selectedId) {
+        try {
+          const entry = await getCatalogEntry(projectHandle, selectedId);
+          useCatalogStore.getState().selectEntry(entry);
+        } catch {
+          // selection may no longer exist in new language build
+        }
+      }
+    } catch (e) {
+      setCatalogLanguage(previous);
+      pushToast(
+        e instanceof Error ? e.message : "Failed to rebuild catalog for language",
+        "error",
+      );
+    } finally {
+      setLanguageBusy(false);
     }
   }
 
@@ -131,7 +175,10 @@ export function SettingsPanel({ open, onClose }: Props) {
               step={64}
               value={textureCacheLimit}
               className={styles.numberInput}
-              onChange={(e) => setTextureCacheLimit(Number(e.target.value))}
+              onChange={(e) => {
+                setTextureCacheLimit(Number(e.target.value));
+                syncTextureCacheLimitsFromSettings();
+              }}
             />
           </div>
           <div className={styles.row}>
@@ -154,6 +201,22 @@ export function SettingsPanel({ open, onClose }: Props) {
         <section className={styles.section}>
           <h3 className={styles.sectionTitle}>Block Studio</h3>
           <div className={styles.row}>
+            <label className={styles.rowLabel} htmlFor="catalog-language">
+              Display language
+            </label>
+            <select
+              id="catalog-language"
+              className={styles.select}
+              value={catalogLanguage}
+              disabled={languageBusy || !projectHandle}
+              onChange={(e) => void handleCatalogLanguageChange(e.target.value)}
+            >
+              <option value="en_us">English (US)</option>
+              <option value="en_gb">English (UK)</option>
+              <option value="ru_ru">Русский</option>
+            </select>
+          </div>
+          <div className={styles.row}>
             <label className={styles.rowLabel} htmlFor="catalog-icon-mode">
               Catalog icon quality
             </label>
@@ -163,10 +226,32 @@ export function SettingsPanel({ open, onClose }: Props) {
               value={catalogIconMode}
               onChange={(e) => setCatalogIconMode(e.target.value as CatalogIconMode)}
             >
-              <option value="auto">Auto (preview + 3D items)</option>
-              <option value="preview">Texture preview only</option>
-              <option value="3d">3D GUI bake</option>
+              <option value="auto">Auto (3D inventory icons)</option>
+              <option value="preview">Texture preview fallback only</option>
+              <option value="3d">3D GUI bake (force)</option>
             </select>
+          </div>
+          <div className={styles.row}>
+            <label className={styles.rowLabel} htmlFor="catalog-show-labels">
+              Show names under cells
+            </label>
+            <input
+              id="catalog-show-labels"
+              type="checkbox"
+              checked={catalogShowCellLabels}
+              onChange={(e) => setCatalogShowCellLabels(e.target.checked)}
+            />
+          </div>
+          <div className={styles.row}>
+            <label className={styles.rowLabel} htmlFor="studio-floor-grid">
+              Studio viewport floor grid
+            </label>
+            <input
+              id="studio-floor-grid"
+              type="checkbox"
+              checked={studioShowFloorGrid}
+              onChange={(e) => setStudioShowFloorGrid(e.target.checked)}
+            />
           </div>
           <div className={styles.row}>
             <label className={styles.rowLabel} htmlFor="catalog-icon-cache">

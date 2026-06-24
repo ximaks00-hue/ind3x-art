@@ -29,13 +29,15 @@ export function ViewerPanelLazy({
   onTryDemo,
 }: ViewerPanelLazyProps) {
   return (
-    <Suspense fallback={<ViewerPanelFallback />}>
-      <ViewerPanel
-        onOpenJar={onOpenJar}
-        onOpenFolder={onOpenFolder}
-        onOpenRecent={onOpenRecent}
-        onTryDemo={onTryDemo}
-      />
-    </Suspense>
+    <div className={styles.panelHost}>
+      <Suspense fallback={<ViewerPanelFallback />}>
+        <ViewerPanel
+          onOpenJar={onOpenJar}
+          onOpenFolder={onOpenFolder}
+          onOpenRecent={onOpenRecent}
+          onTryDemo={onTryDemo}
+        />
+      </Suspense>
+    </div>
   );
 }

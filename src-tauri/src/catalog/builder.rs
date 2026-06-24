@@ -4,23 +4,49 @@ use crate::dto::{
     AssetEntry, AssetKind, CatalogEntry, CatalogEntryKind, CatalogResolveKind,
 };
 use crate::model::types::{blockstate_id_from_asset_path, model_id_from_asset_path};
-
-use super::category::categorize;
-use super::dedup::dedup_catalog;
-use super::lang::{build_lang_index, humanize_id, LangIndex};
-use crate::model::parse::parse_blockstate;
-use crate::resolve::collect_variant_models;
+use crate::resolve::{collect_variant_models, list_all_variant_models};
 use crate::source::AssetSource;
+
+use super::category::{categorize, presentation_for};
+use super::dedup::dedup_catalog;
+use super::lang::{build_lang_resolver, humanize_id, LangResolver};
+use crate::model::parse::parse_blockstate;
+
+pub struct CatalogBuildOptions<'a> {
+    pub language: &'a str,
+    /// When false, skip per-blockstate JSON reads during catalog assembly (load via `list_variants`).
+    pub resolve_variant_keys: bool,
+}
+
+impl Default for CatalogBuildOptions<'_> {
+    fn default() -> Self {
+        Self {
+            language: "en_us",
+            resolve_variant_keys: false,
+        }
+    }
+}
 
 pub fn build_from_entries(
     entries: &[AssetEntry],
     source: Option<&dyn AssetSource>,
 ) -> Vec<CatalogEntry> {
-    let lang = build_lang_index(entries, source);
-    let mut out = Vec::new();
+    build_from_entries_with_options(entries, source, CatalogBuildOptions::default())
+}
 
+pub fn build_from_entries_with_options(
+    entries: &[AssetEntry],
+    source: Option<&dyn AssetSource>,
+    options: CatalogBuildOptions<'_>,
+) -> Vec<CatalogEntry> {
+    let lang = build_lang_resolver(entries, source);
     let blockstate_names = blockstate_names_set(entries);
+    let item_model_paths = item_model_paths_set(entries);
+    let block_model_paths = block_model_paths_set(entries);
 
+    let mut registry: Vec<CatalogEntry> = Vec::new();
+
+    // Phase 1: all blockstates → Block
     for entry in entries {
         if entry.kind != AssetKind::Blockstate {
             continue;
@@ -29,23 +55,42 @@ pub fn build_from_entries(
             continue;
         };
         let id = format!("{namespace}:{block_name}");
-        let default_variant_key = source
-            .and_then(|s| default_variant_key_for_blockstate(s, &entry.path));
-        out.push(make_entry(
+        let has_item_model = item_model_paths.contains(&(namespace.clone(), block_name.to_string()));
+        let (variant_keys, default_variant_key) = if options.resolve_variant_keys {
+            source
+                .map(|s| variant_info_for_blockstate(s, &entry.path))
+                .unwrap_or_default()
+        } else {
+            (vec![], None)
+        };
+        let icon_model_path = resolve_icon_model_path(
+            &namespace,
+            &block_name,
+            &item_model_paths,
+            &block_model_paths,
+        );
+        registry.push(make_entry(
             &lang,
+            options.language,
             MakeEntryInput {
-                id,
+                id: id.clone(),
                 namespace,
                 stem: block_name.to_string(),
                 kind: CatalogEntryKind::Block,
                 source_path: entry.path.clone(),
                 resolve_kind: CatalogResolveKind::Blockstate,
                 default_variant_key,
+                variant_keys,
                 texture_paths: vec![],
+                block_id: Some(id.clone()),
+                item_id: has_item_model.then(|| id.clone()),
+                icon_model_path,
+                studio_model_path: entry.path.clone(),
             },
         ));
     }
 
+    // Phase 2: item models without blockstate → Item
     for entry in entries {
         if entry.kind != AssetKind::ItemModel {
             continue;
@@ -57,25 +102,32 @@ pub fn build_from_entries(
             continue;
         }
         let item_name = model_path.strip_prefix("item/").unwrap_or(&model_path);
-        let id = format!("{namespace}:{item_name}");
         if blockstate_names.contains(&(namespace.clone(), item_name.to_string())) {
             continue;
         }
-        out.push(make_entry(
+        let id = format!("{namespace}:{item_name}");
+        registry.push(make_entry(
             &lang,
+            options.language,
             MakeEntryInput {
-                id,
+                id: id.clone(),
                 namespace,
                 stem: item_name.to_string(),
                 kind: CatalogEntryKind::Item,
                 source_path: entry.path.clone(),
                 resolve_kind: CatalogResolveKind::Model,
                 default_variant_key: None,
+                variant_keys: vec![],
                 texture_paths: vec![],
+                block_id: None,
+                item_id: Some(id),
+                icon_model_path: Some(entry.path.clone()),
+                studio_model_path: entry.path.clone(),
             },
         ));
     }
 
+    // Phase 3: orphan block models → Block (fallback)
     for entry in entries {
         if entry.kind != AssetKind::BlockModel {
             continue;
@@ -91,32 +143,80 @@ pub fn build_from_entries(
             continue;
         }
         let id = format!("{namespace}:{block_name}");
-        out.push(make_entry(
+        let icon_model_path = resolve_icon_model_path(
+            &namespace,
+            block_name,
+            &item_model_paths,
+            &block_model_paths,
+        );
+        registry.push(make_entry(
             &lang,
+            options.language,
             MakeEntryInput {
-                id,
+                id: id.clone(),
                 namespace,
                 stem: block_name.to_string(),
                 kind: CatalogEntryKind::Block,
                 source_path: entry.path.clone(),
                 resolve_kind: CatalogResolveKind::Model,
                 default_variant_key: None,
+                variant_keys: vec![],
                 texture_paths: vec![],
+                block_id: Some(id),
+                item_id: None,
+                icon_model_path,
+                studio_model_path: entry.path.clone(),
             },
         ));
     }
 
-    dedup_catalog(out)
+    let registry = dedup_catalog(registry);
+    if should_use_texture_catalog_fallback(&registry, entries) {
+        return super::texture_catalog::build_texture_catalog_fallback(&lang, entries, options);
+    }
+    registry
 }
 
-fn default_variant_key_for_blockstate(
+fn should_use_texture_catalog_fallback(registry: &[CatalogEntry], entries: &[AssetEntry]) -> bool {
+    registry.is_empty()
+        && super::catalog_source_entry_count(entries) == 0
+        && (super::texture_catalog::pack_has_block_item_textures(entries)
+            || entries.iter().any(|e| e.kind == AssetKind::Lang))
+}
+
+fn variant_info_for_blockstate(
     source: &dyn AssetSource,
     blockstate_path: &str,
+) -> (Vec<String>, Option<String>) {
+    let Ok(bytes) = source.read(blockstate_path) else {
+        return (vec![], None);
+    };
+    let Ok(blockstate) = parse_blockstate(&bytes) else {
+        return (vec![], None);
+    };
+    let variants = list_all_variant_models(&blockstate);
+    let keys: Vec<String> = variants.iter().map(|(_, key)| key.clone()).collect();
+    let default = keys.first().cloned().or_else(|| {
+        collect_variant_models(&blockstate)
+            .first()
+            .map(|(_, key)| key.clone())
+    });
+    (keys, default)
+}
+
+fn resolve_icon_model_path(
+    namespace: &str,
+    stem: &str,
+    item_models: &HashSet<(String, String)>,
+    block_models: &HashSet<(String, String)>,
 ) -> Option<String> {
-    let bytes = source.read(blockstate_path).ok()?;
-    let blockstate = parse_blockstate(&bytes).ok()?;
-    let variants = collect_variant_models(&blockstate);
-    variants.first().map(|(_, key)| key.clone())
+    if item_models.contains(&(namespace.to_string(), stem.to_string())) {
+        return Some(format!("assets/{namespace}/models/item/{stem}.json"));
+    }
+    if block_models.contains(&(namespace.to_string(), stem.to_string())) {
+        return Some(format!("assets/{namespace}/models/block/{stem}.json"));
+    }
+    None
 }
 
 fn blockstate_names_set(entries: &[AssetEntry]) -> HashSet<(String, String)> {
@@ -127,40 +227,76 @@ fn blockstate_names_set(entries: &[AssetEntry]) -> HashSet<(String, String)> {
         .collect()
 }
 
-struct MakeEntryInput {
-    id: String,
-    namespace: String,
-    stem: String,
-    kind: CatalogEntryKind,
-    source_path: String,
-    resolve_kind: CatalogResolveKind,
-    default_variant_key: Option<String>,
-    texture_paths: Vec<String>,
+fn item_model_paths_set(entries: &[AssetEntry]) -> HashSet<(String, String)> {
+    entries
+        .iter()
+        .filter(|e| e.kind == AssetKind::ItemModel)
+        .filter_map(|e| model_id_from_asset_path(&e.path))
+        .filter_map(|(ns, path)| {
+            path.strip_prefix("item/")
+                .map(|stem| (ns, stem.to_string()))
+        })
+        .collect()
 }
 
-fn make_entry(lang: &LangIndex, input: MakeEntryInput) -> CatalogEntry {
-    let display_name = match input.kind {
-        CatalogEntryKind::Block => lang
-            .resolve_block(&input.namespace, &input.stem)
-            .unwrap_or_else(|| humanize_id(&input.stem)),
-        CatalogEntryKind::Item => lang
-            .resolve_item(&input.namespace, &input.stem)
-            .unwrap_or_else(|| humanize_id(&input.stem)),
-    };
+fn block_model_paths_set(entries: &[AssetEntry]) -> HashSet<(String, String)> {
+    entries
+        .iter()
+        .filter(|e| e.kind == AssetKind::BlockModel)
+        .filter_map(|e| model_id_from_asset_path(&e.path))
+        .filter_map(|(ns, path)| {
+            path.strip_prefix("block/")
+                .map(|stem| (ns, stem.to_string()))
+        })
+        .collect()
+}
+
+pub(crate) fn make_entry_public(lang: &LangResolver, language: &str, input: MakeEntryInput) -> CatalogEntry {
+    make_entry(lang, language, input)
+}
+
+pub(crate) struct MakeEntryInput {
+    pub id: String,
+    pub namespace: String,
+    pub stem: String,
+    pub kind: CatalogEntryKind,
+    pub source_path: String,
+    pub resolve_kind: CatalogResolveKind,
+    pub default_variant_key: Option<String>,
+    pub variant_keys: Vec<String>,
+    pub texture_paths: Vec<String>,
+    pub block_id: Option<String>,
+    pub item_id: Option<String>,
+    pub icon_model_path: Option<String>,
+    pub studio_model_path: String,
+}
+
+fn make_entry(lang: &LangResolver, language: &str, input: MakeEntryInput) -> CatalogEntry {
+    let display_name = lang
+        .resolve_display_name(language, input.kind, &input.namespace, &input.stem)
+        .unwrap_or_else(|| humanize_id(&input.stem));
 
     let category = categorize(&input.id, &input.source_path, input.kind);
+    let presentation = presentation_for(&input.id, &input.source_path, input.kind, category);
     let variant_suffix = input.default_variant_key.as_deref().unwrap_or("");
     let icon_key = format!("{}:{variant_suffix}", input.id);
+
     let mut search_tokens = vec![
-        display_name.to_ascii_lowercase(),
-        input.id.to_ascii_lowercase(),
-        input.stem.to_ascii_lowercase(),
+        display_name.to_lowercase(),
+        input.id.to_lowercase(),
+        input.stem.to_lowercase(),
     ];
+    if let Some(ref block_id) = input.block_id {
+        search_tokens.push(block_id.to_lowercase());
+    }
+    if let Some(ref item_id) = input.item_id {
+        search_tokens.push(item_id.to_lowercase());
+    }
     search_tokens.sort();
     search_tokens.dedup();
 
     CatalogEntry {
-        id: input.id.clone(),
+        id: input.id,
         namespace: input.namespace,
         display_name,
         kind: input.kind,
@@ -172,6 +308,12 @@ fn make_entry(lang: &LangIndex, input: MakeEntryInput) -> CatalogEntry {
         texture_paths: input.texture_paths,
         icon_key,
         aliases: vec![],
+        block_id: input.block_id,
+        item_id: input.item_id,
+        icon_model_path: input.icon_model_path,
+        studio_model_path: input.studio_model_path,
+        variant_keys: input.variant_keys,
+        presentation,
     }
 }
 
@@ -180,8 +322,9 @@ mod tests {
     use std::collections::HashMap;
     use std::path::Path;
 
+    use crate::catalog::query::query_catalog;
     use crate::catalog::textures::enrich_catalog_texture_paths;
-    use crate::dto::CatalogCategory;
+    use crate::dto::{CatalogCategory, CatalogFilter, CatalogPresentation, PageReq};
     use crate::index::classify::classify_path;
     use crate::model::normalize::PackInfo;
     use crate::resolve::ModelRegistry;
@@ -213,6 +356,9 @@ mod tests {
             .expect("test_stone catalog entry");
         assert_eq!(stone.kind, CatalogEntryKind::Block);
         assert_eq!(stone.display_name, "Test Stone");
+        assert_eq!(stone.block_id.as_deref(), Some("minecraft:test_stone"));
+        assert!(!stone.studio_model_path.contains("models/"));
+        assert_eq!(stone.presentation, CatalogPresentation::Block);
     }
 
     #[test]
@@ -220,11 +366,20 @@ mod tests {
         let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../tests/fixtures/multipart_pack");
         let entries = fixture_entries(&root);
         let source = FolderSource::new(&root).expect("source");
-        let mut catalog = build_from_entries(&entries, Some(&source));
+        let catalog = build_from_entries_with_options(
+            &entries,
+            Some(&source),
+            CatalogBuildOptions {
+                language: "en_us",
+                resolve_variant_keys: true,
+            },
+        );
         let pack = PackInfo { pack_format: None };
         let mut model_cache = HashMap::new();
         let mut registry = ModelRegistry::new(&source, &mut model_cache, pack);
-        enrich_catalog_texture_paths(&mut catalog, &mut registry, &pack);
+        let mut arced = crate::state::arc_catalog(catalog);
+        enrich_catalog_texture_paths(&mut arced, &mut registry, &pack);
+        let catalog: Vec<CatalogEntry> = arced.iter().map(|e| e.as_ref().clone()).collect();
 
         let fence = catalog
             .iter()
@@ -236,6 +391,7 @@ mod tests {
             !fence.texture_paths.is_empty(),
             "multipart fence should resolve texture paths"
         );
+        assert!(!fence.variant_keys.is_empty());
     }
 
     #[test]
@@ -245,6 +401,26 @@ mod tests {
         let source = FolderSource::new(&root).expect("source");
         let catalog = build_from_entries(&entries, Some(&source));
         assert!(catalog.len() >= 20);
+        for entry in &catalog {
+            assert!(
+                !entry.display_name.is_empty(),
+                "entry {} missing displayName",
+                entry.id
+            );
+            assert!(!entry.studio_model_path.is_empty());
+        }
+    }
+
+    #[test]
+    fn builds_texture_only_pack_catalog() {
+        let root =
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("../tests/fixtures/texture_only_pack");
+        let entries = fixture_entries(&root);
+        let source = FolderSource::new(&root).expect("source");
+        let catalog = build_from_entries(&entries, Some(&source));
+        assert!(!catalog.is_empty());
+        assert!(catalog.iter().any(|e| e.id == "ic2:batbox"));
+        assert!(catalog.iter().any(|e| e.id == "ic2:wrench"));
     }
 
     #[test]
@@ -261,6 +437,7 @@ mod tests {
         assert_eq!(legacy.kind, CatalogEntryKind::Block);
         assert_eq!(legacy.resolve_kind, CatalogResolveKind::Model);
         assert_eq!(legacy.display_name, "Legacy Stone");
+        assert_eq!(legacy.studio_model_path, legacy.source_path);
     }
 
     #[test]
@@ -268,13 +445,21 @@ mod tests {
         let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../tests/fixtures/simple_pack");
         let entries = fixture_entries(&root);
         let source = FolderSource::new(&root).expect("source");
-        let catalog = build_from_entries(&entries, Some(&source));
+        let catalog = build_from_entries_with_options(
+            &entries,
+            Some(&source),
+            CatalogBuildOptions {
+                language: "en_us",
+                resolve_variant_keys: true,
+            },
+        );
 
         let stone = catalog
             .iter()
             .find(|e| e.id.contains("test_stone"))
             .expect("test_stone");
         assert_eq!(stone.default_variant_key.as_deref(), Some(""));
+        assert!(!stone.variant_keys.is_empty());
     }
 
     #[test]
@@ -284,23 +469,79 @@ mod tests {
         let source = FolderSource::new(&root).expect("source");
         let catalog = build_from_entries(&entries, Some(&source));
 
-        use crate::dto::CatalogFilter;
-        use crate::catalog::query::query_catalog;
-
         let page = query_catalog(
-            &catalog,
+            &crate::state::arc_catalog(catalog),
             CatalogFilter {
                 category: None,
                 namespace: None,
                 search: Some("stone".to_string()),
                 fuzzy: false,
             },
-            crate::dto::PageReq {
+            PageReq {
                 offset: 0,
                 limit: 50,
             },
+            None,
         );
         assert!(!page.entries.is_empty());
         assert!(page.entries.iter().any(|e| e.id.contains("test_stone")));
+    }
+
+    #[test]
+    fn search_cyrillic_sword_finds_item() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../tests/fixtures/lang_pack");
+        let entries = fixture_entries(&root);
+        let source = FolderSource::new(&root).expect("source");
+        let catalog = build_from_entries_with_options(
+            &entries,
+            Some(&source),
+            CatalogBuildOptions {
+                language: "ru_ru",
+                ..Default::default()
+            },
+        );
+
+        let page = query_catalog(
+            &crate::state::arc_catalog(catalog),
+            CatalogFilter {
+                category: None,
+                namespace: None,
+                search: Some("меч".to_string()),
+                fuzzy: false,
+            },
+            PageReq {
+                offset: 0,
+                limit: 50,
+            },
+            None,
+        );
+        assert!(
+            page.entries.iter().any(|e| e.id.contains("test_sword")),
+            "search 'меч' should find test_sword"
+        );
+    }
+
+    #[test]
+    fn dedup_block_item_same_id() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../tests/fixtures/simple_pack");
+        let entries = fixture_entries(&root);
+        let source = FolderSource::new(&root).expect("source");
+        let catalog = build_from_entries(&entries, Some(&source));
+
+        let stone_count = catalog
+            .iter()
+            .filter(|e| e.id == "minecraft:test_stone")
+            .count();
+        assert_eq!(stone_count, 1, "block+item same id must be one cell");
+        let stone = catalog
+            .iter()
+            .find(|e| e.id == "minecraft:test_stone")
+            .expect("stone");
+        assert_eq!(stone.kind, CatalogEntryKind::Block);
+        assert_eq!(stone.item_id.as_deref(), Some("minecraft:test_stone"));
+        assert!(stone
+            .icon_model_path
+            .as_deref()
+            .is_some_and(|p| p.contains("models/item")));
     }
 }

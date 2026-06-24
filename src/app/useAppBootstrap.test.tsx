@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const setAppInfo = vi.fn();
 const setIpcHealthy = vi.fn();
+const pushToast = vi.fn();
 
 vi.mock("../ipc/client", () => ({
   ipc: {
@@ -23,6 +24,13 @@ vi.mock("../state/projectStore", () => ({
       ipcHealthy: false,
       setAppInfo,
       setIpcHealthy,
+    }),
+}));
+
+vi.mock("../state/uiStore", () => ({
+  useUiStore: (selector: (state: unknown) => unknown) =>
+    selector({
+      pushToast,
     }),
 }));
 
@@ -55,6 +63,10 @@ describe("useAppBootstrap", () => {
 
     await waitFor(() => {
       expect(setIpcHealthy).toHaveBeenCalledWith(false);
+      expect(pushToast).toHaveBeenCalledWith(
+        "Backend unreachable — restart the app",
+        "error",
+      );
     });
   });
 

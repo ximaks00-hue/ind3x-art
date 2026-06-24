@@ -1,7 +1,7 @@
 {
   "name": "ind3x-art",
   "private": true,
-  "version": "0.3.0",
+  "version": "0.3.1",
   "author": "ximaks00-hue <ximaks00@gmail.com>",
   "type": "module",
   "scripts": {
@@ -28,7 +28,8 @@
     "ci": "npm run typecheck && npm run gen:types && npm run lint && npm run format:check && npm run test:unit && npm run clippy && npm run test && npm run build && npm run test:e2e && npm run test:e2e:integration",
     "build:release": "npm run tauri build",
     "build:nsis": "npm run tauri build -- --bundles nsis",
-    "build:msi": "npm run tauri build -- --bundles msi"
+    "build:msi": "npm run tauri build -- --bundles msi",
+    "build:appimage": "npm run tauri build -- --bundles appimage"
   },
   "dependencies": {
     "@fontsource/inter": "^5.2.8",

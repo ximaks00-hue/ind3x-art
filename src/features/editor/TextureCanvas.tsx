@@ -63,9 +63,12 @@ export function TextureCanvas(props: TextureCanvasProps) {
 function TextureCanvasInner({ handle, selectedFace }: TextureCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const overlayRef = useRef<HTMLCanvasElement>(null);
+  const cursorRef = useRef<HTMLCanvasElement>(null);
   const paintingRef = useRef(false);
   const lastPixelRef = useRef<[number, number] | null>(null);
   const shapeStartRef = useRef<[number, number] | null>(null);
+  const cursorRafRef = useRef<number | null>(null);
+  const pendingCursorPointRef = useRef<[number, number] | null>(null);
 
   const tool = useEditorStore((s) => s.tool);
   const color = useEditorStore((s) => s.color);
@@ -135,7 +138,7 @@ function TextureCanvasInner({ handle, selectedFace }: TextureCanvasProps) {
       };
     }
 
-    const scale = Math.min(zoom, 16);
+    const scale = zoom;
     view.width = Math.max(1, srcRegion.width * scale);
     view.height = Math.max(1, srcRegion.height * scale);
 
@@ -143,6 +146,12 @@ function TextureCanvasInner({ handle, selectedFace }: TextureCanvasProps) {
     if (overlay) {
       overlay.width = view.width;
       overlay.height = view.height;
+    }
+
+    const cursor = cursorRef.current;
+    if (cursor) {
+      cursor.width = view.width;
+      cursor.height = view.height;
     }
 
     const ctx = view.getContext("2d");
@@ -218,6 +227,53 @@ function TextureCanvasInner({ handle, selectedFace }: TextureCanvasProps) {
     onionSkin,
   ]);
 
+  const drawBrushCursor = useCallback(
+    (point: [number, number] | null) => {
+      const cursor = cursorRef.current;
+      if (!cursor) return;
+      const ctx = cursor.getContext("2d");
+      if (!ctx) return;
+      ctx.clearRect(0, 0, cursor.width, cursor.height);
+      if (!point) return;
+
+      const source = getTextureCanvas(selectedFace.texturePath);
+      if (!source) return;
+      const region = faceUvRegion(faceForRegion(), source.width, source.height);
+      const scaleX = cursor.width / region.width;
+      const scaleY = cursor.height / region.height;
+      const lx = (point[0] - region.x) * scaleX;
+      const ly = (point[1] - region.y) * scaleY;
+      const r = (brushSize / 2) * scaleX;
+      ctx.strokeStyle = "rgba(99, 140, 255, 0.85)";
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.arc(lx, ly, Math.max(1, r), 0, Math.PI * 2);
+      ctx.stroke();
+    },
+    [brushSize, faceForRegion, selectedFace.texturePath],
+  );
+
+  const scheduleBrushCursor = useCallback(
+    (point: [number, number] | null) => {
+      pendingCursorPointRef.current = point;
+      if (cursorRafRef.current != null) return;
+      cursorRafRef.current = requestAnimationFrame(() => {
+        cursorRafRef.current = null;
+        drawBrushCursor(pendingCursorPointRef.current);
+      });
+    },
+    [drawBrushCursor],
+  );
+
+  useEffect(
+    () => () => {
+      if (cursorRafRef.current != null) {
+        cancelAnimationFrame(cursorRafRef.current);
+      }
+    },
+    [],
+  );
+
   const clearOverlay = useCallback(() => {
     const overlay = overlayRef.current;
     if (!overlay) return;
@@ -292,22 +348,23 @@ function TextureCanvasInner({ handle, selectedFace }: TextureCanvasProps) {
 
   useEffect(() => {
     let cancelled = false;
+    setReady(false);
     void ensureTextureDocument(handle, selectedFace.texturePath).then(() => {
       if (!cancelled) {
         setReady(true);
-        renderCanvas();
         bumpRevision();
       }
     });
     return () => {
       cancelled = true;
     };
-  }, [handle, selectedFace.texturePath, renderCanvas, bumpRevision]);
+  }, [handle, selectedFace.texturePath, bumpRevision]);
 
   useEffect(() => subscribeTextureDocuments(renderCanvas), [renderCanvas]);
   useEffect(() => {
+    if (!ready) return;
     renderCanvas();
-  }, [revision, renderCanvas]);
+  }, [ready, revision, renderCanvas]);
 
   const applyAt = useCallback(
     (tx: number, ty: number, isStroke: boolean) => {
@@ -473,29 +530,7 @@ function TextureCanvasInner({ handle, selectedFace }: TextureCanvasProps) {
     }
     setHoverPixel(point);
     setCursor(point ? point[0] : null, point ? point[1] : null);
-
-    if (point && overlayRef.current) {
-      const overlay = overlayRef.current;
-      const source = getTextureCanvas(selectedFace.texturePath);
-      if (source) {
-        const region = faceUvRegion(faceForRegion(), source.width, source.height);
-        const ctx = overlay.getContext("2d");
-        if (ctx) {
-          const scaleX = overlay.width / region.width;
-          const scaleY = overlay.height / region.height;
-          const lx = (point[0] - region.x) * scaleX;
-          const ly = (point[1] - region.y) * scaleY;
-          ctx.clearRect(0, 0, overlay.width, overlay.height);
-          if (selectionRef.current) drawSelectionOverlay(selectionRef.current);
-          const r = (brushSize / 2) * scaleX;
-          ctx.strokeStyle = "rgba(99, 140, 255, 0.85)";
-          ctx.lineWidth = 1;
-          ctx.beginPath();
-          ctx.arc(lx, ly, Math.max(1, r), 0, Math.PI * 2);
-          ctx.stroke();
-        }
-      }
-    }
+    scheduleBrushCursor(point);
 
     if (!paintingRef.current) return;
 
@@ -628,8 +663,10 @@ function TextureCanvasInner({ handle, selectedFace }: TextureCanvasProps) {
             endStroke(e);
             setHoverPixel(null);
             setCursor(null, null);
+            scheduleBrushCursor(null);
           }}
         />
+        <canvas ref={cursorRef} className={styles.cursorLayer} aria-hidden />
       </div>
       <div className={styles.historyRow}>
         <span className={styles.historyHint}>

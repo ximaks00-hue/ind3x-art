@@ -1,0 +1,39 @@
+.wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-border);
+  background: var(--color-bg-input);
+}
+
+.btn {
+  font-size: 10px;
+  line-height: 1;
+  min-width: 20px;
+  padding: 2px 4px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+}
+
+.btn:hover {
+  background: var(--color-bg-panel-hover);
+  color: var(--color-text-primary);
+}
+
+.badge {
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  color: var(--color-text-muted);
+  min-width: 3.5rem;
+  text-align: center;
+}
+
+.scrub {
+  width: 72px;
+  accent-color: var(--color-accent);
+}

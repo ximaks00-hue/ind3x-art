@@ -21,6 +21,11 @@
   height: 100%;
 }
 
+.imageLow {
+  opacity: 0.72;
+  filter: blur(0.4px);
+}
+
 .placeholder {
   font-size: 16px;
   font-weight: 650;

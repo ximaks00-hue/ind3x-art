@@ -19,7 +19,7 @@ Minecraft-like creative inventory: open a pack → grid of block/item icons → 
 
 - Full vanilla creative tab order / registry
 - `catalog_tabs.json` pack overrides (v2)
-- UV unfold panel, Reference Transfer (Phase 5+)
+- Reference Transfer column (deferred)
 - Orphan raw textures in catalog grid
 - Backend 3D icon bake (frontend Three.js only)
 
@@ -102,7 +102,7 @@ Catalog is built on `open_source` / reindex via `catalog::build_project_catalog`
 | `CatalogIcon` component + item GUI slot frame | ✅ |
 | `useCatalogIconPipeline` visible-cell scheduling | ✅ |
 | Settings: icon quality + cache limit | ✅ Settings panel |
-| Auto: preview blocks, 3D items (UC-3) | ✅ |
+| Auto: 3D bake default (`auto`/`3d`); tier-1 fallback on timeout | ✅ `catalogIconRules.ts` |
 | Unit tests | ✅ |
 
 ## Phase 4 deliverables
@@ -143,6 +143,16 @@ Catalog is built on `open_source` / reindex via `catalog::build_project_catalog`
 | Native WebDriver studio scaffold | ✅ `e2e/native/studio-webdriver.spec.ts` |
 | Docs + TESTING.md | ✅ |
 
+## Phase F deliverables (premium polish)
+
+| Deliverable | Status |
+|-------------|--------|
+| UV unfold panel (synced with 3D face selection) | ✅ `UnfoldPanel.tsx` |
+| Catalog cell micro compare (before/after on hover) | ✅ `CatalogCellCompare.tsx` |
+| Animated texture preview in studio toolbar | ✅ `StudioAnimationPreview.tsx` |
+| Native WebDriver: demo pack → catalog → unfold | ✅ `studio-webdriver.spec.ts` |
+| Reference Transfer (4th column) | ⏸ deferred |
+
 ### Phase 0 go/no-go
 
 | Spike | Target | Result |
@@ -151,7 +161,17 @@ Catalog is built on `open_source` / reindex via `catalog::build_project_catalog`
 | Icon bake 100 cells | < 5s | Run `npm run test:unit -- catalogIconBake` |
 | 3D icon bake | optional | `bakeCatalogIcon3d` — browser/dev only |
 
-**Decision:** Tier-1 texture preview is default for blocks; tier-2 GUI bake for items (auto) or all entries (`3d` mode).
+**Decision (updated):** Tier-2 WebGL GUI bake is the default in `auto` mode for all catalog entries (`catalogIconRules.ts`). Tier-1 flat texture preview is **fallback only** (`preview` mode or after 3D bake timeout). See § Icon pipeline below.
+
+### Viewport paint workflow
+
+| Topic | Behavior |
+|-------|----------|
+| Studio cullface | `studioMode` disables face culling — all multipart faces are pickable |
+| Item GUI paint | Hand/Placed views preferred for tools; GUI shows inventory slot transform |
+| Texture-only entries | Flat `StudioTexturePreview` + banner — no 3D block model in pack |
+| Face bootstrap | Re-runs on catalog entry, **variant**, or **item view** change |
+| Live 3D paint | `refreshDirtyTexturesForViewer` before mesh build / resolve cache hit |
 
 ## Wireframe — Studio layout
 
@@ -195,6 +215,17 @@ Honest acceptance status on **real Tauri + real packs**. Manual checklist: [STUD
 | R6 | Premium polish — dirty badge, session restore | P2 | ✅ minimal |
 
 **Note:** Phase 6 Playwright tests use `VITE_E2E_MOCK` (synthetic 2400-entry catalog). Rust `cargo test` exercises real fixtures (`simple_pack`, `multipart_pack`, `studio_pack`).
+
+## Icon pipeline (current behavior)
+
+| Layer | Role |
+|-------|------|
+| Tier-2 WebGL | Primary path in `auto` / `3d` — `bakeCatalogIcon3d` with inventory camera |
+| Tier-1 flat | Fallback after 8s timeout or `preview` mode |
+| Memory LRU | `catalogIconCache.ts` — evicted on `invalidateCatalogIconsForTextures` after paint/save |
+| Sled cache | Keyed by project fingerprint + `iconKey` — invalidated with same IPC on texture edit |
+
+Known gaps: bake camera is not pixel-perfect vs vanilla; weak GPUs may show letter placeholder after timeout.
 
 ## Regenerate bindings
 

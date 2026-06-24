@@ -35,6 +35,39 @@ impl JarSource {
         }
     }
 
+    /// Count blockstate JSON paths without building the full entry list.
+    pub fn count_blockstate_paths(&self) -> CoreResult<usize> {
+        self.count_zip_paths(|name| name.contains("/blockstates/") && name.ends_with(".json"))
+    }
+
+    /// Count lang JSON paths under assets without building the full entry list.
+    pub fn count_lang_paths(&self) -> CoreResult<usize> {
+        self.count_zip_paths(|name| {
+            name.starts_with("assets/")
+                && name.contains("/lang/")
+                && name.ends_with(".json")
+        })
+    }
+
+    fn count_zip_paths(&self, predicate: impl Fn(&str) -> bool) -> CoreResult<usize> {
+        self.with_archive(|archive| {
+            let mut count = 0usize;
+            for i in 0..archive.len() {
+                let file = archive
+                    .by_index(i)
+                    .map_err(|e| CoreError::Internal(format!("zip entry read failed: {e}")))?;
+                if file.is_dir() {
+                    continue;
+                }
+                let name = normalize_zip_path(file.name());
+                if predicate(&name) {
+                    count += 1;
+                }
+            }
+            Ok(count)
+        })
+    }
+
     fn with_archive<T, F>(&self, f: F) -> CoreResult<T>
     where
         F: FnOnce(&mut ZipArchive<File>) -> CoreResult<T>,
@@ -101,7 +134,7 @@ impl AssetSource for JarSource {
         self.with_archive(|archive| {
             let mut file = archive
                 .by_name(&needle)
-                .map_err(|_| CoreError::Internal(format!("zip entry not found: {needle}")))?;
+                .map_err(|_| CoreError::AssetNotFound(needle))?;
             let mut buf = Vec::new();
             file.read_to_end(&mut buf)?;
             Ok(buf)

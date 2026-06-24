@@ -18,6 +18,7 @@ export function CatalogIcon({ entry, size = 40, fallbackInitial }: CatalogIconPr
   const isItem = entry.kind === "item";
   const willBake = shouldAttemptIconBake(entry, mode);
   const showShimmer = status === "baking" || (status === "idle" && willBake && !src);
+  const showLowRes = status === "low" && Boolean(src);
   const showLetter = !src && !showShimmer;
   const showCube = showLetter && entry.kind === "block" && !willBake;
 
@@ -34,7 +35,9 @@ export function CatalogIcon({ entry, size = 40, fallbackInitial }: CatalogIconPr
           width={size}
           height={size}
           draggable={false}
-          className={styles.image}
+          className={[styles.image, showLowRes ? styles.imageLow : ""]
+            .filter(Boolean)
+            .join(" ")}
         />
       ) : showShimmer ? (
         <span className={styles.shimmer} />

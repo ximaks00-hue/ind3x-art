@@ -72,6 +72,26 @@ describe("textureDocument", () => {
     expect(getPixel(path, 0, 0)).toEqual([0, 255, 0, 255]);
   });
 
+  it("rejects paste from a different texture", async () => {
+    const otherPath = "assets/minecraft/textures/block/other.png";
+    const doc = await ensureTextureDocument(handle, path);
+    const before = getPixel(path, 0, 0)!;
+    commitChanges(handle, path, [
+      {
+        x: 0,
+        y: 0,
+        before,
+        after: [255, 0, 0, 255],
+        layerId: doc.layers[0]!.id,
+      },
+    ]);
+    const { copyRegion, pasteRegion, hasClipboard } = await import("./textureDocument");
+    expect(copyRegion(path, 0, 0, 1, 1)).toBe(true);
+    expect(hasClipboard(path)).toBe(true);
+    expect(hasClipboard(otherPath)).toBe(false);
+    expect(pasteRegion(otherPath, 0, 0)).toEqual([]);
+  });
+
   it("undo restores pixel after commit", async () => {
     const { undoTexture, canUndo } = await import("./textureDocument");
     const doc = await ensureTextureDocument(handle, path);

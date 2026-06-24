@@ -56,13 +56,26 @@ pub struct ProjectHandle {
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
+pub struct ReindexResult {
+    pub asset_count: u64,
+    pub catalog_count: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
 pub struct OpenSourceResult {
     pub handle: ProjectHandle,
     pub source_path: String,
     pub source_kind: SourceKind,
     pub entry_count: u64,
     pub from_cache: bool,
+    #[serde(rename = "catalogFromCache")]
+    pub catalog_from_cache: bool,
+    #[serde(rename = "catalogEntryCount")]
+    pub catalog_entry_count: u64,
     pub pack_format: Option<u32>,
+    #[serde(rename = "catalogLanguage")]
+    pub catalog_language: String,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, Type, PartialEq, Eq)]
@@ -346,7 +359,7 @@ pub struct SaveTexturesResult {
 
 // --- Block Studio catalog (Phase 0 API) ---
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub enum CatalogEntryKind {
     Block,
@@ -370,6 +383,26 @@ pub enum CatalogCategory {
 pub enum CatalogResolveKind {
     Blockstate,
     Model,
+    Texture,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum CatalogPresentation {
+    Block,
+    Item,
+    Tool,
+    Food,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum StudioResolveContext {
+    Icon,
+    /// World-placed block model (no item display transform).
+    Placed,
+    /// @deprecated alias for `Placed`
+    Studio,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
@@ -380,7 +413,7 @@ pub struct CatalogEntry {
     pub namespace: String,
     pub display_name: String,
     pub kind: CatalogEntryKind,
-    /// blockstate path or item/block model path
+    /// blockstate path or item/block model path (legacy; prefer studio_model_path)
     pub source_path: String,
     pub resolve_kind: CatalogResolveKind,
     #[serde(default)]
@@ -391,6 +424,21 @@ pub struct CatalogEntry {
     pub icon_key: String,
     #[serde(default)]
     pub aliases: Vec<String>,
+    /// `minecraft:stone` when this entry represents a block
+    #[serde(default)]
+    pub block_id: Option<String>,
+    /// `minecraft:diamond_sword` when this entry represents an item
+    #[serde(default)]
+    pub item_id: Option<String>,
+    /// Asset path used for inventory icon resolve
+    #[serde(default)]
+    pub icon_model_path: Option<String>,
+    /// Asset path used for 3D studio viewport
+    pub studio_model_path: String,
+    /// All blockstate variant keys for UI picker
+    #[serde(default)]
+    pub variant_keys: Vec<String>,
+    pub presentation: CatalogPresentation,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default, Type)]

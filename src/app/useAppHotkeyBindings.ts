@@ -88,8 +88,14 @@ export function useAppHotkeyBindings(
         pushToast("Region copied", "info");
       },
       onPaste: () => {
-        if (!handle || !selectedFace || !hasClipboard()) return;
+        if (!handle || !selectedFace) return;
         const path = selectedFace.texturePath;
+        if (!hasClipboard(path)) {
+          if (hasClipboard()) {
+            pushToast("Clipboard is from a different texture", "info");
+          }
+          return;
+        }
         const sel = useEditorStore.getState().selection;
         const changes = pasteRegion(
           path,

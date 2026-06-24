@@ -1,19 +1,29 @@
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use crate::dto::{CatalogCategory, CatalogEntry, CatalogFacets, CatalogFilter, CatalogPage, FacetCount, PageReq};
 use crate::search::fuzzy_score;
 
-pub fn query_catalog(entries: &[CatalogEntry], filter: CatalogFilter, page: PageReq) -> CatalogPage {
+use super::creative_tabs::CreativeTabOrder;
+
+pub fn query_catalog(
+    entries: &[Arc<CatalogEntry>],
+    filter: CatalogFilter,
+    page: PageReq,
+    tab_order: Option<&CreativeTabOrder>,
+) -> CatalogPage {
     let search = filter
         .search
         .as_ref()
         .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty());
-    let query_lower = search.as_ref().map(|q| q.to_ascii_lowercase());
+    let query_lower = search.as_ref().map(|q| q.to_lowercase());
 
-    let mut matched: Vec<(u32, &CatalogEntry)> = entries
+    let mut matched: Vec<(u32, usize)> = entries
         .iter()
-        .filter_map(|entry| {
+        .enumerate()
+        .filter_map(|(idx, entry)| {
+            let entry = entry.as_ref();
             if let Some(category) = filter.category {
                 if entry.category != category {
                     return None;
@@ -27,32 +37,62 @@ pub fn query_catalog(entries: &[CatalogEntry], filter: CatalogFilter, page: Page
             if let Some(ref q) = search {
                 if filter.fuzzy {
                     let hay = format!(
-                        "{} {} {}",
+                        "{} {} {} {}",
                         entry.display_name,
                         entry.id,
-                        entry.search_tokens.join(" ")
+                        entry.search_tokens.join(" "),
+                        entry.aliases.join(" ")
                     );
-                    fuzzy_score(q, &hay).map(|score| (score, entry))
+                    fuzzy_score(q, &hay).map(|score| (score, idx))
                 } else if query_lower.as_ref().is_some_and(|needle| {
-                    entry.display_name.to_ascii_lowercase().contains(needle)
-                        || entry.id.to_ascii_lowercase().contains(needle)
+                    entry.display_name.to_lowercase().contains(needle)
+                        || entry.id.to_lowercase().contains(needle)
                         || entry
                             .search_tokens
                             .iter()
                             .any(|t| t.contains(needle))
+                        || entry
+                            .aliases
+                            .iter()
+                            .any(|a| a.to_lowercase().contains(needle))
                 }) {
-                    Some((1000, entry))
+                    Some((1000, idx))
                 } else {
                     None
                 }
             } else {
-                Some((0, entry))
+                Some((0, idx))
             }
         })
         .collect();
 
     if search.is_some() && filter.fuzzy {
-        matched.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| a.1.id.cmp(&b.1.id)));
+        matched.sort_by(|a, b| {
+            b.0.cmp(&a.0).then_with(|| {
+                entries[a.1].id.cmp(&entries[b.1].id)
+            })
+        });
+    } else {
+        matched.sort_by(|a, b| {
+            let score_cmp = if search.is_some() {
+                b.0.cmp(&a.0)
+            } else {
+                std::cmp::Ordering::Equal
+            };
+            score_cmp.then_with(|| {
+                let ea = entries[a.1].as_ref();
+                let eb = entries[b.1].as_ref();
+                let (ra, na) = tab_order
+                    .map(|order| order.sort_key(&ea.id, &ea.display_name))
+                    .unwrap_or((u32::MAX / 2, ea.display_name.to_lowercase()));
+                let (rb, nb) = tab_order
+                    .map(|order| order.sort_key(&eb.id, &eb.display_name))
+                    .unwrap_or((u32::MAX / 2, eb.display_name.to_lowercase()));
+                ra.cmp(&rb)
+                    .then_with(|| na.cmp(&nb))
+                    .then_with(|| ea.id.cmp(&eb.id))
+            })
+        });
     }
 
     let total = matched.len() as u64;
@@ -63,7 +103,7 @@ pub fn query_catalog(entries: &[CatalogEntry], filter: CatalogFilter, page: Page
     } else {
         matched[start..end]
             .iter()
-            .map(|(_, entry)| (*entry).clone())
+            .map(|(_, idx)| entries[*idx].as_ref().clone())
             .collect()
     };
 
@@ -73,11 +113,14 @@ pub fn query_catalog(entries: &[CatalogEntry], filter: CatalogFilter, page: Page
     }
 }
 
-pub fn get_catalog_entry<'a>(entries: &'a [CatalogEntry], id: &str) -> Option<&'a CatalogEntry> {
-    entries.iter().find(|e| e.id == id)
+pub fn get_catalog_entry<'a>(entries: &'a [Arc<CatalogEntry>], id: &str) -> Option<&'a CatalogEntry> {
+    entries
+        .iter()
+        .find(|e| e.id == id)
+        .map(|entry| entry.as_ref())
 }
 
-pub fn catalog_facets(entries: &[CatalogEntry]) -> CatalogFacets {
+pub fn catalog_facets(entries: &[Arc<CatalogEntry>]) -> CatalogFacets {
     let mut counts: HashMap<CatalogCategory, u64> = HashMap::new();
     for entry in entries {
         *counts.entry(entry.category).or_insert(0) += 1;
@@ -111,7 +154,8 @@ mod bench {
 
     use super::*;
     use crate::dto::{
-        CatalogCategory, CatalogEntry, CatalogEntryKind, CatalogFilter, CatalogResolveKind, PageReq,
+        CatalogCategory, CatalogEntry, CatalogEntryKind, CatalogFilter, CatalogPresentation,
+        CatalogResolveKind, PageReq,
     };
 
     #[test]
@@ -121,7 +165,7 @@ mod bench {
             synthetic_entry(CatalogCategory::Building, "b"),
             synthetic_entry(CatalogCategory::Nature, "c"),
         ];
-        let facets = catalog_facets(&catalog);
+        let facets = catalog_facets(&crate::state::arc_catalog(catalog));
         assert_eq!(facets.by_category.len(), 2);
         let building = facets
             .by_category
@@ -132,12 +176,13 @@ mod bench {
     }
 
     fn synthetic_entry(category: CatalogCategory, stem: &str) -> CatalogEntry {
+        let path = format!("assets/minecraft/blockstates/{stem}.json");
         CatalogEntry {
             id: format!("minecraft:{stem}"),
             namespace: "minecraft".to_string(),
             display_name: stem.to_string(),
             kind: CatalogEntryKind::Block,
-            source_path: format!("assets/minecraft/blockstates/{stem}.json"),
+            source_path: path.clone(),
             resolve_kind: CatalogResolveKind::Blockstate,
             default_variant_key: Some(String::new()),
             category,
@@ -145,6 +190,12 @@ mod bench {
             texture_paths: vec![],
             icon_key: format!("minecraft:{stem}:"),
             aliases: vec![],
+            block_id: Some(format!("minecraft:{stem}")),
+            item_id: None,
+            icon_model_path: None,
+            studio_model_path: path,
+            variant_keys: vec![String::new()],
+            presentation: CatalogPresentation::Block,
         }
     }
 
@@ -152,12 +203,13 @@ mod bench {
         (0..count)
             .map(|i| {
                 let stem = format!("block_{i:04}");
+                let path = format!("assets/minecraft/blockstates/{stem}.json");
                 CatalogEntry {
                     id: format!("minecraft:{stem}"),
                     namespace: "minecraft".to_string(),
                     display_name: format!("Block {i}"),
                     kind: CatalogEntryKind::Block,
-                    source_path: format!("assets/minecraft/blockstates/{stem}.json"),
+                    source_path: path.clone(),
                     resolve_kind: CatalogResolveKind::Blockstate,
                     default_variant_key: Some(String::new()),
                     category: CatalogCategory::Building,
@@ -165,6 +217,12 @@ mod bench {
                     texture_paths: vec![],
                     icon_key: format!("minecraft:minecraft:{stem}:"),
                     aliases: vec![],
+                    block_id: Some(format!("minecraft:{stem}")),
+                    item_id: None,
+                    icon_model_path: None,
+                    studio_model_path: path,
+                    variant_keys: vec![String::new()],
+                    presentation: CatalogPresentation::Block,
                 }
             })
             .collect()
@@ -172,7 +230,7 @@ mod bench {
 
     #[test]
     fn bench_query_catalog_200_page_under_30ms() {
-        let catalog = synthetic_catalog(3_000);
+        let catalog = crate::state::arc_catalog(synthetic_catalog(3_000));
         let filter = CatalogFilter {
             category: None,
             namespace: None,
@@ -185,7 +243,7 @@ mod bench {
         };
 
         let t = Instant::now();
-        let result = query_catalog(&catalog, filter, page);
+        let result = query_catalog(&catalog, filter, page, None);
         let elapsed_ms = t.elapsed().as_millis();
         assert_eq!(result.entries.len(), 200);
         assert!(
@@ -196,7 +254,7 @@ mod bench {
 
     #[test]
     fn bench_query_catalog_5000_under_50ms() {
-        let catalog = synthetic_catalog(5_000);
+        let catalog = crate::state::arc_catalog(synthetic_catalog(5_000));
         let filter = CatalogFilter {
             category: None,
             namespace: None,
@@ -209,7 +267,7 @@ mod bench {
         };
 
         let t = Instant::now();
-        let result = query_catalog(&catalog, filter, page);
+        let result = query_catalog(&catalog, filter, page, None);
         let elapsed_ms = t.elapsed().as_millis();
         assert_eq!(result.entries.len(), 200);
         assert_eq!(result.total, 5_000);

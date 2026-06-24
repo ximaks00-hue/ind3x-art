@@ -13,9 +13,19 @@ pub fn get_builtin_model(namespace: &str, model_path: &str) -> Option<RawModel> 
 fn models() -> HashMap<&'static str, RawModel> {
     let mut map = HashMap::new();
 
-    map.insert(
-        "block/cube",
-        serde_json::from_value(serde_json::json!({
+
+fn insert_builtin(map: &mut HashMap<&'static str, RawModel>, path: &'static str, value: serde_json::Value) {
+    match serde_json::from_value::<RawModel>(value) {
+        Ok(model) => {
+            map.insert(path, model);
+        }
+        Err(err) => {
+            tracing::error!(builtin = path, error = %err, "invalid builtin model JSON — skipping");
+        }
+    }
+}
+
+    insert_builtin(&mut map, "block/cube", serde_json::json!({
             "elements": [{
                 "from": [0, 0, 0],
                 "to": [16, 16, 16],
@@ -28,13 +38,9 @@ fn models() -> HashMap<&'static str, RawModel> {
                     "east":  { "texture": "#east",  "cullface": "east" }
                 }
             }]
-        }))
-        .expect("builtin cube"),
-    );
+        }));
 
-    map.insert(
-        "block/cube_all",
-        serde_json::from_value(serde_json::json!({
+    insert_builtin(&mut map, "block/cube_all", serde_json::json!({
             "parent": "block/cube",
             "textures": {
                 "particle": "#all",
@@ -45,13 +51,9 @@ fn models() -> HashMap<&'static str, RawModel> {
                 "south": "#all",
                 "west": "#all"
             }
-        }))
-        .expect("builtin cube_all"),
-    );
+        }));
 
-    map.insert(
-        "block/cube_column",
-        serde_json::from_value(serde_json::json!({
+    insert_builtin(&mut map, "block/cube_column", serde_json::json!({
             "parent": "block/cube",
             "textures": {
                 "particle": "#side",
@@ -62,13 +64,9 @@ fn models() -> HashMap<&'static str, RawModel> {
                 "south": "#side",
                 "west": "#side"
             }
-        }))
-        .expect("builtin cube_column"),
-    );
+        }));
 
-    map.insert(
-        "block/cross",
-        serde_json::from_value(serde_json::json!({
+    insert_builtin(&mut map, "block/cross", serde_json::json!({
             "ambientocclusion": false,
             "textures": { "particle": "#cross" },
             "elements": [
@@ -93,22 +91,29 @@ fn models() -> HashMap<&'static str, RawModel> {
                     }
                 }
             ]
-        }))
-        .expect("builtin cross"),
-    );
+        }));
 
-    map.insert(
-        "item/generated",
-        serde_json::from_value(serde_json::json!({
+    insert_builtin(&mut map, "builtin/generated", serde_json::json!({
+            "display": {
+                "gui": {
+                    "rotation": [30, 225, 0],
+                    "translation": [0, 0, 0],
+                    "scale": [0.625, 0.625, 0.625]
+                },
+                "fixed": {
+                    "rotation": [0, 0, 0],
+                    "translation": [0, 0, 0],
+                    "scale": [0.5, 0.5, 0.5]
+                }
+            }
+        }));
+
+    insert_builtin(&mut map, "item/generated", serde_json::json!({
             "parent": "builtin/generated",
             "textures": { "layer0": "#layer0" }
-        }))
-        .expect("builtin item/generated"),
-    );
+        }));
 
-    map.insert(
-        "item/handheld",
-        serde_json::from_value(serde_json::json!({
+    insert_builtin(&mut map, "item/handheld", serde_json::json!({
             "parent": "item/generated",
             "display": {
                 "thirdperson_righthand": {
@@ -122,14 +127,10 @@ fn models() -> HashMap<&'static str, RawModel> {
                     "scale": [0.68, 0.68, 0.68]
                 }
             }
-        }))
-        .expect("builtin item/handheld"),
-    );
+        }));
 
     // block/orientable — front texture on the north face
-    map.insert(
-        "block/orientable",
-        serde_json::from_value(serde_json::json!({
+    insert_builtin(&mut map, "block/orientable", serde_json::json!({
             "parent": "block/cube",
             "textures": {
                 "particle": "#side",
@@ -140,14 +141,10 @@ fn models() -> HashMap<&'static str, RawModel> {
                 "east": "#side",
                 "west": "#side"
             }
-        }))
-        .expect("builtin block/orientable"),
-    );
+        }));
 
     // block/orientable_vertical — top texture as front
-    map.insert(
-        "block/orientable_vertical",
-        serde_json::from_value(serde_json::json!({
+    insert_builtin(&mut map, "block/orientable_vertical", serde_json::json!({
             "parent": "block/cube",
             "textures": {
                 "particle": "#side",
@@ -158,14 +155,10 @@ fn models() -> HashMap<&'static str, RawModel> {
                 "east": "#side",
                 "west": "#side"
             }
-        }))
-        .expect("builtin block/orientable_vertical"),
-    );
+        }));
 
     // block/cube_bottom_top
-    map.insert(
-        "block/cube_bottom_top",
-        serde_json::from_value(serde_json::json!({
+    insert_builtin(&mut map, "block/cube_bottom_top", serde_json::json!({
             "parent": "block/cube",
             "textures": {
                 "particle": "#side",
@@ -176,28 +169,20 @@ fn models() -> HashMap<&'static str, RawModel> {
                 "south": "#side",
                 "west": "#side"
             }
-        }))
-        .expect("builtin block/cube_bottom_top"),
-    );
+        }));
 
     // block/cube_column_horizontal (rotated pillar)
-    map.insert(
-        "block/cube_column_horizontal",
-        serde_json::from_value(serde_json::json!({
+    insert_builtin(&mut map, "block/cube_column_horizontal", serde_json::json!({
             "parent": "block/cube_column",
             "textures": {
                 "particle": "#side",
                 "end": "#end",
                 "side": "#side"
             }
-        }))
-        .expect("builtin block/cube_column_horizontal"),
-    );
+        }));
 
     // block/leaves — same as cube_all but no cullface
-    map.insert(
-        "block/leaves",
-        serde_json::from_value(serde_json::json!({
+    insert_builtin(&mut map, "block/leaves", serde_json::json!({
             "ambientocclusion": false,
             "textures": { "particle": "#all" },
             "elements": [{
@@ -212,14 +197,10 @@ fn models() -> HashMap<&'static str, RawModel> {
                     "east":  { "texture": "#all", "tintindex": 0 }
                 }
             }]
-        }))
-        .expect("builtin block/leaves"),
-    );
+        }));
 
     // block/thin_block (pane / glass pane body)
-    map.insert(
-        "block/thin_block",
-        serde_json::from_value(serde_json::json!({
+    insert_builtin(&mut map, "block/thin_block", serde_json::json!({
             "textures": { "particle": "#pane" },
             "elements": [{
                 "from": [7, 0, 0],
@@ -231,14 +212,10 @@ fn models() -> HashMap<&'static str, RawModel> {
                     "south": { "uv": [7, 0, 9, 16], "texture": "#pane" }
                 }
             }]
-        }))
-        .expect("builtin block/thin_block"),
-    );
+        }));
 
     // block/torch — small flat billboard
-    map.insert(
-        "block/torch",
-        serde_json::from_value(serde_json::json!({
+    insert_builtin(&mut map, "block/torch", serde_json::json!({
             "ambientocclusion": false,
             "textures": { "torch": "#torch", "particle": "#torch" },
             "elements": [
@@ -255,14 +232,10 @@ fn models() -> HashMap<&'static str, RawModel> {
                     }
                 }
             ]
-        }))
-        .expect("builtin block/torch"),
-    );
+        }));
 
     // block/slab (lower half default)
-    map.insert(
-        "block/slab",
-        serde_json::from_value(serde_json::json!({
+    insert_builtin(&mut map, "block/slab", serde_json::json!({
             "textures": {
                 "particle": "#side",
                 "bottom": "#bottom",
@@ -281,14 +254,10 @@ fn models() -> HashMap<&'static str, RawModel> {
                     "east":  { "uv": [0, 8, 16, 16], "texture": "#side", "cullface": "east" }
                 }
             }]
-        }))
-        .expect("builtin block/slab"),
-    );
+        }));
 
     // block/slab_top (upper half)
-    map.insert(
-        "block/slab_top",
-        serde_json::from_value(serde_json::json!({
+    insert_builtin(&mut map, "block/slab_top", serde_json::json!({
             "parent": "block/slab",
             "elements": [{
                 "from": [0, 8, 0],
@@ -302,14 +271,10 @@ fn models() -> HashMap<&'static str, RawModel> {
                     "east":  { "uv": [0, 0, 16, 8], "texture": "#side", "cullface": "east" }
                 }
             }]
-        }))
-        .expect("builtin block/slab_top"),
-    );
+        }));
 
     // block/stairs (bottom front step)
-    map.insert(
-        "block/stairs",
-        serde_json::from_value(serde_json::json!({
+    insert_builtin(&mut map, "block/stairs", serde_json::json!({
             "textures": {
                 "particle": "#side",
                 "bottom": "#bottom",
@@ -338,14 +303,10 @@ fn models() -> HashMap<&'static str, RawModel> {
                     }
                 }
             ]
-        }))
-        .expect("builtin block/stairs"),
-    );
+        }));
 
     // block/pressure_plate_up
-    map.insert(
-        "block/pressure_plate_up",
-        serde_json::from_value(serde_json::json!({
+    insert_builtin(&mut map, "block/pressure_plate_up", serde_json::json!({
             "textures": { "texture": "#texture", "particle": "#texture" },
             "elements": [{
                 "from": [1, 0, 1], "to": [15, 1, 15],
@@ -358,13 +319,9 @@ fn models() -> HashMap<&'static str, RawModel> {
                     "east": { "uv": [1, 15, 15, 16], "texture": "#texture" }
                 }
             }]
-        }))
-        .expect("builtin block/pressure_plate_up"),
-    );
+        }));
 
-    map.insert(
-        "block/fence_post",
-        serde_json::from_value(serde_json::json!({
+    insert_builtin(&mut map, "block/fence_post", serde_json::json!({
             "textures": { "texture": "#texture", "particle": "#texture" },
             "elements": [{
                 "from": [6, 0, 6], "to": [10, 16, 10],
@@ -377,13 +334,9 @@ fn models() -> HashMap<&'static str, RawModel> {
                     "east":  { "uv": [6, 0, 10, 16], "texture": "#texture" }
                 }
             }]
-        }))
-        .expect("builtin block/fence_post"),
-    );
+        }));
 
-    map.insert(
-        "block/fence_side",
-        serde_json::from_value(serde_json::json!({
+    insert_builtin(&mut map, "block/fence_side", serde_json::json!({
             "textures": { "texture": "#texture", "particle": "#texture" },
             "elements": [{
                 "from": [7, 6, 0], "to": [9, 12, 8],
@@ -396,13 +349,9 @@ fn models() -> HashMap<&'static str, RawModel> {
                     "down":  { "uv": [7, 6, 9, 8], "texture": "#texture" }
                 }
             }]
-        }))
-        .expect("builtin block/fence_side"),
-    );
+        }));
 
-    map.insert(
-        "block/template_fence_gate",
-        serde_json::from_value(serde_json::json!({
+    insert_builtin(&mut map, "block/template_fence_gate", serde_json::json!({
             "textures": { "texture": "#texture", "particle": "#texture" },
             "elements": [{
                 "from": [0, 0, 7], "to": [16, 16, 9],
@@ -411,13 +360,9 @@ fn models() -> HashMap<&'static str, RawModel> {
                     "south": { "uv": [0, 0, 16, 16], "texture": "#texture" }
                 }
             }]
-        }))
-        .expect("builtin block/template_fence_gate"),
-    );
+        }));
 
-    map.insert(
-        "block/door_top",
-        serde_json::from_value(serde_json::json!({
+    insert_builtin(&mut map, "block/door_top", serde_json::json!({
             "textures": { "particle": "#top", "top": "#top", "bottom": "#bottom" },
             "elements": [{
                 "from": [0, 8, 0], "to": [16, 16, 16],
@@ -430,13 +375,9 @@ fn models() -> HashMap<&'static str, RawModel> {
                     "down":  { "uv": [0, 0, 16, 16], "texture": "#bottom" }
                 }
             }]
-        }))
-        .expect("builtin block/door_top"),
-    );
+        }));
 
-    map.insert(
-        "block/door_bottom",
-        serde_json::from_value(serde_json::json!({
+    insert_builtin(&mut map, "block/door_bottom", serde_json::json!({
             "textures": { "particle": "#bottom", "top": "#top", "bottom": "#bottom" },
             "elements": [{
                 "from": [0, 0, 0], "to": [16, 8, 16],
@@ -449,12 +390,20 @@ fn models() -> HashMap<&'static str, RawModel> {
                     "down":  { "uv": [0, 0, 16, 16], "texture": "#bottom", "cullface": "down" }
                 }
             }]
-        }))
-        .expect("builtin block/door_bottom"),
-    );
+        }));
 
     map
 }
 
 static BUILTIN_MODELS: std::sync::LazyLock<HashMap<&'static str, RawModel>> =
     std::sync::LazyLock::new(models);
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn all_builtin_models_parse() {
+        assert_eq!(models().len(), 23, "expected all 23 builtin models to parse");
+    }
+}

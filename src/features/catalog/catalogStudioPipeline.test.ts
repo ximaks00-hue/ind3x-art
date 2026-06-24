@@ -71,7 +71,7 @@ describe("studio catalog scale (mock IPC)", () => {
 
     await window.__E2E__!.selectCatalogEntry("minecraft:test_stone");
     expect(useCatalogStore.getState().selectedId).toBe("minecraft:test_stone");
-    expect(useProjectStore.getState().selectedAsset?.displayName).toBe("Test Stone");
+    expect(useCatalogStore.getState().selectedEntry?.displayName).toBe("Test Stone");
 
     const handle = useProjectStore.getState().handle!;
     const saved = await ipc.saveTextures(handle, [

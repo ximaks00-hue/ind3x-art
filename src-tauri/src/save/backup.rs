@@ -1,12 +1,99 @@
-use std::path::Path;
 use std::collections::HashSet;
+use std::path::{Path, PathBuf};
 
+use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use walkdir::WalkDir;
 
 use crate::dto::{BackupInfo, SourceKind};
 use crate::error::{CoreError, CoreResult};
-use crate::source::safe_join_under_root;
+use crate::source::{normalize_zip_path, safe_join_under_root, validate_relative_asset_path};
+
+/// Written by `create_backup` for folder packs — distinguishes full snapshots from per-save sessions.
+const FULL_SNAPSHOT_MARKER: &str = ".ind3x-full-snapshot";
+
+/// Per-save session manifest — tracks files created vs overwritten for rollback cleanup.
+pub const SESSION_MANIFEST: &str = ".ind3x-session-manifest.json";
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FolderSaveSessionManifest {
+    pub created: Vec<String>,
+    pub overwritten: Vec<String>,
+}
+
+fn session_backup_file(backup_session: &Path, rel: &str) -> CoreResult<PathBuf> {
+    Ok(backup_session.join(
+        validate_relative_asset_path(rel)?.replace('/', std::path::MAIN_SEPARATOR_STR),
+    ))
+}
+
+pub fn write_session_manifest(
+    backup_session: &Path,
+    manifest: &FolderSaveSessionManifest,
+) -> CoreResult<()> {
+    let json = serde_json::to_vec(manifest)
+        .map_err(|e| CoreError::Internal(format!("session manifest encode failed: {e}")))?;
+    std::fs::write(backup_session.join(SESSION_MANIFEST), json)?;
+    Ok(())
+}
+
+pub fn read_session_manifest(
+    backup_session: &Path,
+) -> CoreResult<Option<FolderSaveSessionManifest>> {
+    let path = backup_session.join(SESSION_MANIFEST);
+    if !path.is_file() {
+        return Ok(None);
+    }
+    let bytes = std::fs::read(&path)?;
+    let manifest = serde_json::from_slice(&bytes)
+        .map_err(|e| CoreError::Internal(format!("session manifest decode failed: {e}")))?;
+    Ok(Some(manifest))
+}
+
+fn delete_manifest_created_paths(
+    root: &Path,
+    manifest: &FolderSaveSessionManifest,
+) -> CoreResult<()> {
+    for path in &manifest.created {
+        let rel = normalize_zip_path(path);
+        let dest = safe_join_under_root(root, &rel)?;
+        if dest.is_file() {
+            std::fs::remove_file(dest)?;
+        }
+    }
+    Ok(())
+}
+
+/// Undo a partially applied folder save using the session backup and manifest.
+pub fn revert_partial_folder_apply(
+    root: &Path,
+    backup_session: &Path,
+    applied_paths: &[String],
+    manifest: &FolderSaveSessionManifest,
+) -> CoreResult<()> {
+    let created: HashSet<&str> = manifest.created.iter().map(|s| s.as_str()).collect();
+    let overwritten: HashSet<&str> = manifest.overwritten.iter().map(|s| s.as_str()).collect();
+
+    for path in applied_paths {
+        let rel = normalize_zip_path(path);
+        let dest = safe_join_under_root(root, &rel)?;
+        if created.contains(rel.as_str()) {
+            if dest.is_file() {
+                std::fs::remove_file(&dest)?;
+            }
+        } else if overwritten.contains(rel.as_str()) {
+            let backup_file = session_backup_file(backup_session, &rel)?;
+            if backup_file.is_file() {
+                if let Some(parent) = dest.parent() {
+                    std::fs::create_dir_all(parent)?;
+                }
+                std::fs::copy(&backup_file, &dest)?;
+            }
+        }
+    }
+    Ok(())
+}
 
 fn backup_id(path: &str) -> String {
     let digest = Sha256::digest(path.as_bytes());
@@ -136,6 +223,7 @@ fn restore_folder_backup(root: &Path, backup_session: &Path) -> CoreResult<()> {
         )));
     }
 
+    let is_full_snapshot = backup_session.join(FULL_SNAPSHOT_MARKER).is_file();
     let backup_root = root.join(".ind3x-backups");
     let mut backup_files: Vec<(std::path::PathBuf, std::path::PathBuf)> = Vec::new();
     let mut backup_rel_paths: HashSet<std::path::PathBuf> = HashSet::new();
@@ -151,28 +239,35 @@ fn restore_folder_backup(root: &Path, backup_session: &Path) -> CoreResult<()> {
             .path()
             .strip_prefix(backup_session)
             .map_err(|e| CoreError::Internal(e.to_string()))?;
+        if rel == std::path::Path::new(FULL_SNAPSHOT_MARKER)
+            || rel == std::path::Path::new(SESSION_MANIFEST)
+        {
+            continue;
+        }
         let rel_str = rel.to_string_lossy();
         let dest = safe_join_under_root(root, &rel_str)?;
         backup_rel_paths.insert(rel.to_path_buf());
         backup_files.push((entry.path().to_path_buf(), dest));
     }
 
-    for entry in WalkDir::new(root)
-        .into_iter()
-        .filter_map(|e| e.ok())
-    {
-        if !entry.file_type().is_file() {
-            continue;
-        }
-        let path = entry.path();
-        if path.starts_with(&backup_root) {
-            continue;
-        }
-        let rel = path
-            .strip_prefix(root)
-            .map_err(|e| CoreError::Internal(e.to_string()))?;
-        if !backup_rel_paths.contains(rel) {
-            std::fs::remove_file(path)?;
+    if is_full_snapshot {
+        for entry in WalkDir::new(root)
+            .into_iter()
+            .filter_map(|e| e.ok())
+        {
+            if !entry.file_type().is_file() {
+                continue;
+            }
+            let path = entry.path();
+            if path.starts_with(&backup_root) {
+                continue;
+            }
+            let rel = path
+                .strip_prefix(root)
+                .map_err(|e| CoreError::Internal(e.to_string()))?;
+            if !backup_rel_paths.contains(rel) {
+                std::fs::remove_file(path)?;
+            }
         }
     }
 
@@ -181,6 +276,12 @@ fn restore_folder_backup(root: &Path, backup_session: &Path) -> CoreResult<()> {
             std::fs::create_dir_all(parent)?;
         }
         std::fs::copy(src, &dest)?;
+    }
+
+    if !is_full_snapshot {
+        if let Some(manifest) = read_session_manifest(backup_session)? {
+            delete_manifest_created_paths(root, &manifest)?;
+        }
     }
 
     Ok(())
@@ -252,6 +353,7 @@ pub fn create_backup(source_path: &Path, kind: SourceKind) -> CoreResult<BackupI
                 }
                 std::fs::copy(path, &dest)?;
             }
+            std::fs::write(backup_dir.join(FULL_SNAPSHOT_MARKER), b"")?;
             let path_str = backup_dir.to_string_lossy().to_string();
             Ok(BackupInfo {
                 id: backup_id(&path_str),
@@ -301,6 +403,115 @@ mod tests {
         restore_backup_from_known_path(&root, SourceKind::Folder, &backup.path).expect("restore");
         assert!(root.join("a.txt").exists());
         assert!(!root.join("b.txt").exists());
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn restore_folder_session_deletes_manifest_created_paths() {
+        let root = std::env::temp_dir().join(format!(
+            "ind3x-backup-session-created-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(root.join("a.txt"), b"1").unwrap();
+
+        let session = root.join(".ind3x-backups").join("12345");
+        std::fs::create_dir_all(&session).unwrap();
+        let manifest = FolderSaveSessionManifest {
+            created: vec!["assets/create/textures/block/stone.png".to_string()],
+            overwritten: vec![],
+        };
+        write_session_manifest(&session, &manifest).expect("manifest");
+        std::fs::create_dir_all(root.join("assets/create/textures/block")).unwrap();
+        std::fs::write(
+            root.join("assets/create/textures/block/stone.png"),
+            b"new",
+        )
+        .unwrap();
+
+        restore_folder_backup(&root, &session).expect("session restore");
+        assert!(root.join("a.txt").exists());
+        assert!(!root.join("assets/create/textures/block/stone.png").exists());
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn revert_partial_folder_apply_restores_overwritten_and_deletes_created() {
+        let root = std::env::temp_dir().join(format!(
+            "ind3x-partial-revert-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).unwrap();
+
+        let session = root.join(".ind3x-backups").join("999");
+        std::fs::create_dir_all(session.join("assets/minecraft/textures/block")).unwrap();
+        std::fs::write(
+            session.join("assets/minecraft/textures/block/stone.png"),
+            b"old",
+        )
+        .unwrap();
+
+        std::fs::create_dir_all(root.join("assets/minecraft/textures/block")).unwrap();
+        std::fs::write(
+            root.join("assets/minecraft/textures/block/stone.png"),
+            b"new",
+        )
+        .unwrap();
+        std::fs::create_dir_all(root.join("assets/create/textures/block")).unwrap();
+        std::fs::write(
+            root.join("assets/create/textures/block/stone.png"),
+            b"created",
+        )
+        .unwrap();
+
+        let manifest = FolderSaveSessionManifest {
+            created: vec!["assets/create/textures/block/stone.png".to_string()],
+            overwritten: vec!["assets/minecraft/textures/block/stone.png".to_string()],
+        };
+        write_session_manifest(&session, &manifest).expect("manifest");
+
+        revert_partial_folder_apply(
+            &root,
+            &session,
+            &[
+                "assets/minecraft/textures/block/stone.png".to_string(),
+                "assets/create/textures/block/stone.png".to_string(),
+            ],
+            &manifest,
+        )
+        .expect("revert");
+
+        assert_eq!(
+            std::fs::read(root.join("assets/minecraft/textures/block/stone.png")).unwrap(),
+            b"old"
+        );
+        assert!(!root.join("assets/create/textures/block/stone.png").exists());
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn restore_folder_session_does_not_prune_unrelated_files() {
+        let root = std::env::temp_dir().join(format!(
+            "ind3x-backup-session-restore-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(root.join("a.txt"), b"1").unwrap();
+        std::fs::write(root.join("b.txt"), b"2").unwrap();
+
+        let session = root.join(".ind3x-backups").join("12345");
+        std::fs::create_dir_all(&session).unwrap();
+        std::fs::write(session.join("a.txt"), b"old-a").unwrap();
+
+        restore_folder_backup(&root, &session).expect("session restore");
+        assert_eq!(std::fs::read_to_string(root.join("a.txt")).unwrap(), "old-a");
+        assert!(root.join("b.txt").exists());
 
         let _ = std::fs::remove_dir_all(&root);
     }

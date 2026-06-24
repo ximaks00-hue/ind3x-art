@@ -6,10 +6,13 @@ import "@fontsource/inter/500.css";
 import "@fontsource/jetbrains-mono/400.css";
 
 import App from "./App";
+import { AppErrorBoundary } from "./ui/AppErrorBoundary/AppErrorBoundary";
 import "./styles/global.css";
 
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
   <React.StrictMode>
-    <App />
+    <AppErrorBoundary>
+      <App />
+    </AppErrorBoundary>
   </React.StrictMode>,
 );

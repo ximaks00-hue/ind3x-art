@@ -1,4 +1,17 @@
-import * as THREE from "three";
+import {
+  BufferGeometry,
+  DoubleSide,
+  Float32BufferAttribute,
+  Group,
+  MathUtils,
+  Mesh,
+  MeshBasicMaterial,
+  MeshLambertMaterial,
+  Material,
+  Object3D,
+  Texture,
+  Vector3,
+} from "three";
 
 import type {
   DisplayTransform,
@@ -38,7 +51,7 @@ const BLOCK = 1 / 16;
  * block boundary). Partial cuboids always show all faces so the user can see
  * non-standard shapes.
  */
-function shouldCullFace(
+export function shouldCullFace(
   cullface: string | null | undefined,
   from: [number, number, number],
   to: [number, number, number],
@@ -48,9 +61,9 @@ function shouldCullFace(
   // Only cull if the cuboid covers the full block on this axis boundary
   switch (cullface) {
     case "down":
-      return from[1] <= 0 && to[1] >= 16;
+      return from[1] <= 0;
     case "up":
-      return from[1] <= 0 && to[1] >= 16;
+      return to[1] >= 16;
     case "north":
       return from[2] <= 0 && to[2] >= 16;
     case "south":
@@ -70,16 +83,16 @@ function toWorld(c: number): number {
   return c * BLOCK - 0.5;
 }
 
-function axisVector(axis: string): THREE.Vector3 {
+function axisVector(axis: string): Vector3 {
   switch (axis) {
     case "x":
-      return new THREE.Vector3(1, 0, 0);
+      return new Vector3(1, 0, 0);
     case "y":
-      return new THREE.Vector3(0, 1, 0);
+      return new Vector3(0, 1, 0);
     case "z":
-      return new THREE.Vector3(0, 0, 1);
+      return new Vector3(0, 0, 1);
     default:
-      return new THREE.Vector3(0, 1, 0);
+      return new Vector3(0, 1, 0);
   }
 }
 
@@ -154,7 +167,7 @@ function buildFaceGeometry(
   to: Vec3,
   face: RenderFace,
   modelRotation?: ModelRotation,
-): THREE.BufferGeometry {
+): BufferGeometry {
   const positions: number[] = [];
   const normals: number[] = [];
   const uvs: number[] = [];
@@ -173,31 +186,31 @@ function buildFaceGeometry(
 
   indices.push(0, 1, 2, 0, 2, 3);
 
-  const geometry = new THREE.BufferGeometry();
-  geometry.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
-  geometry.setAttribute("normal", new THREE.Float32BufferAttribute(normals, 3));
-  geometry.setAttribute("uv", new THREE.Float32BufferAttribute(uvs, 2));
+  const geometry = new BufferGeometry();
+  geometry.setAttribute("position", new Float32BufferAttribute(positions, 3));
+  geometry.setAttribute("normal", new Float32BufferAttribute(normals, 3));
+  geometry.setAttribute("uv", new Float32BufferAttribute(uvs, 2));
   geometry.setIndex(indices);
   return geometry;
 }
 
-function attachFacePick(mesh: THREE.Mesh, pick: FacePickData): void {
+function attachFacePick(mesh: Mesh, pick: FacePickData): void {
   mesh.userData[FACE_PICK_KEY] = pick;
 }
 
 function wrapElementRotation(
-  object: THREE.Object3D,
+  object: Object3D,
   rotation: ElementRotation,
-): THREE.Group {
+): Group {
   const ox = toWorld(rotation.origin[0]);
   const oy = toWorld(rotation.origin[1]);
   const oz = toWorld(rotation.origin[2]);
 
-  const pivot = new THREE.Group();
+  const pivot = new Group();
   pivot.position.set(ox, oy, oz);
   pivot.quaternion.setFromAxisAngle(
     axisVector(rotation.axis),
-    THREE.MathUtils.degToRad(rotation.angle),
+    MathUtils.degToRad(rotation.angle),
   );
 
   if (rotation.rescale && rotation.angle !== 0) {
@@ -205,7 +218,7 @@ function wrapElementRotation(
     pivot.scale.set(factor, factor, factor);
   }
 
-  const offset = new THREE.Group();
+  const offset = new Group();
   offset.position.set(-ox, -oy, -oz);
   pivot.add(offset);
   offset.add(object);
@@ -213,14 +226,14 @@ function wrapElementRotation(
 }
 
 function applyDisplayTransform(
-  object: THREE.Object3D,
+  object: Object3D,
   display: DisplayTransform,
-): THREE.Group {
-  const wrapper = new THREE.Group();
+): Group {
+  const wrapper = new Group();
   wrapper.rotation.set(
-    THREE.MathUtils.degToRad(display.rotation[0]),
-    THREE.MathUtils.degToRad(display.rotation[1]),
-    THREE.MathUtils.degToRad(display.rotation[2]),
+    MathUtils.degToRad(display.rotation[0]),
+    MathUtils.degToRad(display.rotation[1]),
+    MathUtils.degToRad(display.rotation[2]),
   );
   wrapper.position.set(
     display.translation[0] * BLOCK,
@@ -237,6 +250,13 @@ function pickItemTexture(model: RenderableModel): string | null {
   if (model.textureRefs.layer0) return model.textureRefs.layer0;
   const values = Object.values(model.textureRefs);
   return values[0] ?? null;
+}
+
+function isGeneratedTexturePreview(model: RenderableModel): boolean {
+  return (
+    model.cuboids.length === 0 &&
+    (model.kind === "itemGenerated" || Object.keys(model.textureRefs).length > 0)
+  );
 }
 
 const DISPLAY_SLOT_FALLBACK = [
@@ -264,9 +284,10 @@ async function buildCuboidMeshes(
   handle: ProjectHandle,
   cuboids: RenderCuboid[],
   model: RenderableModel,
-): Promise<THREE.Group> {
-  const root = new THREE.Group();
-  const textureMap = new Map<string, THREE.Texture>();
+  studioMode = false,
+): Promise<Group> {
+  const root = new Group();
+  const textureMap = new Map<string, Texture>();
   const modelRotation = model.modelRotation;
 
   const uniquePaths = new Set<string>();
@@ -281,7 +302,7 @@ async function buildCuboidMeshes(
 
   for (let cuboidIndex = 0; cuboidIndex < cuboids.length; cuboidIndex += 1) {
     const cuboid = cuboids[cuboidIndex];
-    const cuboidGroup = new THREE.Group();
+    const cuboidGroup = new Group();
 
     for (let faceIndex = 0; faceIndex < cuboid.faces.length; faceIndex += 1) {
       const face = cuboid.faces[faceIndex];
@@ -293,16 +314,16 @@ async function buildCuboidMeshes(
         modelRotation,
       );
       // cullface: skip faces flush with block boundary when cuboid spans full 16-unit block
-      if (shouldCullFace(face.cullface, cuboid.from, cuboid.to)) continue;
+      if (!studioMode && shouldCullFace(face.cullface, cuboid.from, cuboid.to)) continue;
 
       const tint = tintColorForIndex(face.tintindex);
-      const material = new THREE.MeshLambertMaterial({
+      const material = new MeshLambertMaterial({
         map: textureMap.get(face.texture),
         alphaTest: 0.1,
         transparent: false,
         ...(tint ? { color: tint } : {}),
       });
-      const mesh = new THREE.Mesh(geometry, material);
+      const mesh = new Mesh(geometry, material);
       attachFacePick(mesh, { cuboidIndex, faceIndex, face });
       cuboidGroup.add(mesh);
     }
@@ -319,17 +340,17 @@ async function buildCuboidMeshes(
 export function buildFaceHighlight(
   model: RenderableModel,
   selected: SelectedFace,
-): THREE.Object3D | null {
+): Object3D | null {
   return buildFaceOverlayNode(
     model,
     selected.cuboidIndex,
     selected.faceIndex,
-    new THREE.MeshBasicMaterial({
+    new MeshBasicMaterial({
       color: 0x638cff,
       transparent: true,
       opacity: 0.42,
       depthTest: true,
-      side: THREE.DoubleSide,
+      side: DoubleSide,
       polygonOffset: true,
       polygonOffsetFactor: -1,
       polygonOffsetUnits: -1,
@@ -342,8 +363,8 @@ export function buildFaceOverlayNode(
   model: RenderableModel,
   cuboidIndex: number,
   faceIndex: number,
-  material: THREE.Material,
-): THREE.Object3D | null {
+  material: Material,
+): Object3D | null {
   const cuboid = model.cuboids[cuboidIndex];
   if (!cuboid) return null;
   const face = cuboid.faces[faceIndex];
@@ -356,9 +377,9 @@ export function buildFaceOverlayNode(
     face,
     model.modelRotation,
   );
-  const mesh = new THREE.Mesh(geometry, material);
+  const mesh = new Mesh(geometry, material);
 
-  const cuboidGroup = new THREE.Group();
+  const cuboidGroup = new Group();
   cuboidGroup.add(mesh);
 
   return cuboid.rotation
@@ -366,9 +387,9 @@ export function buildFaceOverlayNode(
     : cuboidGroup;
 }
 
-export function disposeObject3D(object: THREE.Object3D): void {
+export function disposeObject3D(object: Object3D): void {
   object.traverse((child) => {
-    if (child instanceof THREE.Mesh) {
+    if (child instanceof Mesh) {
       child.geometry.dispose();
       const materials = Array.isArray(child.material) ? child.material : [child.material];
       for (const material of materials) material.dispose();
@@ -380,14 +401,15 @@ export async function buildModelGroup(
   model: RenderableModel,
   handle: ProjectHandle,
   preferredDisplaySlot?: string,
-): Promise<THREE.Group> {
-  const root = new THREE.Group();
+  studioMode = false,
+): Promise<Group> {
+  const root = new Group();
 
-  let content: THREE.Group;
-  if (model.cuboids.length === 0 && model.kind === "itemGenerated") {
+  let content: Group;
+  if (isGeneratedTexturePreview(model)) {
     const texturePath = pickItemTexture(model);
     if (!texturePath) {
-      content = new THREE.Group();
+      content = new Group();
     } else {
       const meta = model.textureMeta[texturePath];
       content = await buildItemExtrusion(handle, texturePath, meta);
@@ -397,13 +419,17 @@ export async function buildModelGroup(
       }
     }
   } else {
-    content = await buildCuboidMeshes(handle, model.cuboids, model);
+    content = await buildCuboidMeshes(handle, model.cuboids, model, studioMode);
+    const display = pickDisplayTransform(model, preferredDisplaySlot);
+    if (display) {
+      content = applyDisplayTransform(content, display);
+    }
   }
 
   root.add(content);
-  root.rotation.x = THREE.MathUtils.degToRad(model.modelRotation.x);
-  root.rotation.y = THREE.MathUtils.degToRad(model.modelRotation.y);
-  root.rotation.z = THREE.MathUtils.degToRad(model.modelRotation.z);
+  root.rotation.x = MathUtils.degToRad(model.modelRotation.x);
+  root.rotation.y = MathUtils.degToRad(model.modelRotation.y);
+  root.rotation.z = MathUtils.degToRad(model.modelRotation.z);
   return root;
 }
 

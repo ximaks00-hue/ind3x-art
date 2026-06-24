@@ -21,13 +21,68 @@ export interface ModelFaceNavGroup {
   items: ModelFaceNavItem[];
 }
 
-export function buildModelFaceNav(model: RenderableModel): ModelFaceNavItem[] {
+export interface UniqueTextureChip {
+  id: string;
+  texturePath: string;
+  label: string;
+  cuboidLabel: string;
+  faces: ModelFaceNavItem[];
+}
+
+function titleCasePart(segment: string): string {
+  return segment
+    .split("_")
+    .filter(Boolean)
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(" ");
+}
+
+/** Human label for a multipart cuboid (e.g. fence_post → Fence Post). */
+export function cuboidLabelFor(model: RenderableModel, cuboidIndex: number): string {
   const multipart = model.cuboids.length > 1 || model.kind === "multipart";
+  if (!multipart) return "Block";
+
+  const parts = model.modelId.split(" + ");
+  const partId = parts[cuboidIndex];
+  if (partId) {
+    const stem = partId.split("/").pop()?.replace(/^block\//, "") ?? "";
+    if (stem) return titleCasePart(stem);
+  }
+  return `Part ${cuboidIndex + 1}`;
+}
+
+/** Schematic label for multipart models, e.g. «Post + Plank». */
+export function multipartSchematicLabel(model: RenderableModel): string | null {
+  if (model.cuboids.length <= 1 && model.kind !== "multipart") return null;
+  const labels = model.cuboids.map((_, i) => cuboidLabelFor(model, i));
+  const unique = [...new Set(labels)];
+  return unique.length > 1 ? unique.join(" + ") : null;
+}
+
+export function buildModelFaceNav(model: RenderableModel): ModelFaceNavItem[] {
   const items: ModelFaceNavItem[] = [];
+
+  if (model.cuboids.length === 0 && model.kind === "itemGenerated") {
+    const texturePath =
+      model.textureRefs.layer0 ?? Object.values(model.textureRefs)[0];
+    if (texturePath) {
+      const stem = textureBasename(texturePath);
+      items.push({
+        id: "0:0",
+        cuboidIndex: 0,
+        faceIndex: 0,
+        direction: "item",
+        texturePath,
+        label: `Item · ${stem}`,
+        cuboidLabel: "Item",
+      });
+    }
+    return items;
+  }
 
   for (let cuboidIndex = 0; cuboidIndex < model.cuboids.length; cuboidIndex += 1) {
     const cuboid = model.cuboids[cuboidIndex]!;
-    const cuboidLabel = multipart ? `Part ${cuboidIndex + 1}` : "Block";
+    const cuboidLabel = cuboidLabelFor(model, cuboidIndex);
 
     for (let faceIndex = 0; faceIndex < cuboid.faces.length; faceIndex += 1) {
       const face = cuboid.faces[faceIndex]!;
@@ -45,6 +100,29 @@ export function buildModelFaceNav(model: RenderableModel): ModelFaceNavItem[] {
   }
 
   return items;
+}
+
+/** One chip per unique texture path; clicking jumps to the first matching face. */
+export function buildUniqueTextureChips(model: RenderableModel): UniqueTextureChip[] {
+  const nav = buildModelFaceNav(model);
+  const byTexture = new Map<string, ModelFaceNavItem[]>();
+  for (const item of nav) {
+    const list = byTexture.get(item.texturePath) ?? [];
+    list.push(item);
+    byTexture.set(item.texturePath, list);
+  }
+
+  return [...byTexture.entries()].map(([texturePath, faces]) => {
+    const stem = textureBasename(texturePath);
+    const cuboidLabels = [...new Set(faces.map((f) => f.cuboidLabel))];
+    return {
+      id: texturePath,
+      texturePath,
+      label: stem,
+      cuboidLabel: cuboidLabels.length > 1 ? cuboidLabels.join(" + ") : (faces[0]?.cuboidLabel ?? "Block"),
+      faces,
+    };
+  });
 }
 
 export function groupModelFaceNav(items: ModelFaceNavItem[]): ModelFaceNavGroup[] {
@@ -69,6 +147,25 @@ export function buildSelectedFaceFromModel(
   cuboidIndex: number,
   faceIndex: number,
 ): SelectedFace | null {
+  if (model.cuboids.length === 0 && model.kind === "itemGenerated") {
+    const nav = buildModelFaceNav(model);
+    const item = nav.find(
+      (face) => face.cuboidIndex === cuboidIndex && face.faceIndex === faceIndex,
+    );
+    if (!item) return null;
+    return {
+      cuboidIndex,
+      faceIndex,
+      direction: item.direction,
+      texturePath: item.texturePath,
+      uv: [0, 0, 16, 16],
+      rotation: 0,
+      tintindex: -1,
+      hitUv: [0.5, 0.5],
+      pixel: [8, 8],
+    };
+  }
+
   const face = model.cuboids[cuboidIndex]?.faces[faceIndex];
   if (!face) return null;
 

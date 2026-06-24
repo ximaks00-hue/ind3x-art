@@ -19,7 +19,7 @@ export const commands = {
     onEvent: Channel<IndexEvent>,
     changedPaths: string[] | null,
   ) =>
-    typedError<number, CoreError>(
+    typedError<ReindexResult, CoreError>(
       __TAURI_INVOKE("reindex_project", { handle, onEvent, changedPaths }),
     ),
   invalidateProjectIndex: (handle: ProjectHandle) =>
@@ -46,10 +46,33 @@ export const commands = {
     typedError<CatalogFacets, CoreError>(
       __TAURI_INVOKE("get_catalog_facets", { handle }),
     ),
-  resolveCatalogEntry: (handle: ProjectHandle, entryId: string) =>
+  resolveCatalogEntry: (
+    handle: ProjectHandle,
+    entryId: string,
+    context: StudioResolveContext,
+    variantKey: string | null,
+  ) =>
     typedError<RenderableModel, CoreError>(
-      __TAURI_INVOKE("resolve_catalog_entry", { handle, entryId }),
+      __TAURI_INVOKE("resolve_catalog_entry", { handle, entryId, context, variantKey }),
     ),
+  rebuildProjectCatalog: (handle: ProjectHandle, language: string) =>
+    typedError<null, CoreError>(
+      __TAURI_INVOKE("rebuild_project_catalog", { handle, language }),
+    ),
+  getCatalogIconCache: (handle: ProjectHandle, iconKey: string) =>
+    typedError<string | null, CoreError>(
+      __TAURI_INVOKE("get_catalog_icon_cache", { handle, iconKey }),
+    ),
+  setCatalogIconCache: (handle: ProjectHandle, iconKey: string, pngBase64: string) =>
+    typedError<null, CoreError>(
+      __TAURI_INVOKE("set_catalog_icon_cache", { handle, iconKey, pngBase64 }),
+    ),
+  invalidateCatalogIconsForTextures: (handle: ProjectHandle, texturePaths: string[]) =>
+    typedError<string[], CoreError>(
+      __TAURI_INVOKE("invalidate_catalog_icons_for_textures", { handle, texturePaths }),
+    ),
+  getProjectFingerprint: (handle: ProjectHandle) =>
+    typedError<string, CoreError>(__TAURI_INVOKE("get_project_fingerprint", { handle })),
   getAssetEntry: (handle: ProjectHandle, assetId: string) =>
     typedError<AssetEntry, CoreError>(
       __TAURI_INVOKE("get_asset_entry", { handle, assetId }),
@@ -257,7 +280,7 @@ export type CatalogEntry = {
   namespace: string;
   displayName: string;
   kind: CatalogEntryKind;
-  // blockstate path or item/block model path
+  // blockstate path or item/block model path (legacy; prefer studio_model_path)
   sourcePath: string;
   resolveKind: CatalogResolveKind;
   defaultVariantKey?: string | null;
@@ -266,6 +289,17 @@ export type CatalogEntry = {
   texturePaths: string[];
   iconKey: string;
   aliases?: string[];
+  // `minecraft:stone` when this entry represents a block
+  blockId?: string | null;
+  // `minecraft:diamond_sword` when this entry represents an item
+  itemId?: string | null;
+  // Asset path used for inventory icon resolve
+  iconModelPath?: string | null;
+  // Asset path used for 3D studio viewport
+  studioModelPath: string;
+  // All blockstate variant keys for UI picker
+  variantKeys?: string[];
+  presentation: CatalogPresentation;
 };
 
 export type CatalogEntryKind = "block" | "item";
@@ -286,7 +320,9 @@ export type CatalogPage = {
   total: number;
 };
 
-export type CatalogResolveKind = "blockstate" | "model";
+export type CatalogPresentation = "block" | "item" | "tool" | "food";
+
+export type CatalogResolveKind = "blockstate" | "model" | "texture";
 
 export type CoreError =
   | ({ Archive: string } & {
@@ -393,13 +429,21 @@ export type ModelRotation = {
   uvlock: boolean;
 };
 
+export type ReindexResult = {
+  assetCount: number;
+  catalogCount: number;
+};
+
 export type OpenSourceResult = {
   handle: ProjectHandle;
   sourcePath: string;
   sourceKind: SourceKind;
   entryCount: number;
   fromCache: boolean;
+  catalogFromCache: boolean;
+  catalogEntryCount: number;
   packFormat: number | null;
+  catalogLanguage: string;
 };
 
 export type PageReq = {
@@ -473,6 +517,13 @@ export type SaveTexturesResult = {
 };
 
 export type SourceKind = "jar" | "folder";
+
+export type StudioResolveContext =
+  | "icon"
+  // World-placed block model (no item display transform).
+  | "placed"
+  // @deprecated alias for `Placed`
+  | "studio";
 
 export type TextureAnimationMeta = {
   frametime: number;

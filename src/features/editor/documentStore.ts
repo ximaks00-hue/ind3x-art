@@ -2,6 +2,8 @@ import { create } from "zustand";
 
 import type { ProjectHandle } from "../../ipc/types";
 import { ipc } from "../../ipc/client";
+import { mapWithConcurrency } from "../../lib/mapWithConcurrency";
+import { invalidateCatalogIconsForTextures } from "../catalog/catalogIconInvalidation";
 import { refreshTextureFromCanvas } from "../viewer3d/textureLoader";
 import {
   activeLayer,
@@ -20,8 +22,9 @@ import {
 
 export type { BlendMode, PixelChange, Rgba, TextureLayer } from "./textureDocumentCore";
 
-/** Clipboard buffer for region copy/paste */
+/** Clipboard buffer for region copy/paste — scoped to a single texture path. */
 interface ClipboardRegion {
+  texturePath: string;
   width: number;
   height: number;
   data: ImageData;
@@ -31,6 +34,39 @@ let clipboard: ClipboardRegion | null = null;
 let layerIdCounter = 1;
 const pendingLoads = new Map<string, Promise<TextureDoc>>();
 let lifecycleVersion = 0;
+let docAccessOrder: string[] = [];
+let docLimit = 24;
+
+export function setTextureDocumentCacheLimit(limit: number): void {
+  docLimit = Math.max(4, limit);
+  evictCleanTextureDocuments();
+}
+
+function touchDocAccess(path: string): void {
+  docAccessOrder = docAccessOrder.filter((entry) => entry !== path);
+  docAccessOrder.push(path);
+}
+
+function evictCleanTextureDocuments(): void {
+  const docs = docsMap();
+  while (docs.size > docLimit) {
+    let evicted = false;
+    const nextOrder: string[] = [];
+    for (const path of docAccessOrder) {
+      const doc = docs.get(path);
+      if (!doc) continue;
+      if (!evicted && !doc.dirty) {
+        docs.delete(path);
+        pendingLoads.delete(path);
+        evicted = true;
+        continue;
+      }
+      nextOrder.push(path);
+    }
+    docAccessOrder = nextOrder;
+    if (!evicted) break;
+  }
+}
 
 interface DocumentStoreState {
   revision: number;
@@ -101,7 +137,9 @@ function createLayerBuffer(width: number, height: number, name: string): LayerBu
 }
 
 export function getDoc(path: string): TextureDoc | undefined {
-  return docsMap().get(path);
+  const doc = docsMap().get(path);
+  if (doc) touchDocAccess(path);
+  return doc;
 }
 
 export function subscribeTextureDocuments(listener: () => void): () => void {
@@ -112,8 +150,10 @@ export function subscribeTextureDocuments(listener: () => void): () => void {
 
 export function clearTextureDocuments(): void {
   lifecycleVersion += 1;
+  clipboard = null;
   docsMap().clear();
   pendingLoads.clear();
+  docAccessOrder = [];
   notify();
 }
 
@@ -252,14 +292,14 @@ export function copyRegion(
   const doc = docsMap().get(path);
   if (!doc) return false;
   const data = doc.compositeCtx.getImageData(x, y, width, height);
-  clipboard = { width, height, data };
+  clipboard = { texturePath: path, width, height, data };
   return true;
 }
 
 /** Paste clipboard content at (x, y) on the active layer. */
 export function pasteRegion(path: string, x: number, y: number): PixelChange[] {
   const doc = docsMap().get(path);
-  if (!doc || !clipboard) return [];
+  if (!doc || !clipboard || clipboard.texturePath !== path) return [];
   const layer = activeLayer(doc);
   if (layer.locked) return [];
 
@@ -283,8 +323,10 @@ export function pasteRegion(path: string, x: number, y: number): PixelChange[] {
   return changes;
 }
 
-export function hasClipboard(): boolean {
-  return clipboard !== null;
+export function hasClipboard(texturePath?: string): boolean {
+  if (!clipboard) return false;
+  if (texturePath) return clipboard.texturePath === texturePath;
+  return true;
 }
 
 async function loadImageForEditor(
@@ -321,7 +363,10 @@ export async function ensureTextureDocument(
 ): Promise<TextureDoc> {
   const versionAtStart = lifecycleVersion;
   const existing = docsMap().get(path);
-  if (existing) return existing;
+  if (existing) {
+    touchDocAccess(path);
+    return existing;
+  }
   const pending = pendingLoads.get(path);
   if (pending) return pending;
 
@@ -367,6 +412,8 @@ export async function ensureTextureDocument(
       throw new Error("texture document lifecycle invalidated before commit");
     }
     docsMap().set(path, doc);
+    touchDocAccess(path);
+    evictCleanTextureDocuments();
     notify();
     return doc;
   })();
@@ -445,7 +492,10 @@ export function commitChanges(
   if (!doc) return;
 
   applyChanges(doc, changes, recordUndo, label);
-  if (handle) refreshTextureFromCanvas(handle, path, doc.compositeCanvas);
+  if (handle) {
+    refreshTextureFromCanvas(handle, path, doc.compositeCanvas);
+    void invalidateCatalogIconsForTextures(handle, [path]);
+  }
   notify();
 }
 
@@ -484,7 +534,10 @@ export function undoTexture(handle: ProjectHandle | null, path: string): boolean
   doc.revision = Math.max(0, doc.revision - 1);
   doc.redo.push({ changes: entry.changes, label: entry.label });
   doc.dirty = doc.revision !== doc.savedRevision;
-  if (handle) refreshTextureFromCanvas(handle, path, doc.compositeCanvas);
+  if (handle) {
+    refreshTextureFromCanvas(handle, path, doc.compositeCanvas);
+    void invalidateCatalogIconsForTextures(handle, [path]);
+  }
   notify();
   return true;
 }
@@ -497,7 +550,10 @@ export function redoTexture(handle: ProjectHandle | null, path: string): boolean
   applyChanges(doc, entry.changes, false);
   doc.undo.push({ changes: entry.changes, label: entry.label });
   doc.dirty = doc.revision !== doc.savedRevision;
-  if (handle) refreshTextureFromCanvas(handle, path, doc.compositeCanvas);
+  if (handle) {
+    refreshTextureFromCanvas(handle, path, doc.compositeCanvas);
+    void invalidateCatalogIconsForTextures(handle, [path]);
+  }
   notify();
   return true;
 }
@@ -600,18 +656,21 @@ export function markTexturesSaved(
 export async function collectDirtyTextureEntries(): Promise<
   { path: string; pngBase64: string; targetPath?: string; revision: number }[]
 > {
-  const entries: { path: string; pngBase64: string; revision: number }[] = [];
-  for (const path of getDirtyTexturePaths()) {
+  const paths = getDirtyTexturePaths();
+  const encoded = await mapWithConcurrency(paths, 4, async (path) => {
     const doc = docsMap().get(path);
     const canvas = getTextureCanvas(path);
-    if (!canvas || !doc) continue;
-    entries.push({
+    if (!canvas || !doc) return null;
+    return {
       path,
       pngBase64: await canvasToPngBase64(canvas),
       revision: doc.revision,
-    });
-  }
-  return entries;
+    };
+  });
+  return encoded.filter(
+    (entry): entry is { path: string; pngBase64: string; revision: number } =>
+      entry !== null,
+  );
 }
 
 /**

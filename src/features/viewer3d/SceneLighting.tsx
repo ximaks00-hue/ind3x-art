@@ -1,12 +1,12 @@
 import { LIGHTING_CONFIGS } from "../../lib/lightingPresets";
-import { useViewerStore } from "../../state/viewerStore";
+import { useViewerLightingPreset } from "../../state/viewerPreferencesSync";
 
 interface SceneLightingProps {
   modelUsesAo: boolean;
 }
 
 export function SceneLighting({ modelUsesAo }: SceneLightingProps) {
-  const preset = useViewerStore((s) => s.lightingPreset);
+  const preset = useViewerLightingPreset();
   const config = LIGHTING_CONFIGS[preset];
   const useHemisphere = config.respectModelAo && modelUsesAo && config.hemisphere != null;
 

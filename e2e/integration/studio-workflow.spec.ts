@@ -80,6 +80,46 @@ test.describe("Block Studio workflow (mock IPC)", () => {
     await expect(page.getByText(/loaded · .* total/)).toBeVisible();
   });
 
+  test("variant switch reloads model without losing catalog selection", async ({ page }) => {
+    await waitForApp(page);
+
+    await page.evaluate(async () => {
+      await window.__E2E__!.openStudioFixture();
+    });
+
+    await page.getByRole("button", { name: "Test Fence Variant" }).click();
+    await expect(page.getByLabel("Block variant")).toBeVisible({ timeout: 10_000 });
+
+    await expect
+      .poll(async () => page.evaluate(() => window.__E2E__!.getStudioModelId()))
+      .toContain("default");
+
+    await page.getByLabel("Block variant").selectOption("east=true");
+
+    await expect
+      .poll(async () => page.evaluate(() => window.__E2E__!.getStudioModelId()))
+      .toContain("east=true");
+
+    await expect
+      .poll(async () => page.evaluate(() => window.__E2E__!.getCatalogSelectedId()))
+      .toBe("minecraft:test_fence_variant");
+  });
+
+  test("multipart fence shows unique texture chips", async ({ page }) => {
+    await waitForApp(page);
+
+    await page.evaluate(async () => {
+      await window.__E2E__!.openStudioFixture();
+    });
+
+    await page.getByRole("button", { name: "Test Fence Multipart" }).click();
+
+    await expect(page.getByText(/Fence Post \+ Fence Side/)).toBeVisible({
+      timeout: 10_000,
+    });
+    await expect(page.getByText(/2 unique/)).toBeVisible();
+  });
+
   test("classic mode still shows explorer after workspace toggle", async ({ page }) => {
     await waitForApp(page);
     await page.getByRole("button", { name: "Classic" }).click();

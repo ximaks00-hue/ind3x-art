@@ -23,7 +23,17 @@ pub struct DecodedTexture {
     pub bytes: Vec<u8>,
 }
 
+/// Max decoded PNG size accepted from frontend save payloads.
+pub const MAX_TEXTURE_DECODE_BYTES: usize = 16 * 1024 * 1024;
+/// Max base64 string length for `decode_texture_entry` (~16 MiB decoded).
+const MAX_TEXTURE_BASE64_LEN: usize = (MAX_TEXTURE_DECODE_BYTES / 3) * 4 + 4;
+
 pub fn decode_texture_entry(path: String, png_base64: String) -> CoreResult<DecodedTexture> {
+    if png_base64.len() > MAX_TEXTURE_BASE64_LEN {
+        return Err(CoreError::InvalidInput(format!(
+            "texture base64 exceeds max length of {MAX_TEXTURE_BASE64_LEN} bytes"
+        )));
+    }
     let bytes = STANDARD
         .decode(png_base64.as_bytes())
         .map_err(|e| CoreError::Internal(format!("texture base64 decode failed: {e}")))?;
@@ -35,6 +45,14 @@ pub fn decode_texture_entry(path: String, png_base64: String) -> CoreResult<Deco
 }
 
 pub fn validate_png(bytes: &[u8]) -> CoreResult<()> {
+    if !bytes.starts_with(b"\x89PNG") {
+        return Err(CoreError::InvalidInput("not a valid PNG".to_string()));
+    }
+    if bytes.len() > MAX_TEXTURE_DECODE_BYTES {
+        return Err(CoreError::InvalidInput(format!(
+            "png exceeds max size of {MAX_TEXTURE_DECODE_BYTES} bytes"
+        )));
+    }
     image::load_from_memory(bytes)
         .map_err(|e| CoreError::Internal(format!("invalid png texture: {e}")))?;
     Ok(())
@@ -57,20 +75,20 @@ pub fn backup_jar(jar_path: &Path) -> CoreResult<PathBuf> {
     Ok(backup_path)
 }
 
-pub fn backup_folder_file(root: &Path, entry_path: &str) -> CoreResult<Option<PathBuf>> {
+pub fn backup_folder_file(
+    root: &Path,
+    entry_path: &str,
+    session_stamp: u64,
+) -> CoreResult<Option<PathBuf>> {
     let rel = normalize_zip_path(entry_path);
     let source = safe_join_under_root(root, &rel)?;
     if !source.is_file() {
         return Ok(None);
     }
 
-    let stamp = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(0);
     let backup_dest = root
         .join(".ind3x-backups")
-        .join(stamp.to_string())
+        .join(session_stamp.to_string())
         .join(
             crate::source::validate_relative_asset_path(&rel)?
                 .replace('/', std::path::MAIN_SEPARATOR_STR),
@@ -206,59 +224,79 @@ pub fn save_textures_to_source(
             Ok((saved_paths, Some(backup.to_string_lossy().to_string())))
         }
         SourceKind::Folder => {
-            let mut saved_paths = Vec::with_capacity(textures.len());
-            let mut first_backup: Option<String> = None;
+            use backup::{
+                revert_partial_folder_apply, write_session_manifest, FolderSaveSessionManifest,
+            };
+
             let stamp = SystemTime::now()
                 .duration_since(UNIX_EPOCH)
-                .map(|d| d.as_secs())
-                .unwrap_or(0);
+                .map(|d| d.as_millis())
+                .unwrap_or(0) as u64;
+            let backup_session = source_path
+                .join(".ind3x-backups")
+                .join(stamp.to_string());
+            std::fs::create_dir_all(&backup_session)?;
+            let backup_path = Some(backup_session.to_string_lossy().into_owned());
             let staging = source_path.join(format!(".ind3x-staging-{stamp}"));
             std::fs::create_dir_all(&staging)?;
 
-            let result = (|| -> CoreResult<()> {
-                for texture in &textures {
-                    if let Some(backup) = backup_folder_file(source_path, &texture.path)? {
-                        if first_backup.is_none() {
-                            first_backup = Some(
-                                backup
-                                    .parent()
-                                    .and_then(|p| p.parent())
-                                    .map(|p| p.to_string_lossy().to_string())
-                                    .unwrap_or_else(|| backup.to_string_lossy().to_string()),
-                            );
-                        }
-                    }
-                    let rel = normalize_zip_path(&texture.path);
-                    let staged = safe_join_under_root(&staging, &rel)?;
-                    if let Some(parent) = staged.parent() {
-                        std::fs::create_dir_all(parent)?;
-                    }
-                    std::fs::write(&staged, &texture.bytes)?;
+            let mut manifest = FolderSaveSessionManifest::default();
+            let mut staged: Vec<(PathBuf, PathBuf, String)> =
+                Vec::with_capacity(textures.len());
+
+            for texture in &textures {
+                let rel = normalize_zip_path(&texture.path);
+                let dest = safe_join_under_root(source_path, &rel)?;
+                if dest.is_file() {
+                    backup_folder_file(source_path, &texture.path, stamp)?;
+                    manifest.overwritten.push(rel.clone());
+                } else {
+                    manifest.created.push(rel.clone());
                 }
 
-                for texture in &textures {
-                    let rel = normalize_zip_path(&texture.path);
-                    let staged = safe_join_under_root(&staging, &rel)?;
-                    let dest = safe_join_under_root(source_path, &rel)?;
+                let staged_path = safe_join_under_root(&staging, &rel)?;
+                if let Some(parent) = staged_path.parent() {
+                    std::fs::create_dir_all(parent)?;
+                }
+                std::fs::write(&staged_path, &texture.bytes)?;
+                staged.push((staged_path, dest, texture.path.clone()));
+            }
+
+            write_session_manifest(&backup_session, &manifest)?;
+
+            let mut saved_paths = Vec::with_capacity(textures.len());
+            let mut applied: Vec<String> = Vec::with_capacity(textures.len());
+            let apply_result = (|| -> CoreResult<()> {
+                for (staged_path, dest, path) in staged {
                     if let Some(parent) = dest.parent() {
                         std::fs::create_dir_all(parent)?;
                     }
-                    if staged.exists() {
-                        std::fs::rename(&staged, &dest).or_else(|_| {
-                            std::fs::copy(&staged, &dest)?;
-                            std::fs::remove_file(&staged)?;
-                            Ok::<(), std::io::Error>(())
-                        })?;
-                    }
-                    saved_paths.push(texture.path.clone());
+                    std::fs::rename(&staged_path, &dest).or_else(|_| {
+                        std::fs::copy(&staged_path, &dest)?;
+                        std::fs::remove_file(&staged_path)?;
+                        Ok::<(), std::io::Error>(())
+                    })?;
+                    applied.push(path.clone());
+                    saved_paths.push(path);
                 }
                 Ok(())
             })();
 
+            if let Err(err) = apply_result {
+                let _ = revert_partial_folder_apply(
+                    source_path,
+                    &backup_session,
+                    &applied,
+                    &manifest,
+                );
+                let _ = std::fs::remove_dir_all(&staging);
+                return Err(err);
+            }
+
             let _ = std::fs::remove_dir_all(&staging);
-            result?;
-            Ok((saved_paths, first_backup))
+            Ok((saved_paths, backup_path))
         }
+
     }
 }
 
@@ -272,6 +310,22 @@ mod tests {
         base64::engine::general_purpose::STANDARD
             .decode("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==")
             .unwrap()
+    }
+
+    #[test]
+    fn rejects_oversized_base64_payload() {
+        let huge = "A".repeat(super::MAX_TEXTURE_BASE64_LEN + 1);
+        let err = decode_texture_entry("assets/test/textures/block/a.png".to_string(), huge)
+            .expect_err("oversized base64");
+        assert!(matches!(err, CoreError::InvalidInput(_)));
+    }
+
+    #[test]
+    fn rejects_non_png_bytes() {
+        let bad = STANDARD.encode(b"not a png");
+        let err = decode_texture_entry("assets/test/textures/block/a.png".to_string(), bad)
+            .expect_err("non-png");
+        assert!(matches!(err, CoreError::InvalidInput(_)));
     }
 
     #[test]
@@ -326,6 +380,84 @@ mod tests {
             .expect("read");
         assert_eq!(read_back, png);
 
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn namespace_save_rollback_removes_created_path() {
+        use crate::save::backup::restore_backup_from_known_path;
+
+        let dir = std::env::temp_dir().join(format!("ind3x-ns-rollback-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+
+        let png = sample_png();
+        write_texture_to_folder(
+            &dir,
+            "assets/minecraft/textures/block/stone.png",
+            &png,
+        )
+        .expect("seed");
+
+        let options = SaveOptions {
+            mode: SaveMode::Namespace,
+            target_path: None,
+            namespace: Some("create".to_string()),
+        };
+        let prepared = vec![PreparedTexture {
+            original_path: "assets/minecraft/textures/block/stone.png".to_string(),
+            output_path: "assets/create/textures/block/stone.png".to_string(),
+            bytes: png,
+        }];
+        let (_, _, backup_path) =
+            save_prepared_textures(&dir, SourceKind::Folder, prepared, &options).expect("save");
+        let backup_path = backup_path.expect("backup");
+
+        assert!(dir.join("assets/create/textures/block/stone.png").is_file());
+
+        restore_backup_from_known_path(&dir, SourceKind::Folder, &backup_path).expect("rollback");
+        assert!(!dir.join("assets/create/textures/block/stone.png").exists());
+        assert!(dir.join("assets/minecraft/textures/block/stone.png").is_file());
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn folder_overwrite_backup_path_is_recognized_session_root() {
+        use crate::save::backup::{list_backups, restore_backup_from_known_path};
+
+        let dir = std::env::temp_dir().join(format!("ind3x-folder-backup-path-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+
+        let png = sample_png();
+        write_texture_to_folder(
+            &dir,
+            "assets/minecraft/textures/block/stone.png",
+            &png,
+        )
+        .expect("seed");
+
+        let options = SaveOptions {
+            mode: SaveMode::Overwrite,
+            target_path: None,
+            namespace: None,
+        };
+        let prepared = vec![PreparedTexture {
+            original_path: "assets/minecraft/textures/block/stone.png".to_string(),
+            output_path: "assets/minecraft/textures/block/stone.png".to_string(),
+            bytes: png,
+        }];
+        let (_, _, backup_path) =
+            save_prepared_textures(&dir, SourceKind::Folder, prepared, &options).expect("save");
+        let backup_path = backup_path.expect("backup path");
+        let backups = list_backups(&dir, SourceKind::Folder).expect("list");
+        assert!(
+            backups.iter().any(|b| b.path == backup_path),
+            "journal backup path must match a listed session root"
+        );
+
+        restore_backup_from_known_path(&dir, SourceKind::Folder, &backup_path).expect("restore");
         let _ = std::fs::remove_dir_all(&dir);
     }
 

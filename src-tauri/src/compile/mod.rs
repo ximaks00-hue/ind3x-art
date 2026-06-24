@@ -12,6 +12,37 @@ use crate::model::types::{
 };
 use crate::resolve::ModelRegistry;
 
+/// Vanilla `builtin/generated` GUI display — matches Creative inventory slot.
+pub fn vanilla_gui_display() -> DisplayTransform {
+    DisplayTransform {
+        rotation: [30.0, 225.0, 0.0],
+        translation: [0.0, 0.0, 0.0],
+        scale: [0.625, 0.625, 0.625],
+    }
+}
+
+fn texture_preview_face(direction: &str, texture_path: &str) -> RenderFace {
+    RenderFace {
+        direction: direction.to_string(),
+        uv: [0.0, 0.0, 16.0, 16.0],
+        texture: texture_path.to_string(),
+        rotation: 0,
+        tintindex: -1,
+        cullface: None,
+    }
+}
+
+fn texture_meta_for_path(
+    texture_path: &str,
+    registry: &ModelRegistry<'_>,
+) -> HashMap<String, TextureMetaInfo> {
+    let mut texture_meta = HashMap::new();
+    if let Ok(Some(meta)) = registry.texture_meta_for_path(texture_path) {
+        texture_meta.insert(texture_path.to_string(), meta);
+    }
+    texture_meta
+}
+
 pub fn compile_texture_preview(
     texture_path: &str,
     registry: &ModelRegistry<'_>,
@@ -19,20 +50,49 @@ pub fn compile_texture_preview(
     let mut texture_refs = HashMap::new();
     texture_refs.insert("layer0".to_string(), texture_path.to_string());
 
-    let mut texture_meta = HashMap::new();
-    if let Ok(Some(meta)) = registry.texture_meta_for_path(texture_path) {
-        texture_meta.insert(texture_path.to_string(), meta);
-    }
+    let mut display = HashMap::new();
+    display.insert("gui".to_string(), vanilla_gui_display());
 
     Ok(RenderableModel {
         kind: RenderableKind::ItemGenerated,
         cuboids: vec![],
         texture_refs,
-        texture_meta,
+        texture_meta: texture_meta_for_path(texture_path, registry),
+        model_rotation: ModelRotation::default(),
+        display,
+        ambient_occlusion: true,
+        model_id: format!("texture:{texture_path}"),
+    })
+}
+
+/// Studio viewport: full 1×1 block cube with the texture on every face (IC2 / texture-only packs).
+pub fn compile_texture_block_preview(
+    texture_path: &str,
+    registry: &ModelRegistry<'_>,
+) -> CoreResult<RenderableModel> {
+    let faces: Vec<RenderFace> = ["down", "up", "north", "south", "west", "east"]
+        .iter()
+        .map(|dir| texture_preview_face(dir, texture_path))
+        .collect();
+
+    let mut texture_refs = HashMap::new();
+    texture_refs.insert("all".to_string(), texture_path.to_string());
+
+    Ok(RenderableModel {
+        kind: RenderableKind::Block,
+        cuboids: vec![RenderCuboid {
+            from: [0.0, 0.0, 0.0],
+            to: [16.0, 16.0, 16.0],
+            rotation: None,
+            faces,
+            shade: true,
+        }],
+        texture_refs,
+        texture_meta: texture_meta_for_path(texture_path, registry),
         model_rotation: ModelRotation::default(),
         display: HashMap::new(),
         ambient_occlusion: true,
-        model_id: format!("texture:{texture_path}"),
+        model_id: format!("texture-block:{texture_path}"),
     })
 }
 
@@ -295,7 +355,7 @@ pub fn list_variant_keys(blockstate: &crate::model::types::RawBlockstate) -> Vec
 mod tests {
     use std::path::PathBuf;
 
-    use super::{compile_renderable, compile_texture_preview};
+    use super::{compile_renderable, compile_texture_block_preview, compile_texture_preview};
     use crate::model::normalize::PackInfo;
     use crate::resolve::ModelRegistry;
     use crate::source::FolderSource;
@@ -340,6 +400,22 @@ mod tests {
     }
 
     #[test]
+    fn texture_block_preview_has_cuboid_faces() {
+        let source = FolderSource::new(&fixture_root()).expect("fixture");
+        let mut cache = std::collections::HashMap::new();
+        let pack = PackInfo::default();
+        let registry = ModelRegistry::new(&source, &mut cache, pack);
+        let preview = super::compile_texture_block_preview(
+            "assets/minecraft/textures/block/test_stone.png",
+            &registry,
+        )
+        .expect("preview");
+        assert_eq!(preview.kind, crate::dto::RenderableKind::Block);
+        assert_eq!(preview.cuboids.len(), 1);
+        assert_eq!(preview.cuboids[0].faces.len(), 6);
+    }
+
+    #[test]
     fn texture_preview_has_layer_ref() {
         let source = FolderSource::new(&fixture_root()).expect("fixture");
         let mut cache = std::collections::HashMap::new();
@@ -351,6 +427,7 @@ mod tests {
         )
         .expect("preview");
         assert!(preview.texture_refs.contains_key("layer0"));
+        assert!(preview.display.contains_key("gui"));
     }
 
     #[test]

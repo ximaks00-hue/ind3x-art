@@ -42,6 +42,8 @@ impl super::AppState {
 
         let mut scored: Vec<(u32, &AssetEntry)> = project
 
+            .index
+
             .entries
 
             .iter()
@@ -150,7 +152,7 @@ impl super::AppState {
 
 
 
-        for entry in &project.entries {
+        for entry in &project.index.entries {
 
             *kind_counts.entry(asset_kind_key(entry.kind)).or_insert(0) += 1;
 
@@ -320,7 +322,7 @@ mod query_bench {
 
 
 
-        let mut app = crate::state::AppState::default();
+        let mut app = crate::state::test_app_state().expect("test app state");
 
         let handle = app.alloc_handle().id;
 
@@ -334,13 +336,7 @@ mod query_bench {
 
                 source_kind: crate::dto::SourceKind::Folder,
 
-                fingerprint: "bench".to_string(),
-
                 pack_format: None,
-
-                entries,
-
-                catalog: Vec::new(),
 
                 source: Box::new(
 
@@ -348,11 +344,33 @@ mod query_bench {
 
                 ),
 
-                model_cache: std::sync::Mutex::new(std::collections::HashMap::new()),
+                index: crate::state::IndexState {
 
-                texture_model_index: std::collections::HashMap::new(),
+                    fingerprint: "bench".to_string(),
 
-                save_journal: Vec::new(),
+                    entries,
+
+                    texture_model_index: std::collections::HashMap::new(),
+
+                    model_cache: std::sync::Mutex::new(std::collections::HashMap::new()),
+
+                },
+
+                catalog: crate::state::CatalogState {
+
+                    entries: crate::state::arc_catalog(Vec::new()),
+
+                    creative_tab_order: crate::catalog::CreativeTabOrder::default(),
+
+                    language: "en_us".to_string(),
+
+                },
+
+                save: crate::state::SaveState {
+
+                    journal: Vec::new(),
+
+                },
 
             },
 

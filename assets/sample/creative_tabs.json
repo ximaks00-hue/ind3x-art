@@ -1,0 +1,9 @@
+{
+  "building": [
+    "minecraft:test_stone",
+    "minecraft:demo_grass",
+    "minecraft:demo_oak_log",
+    "minecraft:demo_crafting_table"
+  ],
+  "decoration": ["minecraft:demo_torch"]
+}

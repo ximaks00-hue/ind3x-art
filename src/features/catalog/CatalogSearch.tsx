@@ -23,7 +23,7 @@ export function CatalogSearch({
         ref={inputRef}
         className={styles.input}
         type="search"
-        placeholder="Search blocks & items…"
+        placeholder="Search blocks & items… (/ or Ctrl+F)"
         value={value}
         onChange={(e) => onChange(e.target.value)}
         disabled={disabled}

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { RenderableModel } from "../../ipc/types";
-import { isFacePickData, pickDisplayTransform } from "./buildMesh";
+import { isFacePickData, pickDisplayTransform, shouldCullFace } from "./buildMesh";
 
 const baseModel = (): RenderableModel => ({
   kind: "block",
@@ -41,6 +41,18 @@ describe("pickDisplayTransform", () => {
 
   it("returns null when display is empty", () => {
     expect(pickDisplayTransform({ ...baseModel(), display: {} })).toBeNull();
+  });
+});
+
+describe("shouldCullFace", () => {
+  it("culls bottom face when cuboid sits on block floor", () => {
+    expect(shouldCullFace("down", [0, 0, 0], [16, 8, 16])).toBe(true);
+    expect(shouldCullFace("down", [0, 4, 0], [16, 16, 16])).toBe(false);
+  });
+
+  it("culls top face when cuboid reaches block ceiling", () => {
+    expect(shouldCullFace("up", [0, 8, 0], [16, 16, 16])).toBe(true);
+    expect(shouldCullFace("up", [0, 0, 0], [16, 8, 16])).toBe(false);
   });
 });
 

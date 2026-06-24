@@ -17,6 +17,7 @@ mod state;
 mod watcher;
 
 use state::{AppState, SharedState};
+use tauri::Manager;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -29,9 +30,10 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .setup(|app| {
             logging::init_logging(app.handle());
+            let state = AppState::new().map_err(|e| -> Box<dyn std::error::Error> { Box::new(e) })?;
+            app.manage(SharedState::new(state));
             Ok(())
         })
-        .manage(SharedState::new(AppState::default()))
         .invoke_handler(specta_builder.invoke_handler())
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

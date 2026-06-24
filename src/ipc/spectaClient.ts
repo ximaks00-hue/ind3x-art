@@ -17,10 +17,12 @@ import type {
   LogTailResponse,
   ModelRefInfo,
   OpenSourceResult,
+  ReindexResult,
   RenderableModel,
   SaveJournalEntry,
   SaveOptions,
   SaveTexturesResult,
+  StudioResolveContext,
   TexturePreview,
   TexturePreviewBatch,
   TextureSaveEntry,
@@ -112,7 +114,7 @@ export const spectaCommands = {
     handle: Parameters<typeof commands.reindexProject>[0],
     onEvent: Channel<IndexEvent>,
     changedPaths?: string[] | null,
-  ) => unwrap<number>(commands.reindexProject(handle, onEvent, changedPaths ?? null)),
+  ) => unwrap<ReindexResult>(commands.reindexProject(handle, onEvent, changedPaths ?? null)),
   invalidateProjectIndex: (
     handle: Parameters<typeof commands.invalidateProjectIndex>[0],
   ) => unwrap<void>(commands.invalidateProjectIndex(handle)),
@@ -144,7 +146,34 @@ export const spectaCommands = {
   resolveCatalogEntry: (
     handle: Parameters<typeof commands.resolveCatalogEntry>[0],
     entryId: string,
-  ) => unwrap<RenderableModel>(commands.resolveCatalogEntry(handle, entryId)),
+    context: StudioResolveContext = "icon",
+    variantKey?: string | null,
+  ) =>
+    unwrap<RenderableModel>(
+      commands.resolveCatalogEntry(handle, entryId, context, variantKey ?? null),
+    ),
+  rebuildProjectCatalog: (
+    handle: Parameters<typeof commands.rebuildProjectCatalog>[0],
+    language: string,
+  ) => unwrap<void>(commands.rebuildProjectCatalog(handle, language)),
+  getProjectFingerprint: (handle: Parameters<typeof commands.getProjectFingerprint>[0]) =>
+    unwrap<string>(commands.getProjectFingerprint(handle)),
+  getCatalogIconCache: (
+    handle: Parameters<typeof commands.getCatalogIconCache>[0],
+    iconKey: string,
+  ) => unwrap<string | null>(commands.getCatalogIconCache(handle, iconKey)),
+  setCatalogIconCache: (
+    handle: Parameters<typeof commands.setCatalogIconCache>[0],
+    iconKey: string,
+    pngBase64: string,
+  ) => unwrap<void>(commands.setCatalogIconCache(handle, iconKey, pngBase64)),
+  invalidateCatalogIconsForTextures: (
+    handle: Parameters<typeof commands.invalidateCatalogIconsForTextures>[0],
+    texturePaths: string[],
+  ) =>
+    unwrap<string[]>(
+      commands.invalidateCatalogIconsForTextures(handle, texturePaths),
+    ),
   getAssetEntry: (
     handle: Parameters<typeof commands.getAssetEntry>[0],
     assetId: string,

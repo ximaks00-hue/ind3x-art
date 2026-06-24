@@ -35,7 +35,7 @@ export function ViewerErrorState({
   onRetry,
   onOpenClassic,
 }: ViewerErrorStateProps) {
-  const heading = studioMode ? "Can't load model" : title;
+  const heading = studioMode ? "Failed to load model" : title;
 
   return (
     <div className={styles.wrap} role="alert">

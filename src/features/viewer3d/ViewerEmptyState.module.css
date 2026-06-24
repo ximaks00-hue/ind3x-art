@@ -4,7 +4,9 @@
   align-items: center;
   justify-content: center;
   gap: var(--space-4);
-  height: 100%;
+  flex: 1;
+  min-height: 0;
+  width: 100%;
   padding: var(--space-6);
   text-align: center;
 }

@@ -3,6 +3,8 @@ import { useCallback, useEffect, useRef } from "react";
 import type { AssetFilter, AssetKind } from "../../ipc/types";
 import { queryAssets } from "../../app/services/assetService";
 import { useProjectStore } from "../../state/projectStore";
+import { useSettingsStore } from "../../state/settingsStore";
+import { useUiStore } from "../../state/uiStore";
 
 export const EXPLORER_PAGE_SIZE = 200;
 
@@ -18,6 +20,7 @@ export function useAssetQuery(debouncedSearch: string) {
   const setQueryLoading = useProjectStore((s) => s.setQueryLoading);
   const queryRevision = useProjectStore((s) => s.queryRevision);
   const resetQuery = useProjectStore((s) => s.resetQuery);
+  const pushToast = useUiStore((s) => s.pushToast);
 
   const requestId = useRef(0);
 
@@ -35,10 +38,11 @@ export function useAssetQuery(debouncedSearch: string) {
       if (!handle) return;
       const id = ++requestId.current;
       const handleId = handle.id;
-      const filterKey = JSON.stringify(buildFilter());
+      const filter = buildFilter();
+      const filterKey = JSON.stringify(filter);
       setQueryLoading(true);
       try {
-        const page = await queryAssets(handle, buildFilter(), {
+        const page = await queryAssets(handle, filter, {
           offset,
           limit: EXPLORER_PAGE_SIZE,
         });
@@ -48,16 +52,38 @@ export function useAssetQuery(debouncedSearch: string) {
         const currentFilterKey = JSON.stringify({
           kind: current.kindFilter === "all" ? null : (current.kindFilter as AssetKind),
           namespace: current.namespaceFilter || null,
-          search: current.search.trim() || null,
+          search: debouncedSearch.trim() || null,
           fuzzy: current.fuzzySearch,
         });
         if (currentFilterKey !== filterKey) return;
         setQueryPage(page.entries, page.total, append, offset);
+
+        if (
+          !append &&
+          page.entries.length > 0 &&
+          !useProjectStore.getState().selectedAsset &&
+          useSettingsStore.getState().workspaceMode === "classic"
+        ) {
+          const previewable = page.entries.find(
+            (e) =>
+              e.kind === "texture" ||
+              e.kind === "blockModel" ||
+              e.kind === "itemModel" ||
+              e.kind === "blockstate",
+          );
+          if (previewable) {
+            useProjectStore.getState().selectAsset(previewable);
+          }
+        }
+      } catch (error) {
+        if (id !== requestId.current) return;
+        const message = error instanceof Error ? error.message : "Failed to load assets";
+        pushToast(`Explorer query failed: ${message}`, "error");
       } finally {
         if (id === requestId.current) setQueryLoading(false);
       }
     },
-    [handle, buildFilter, setQueryPage, setQueryLoading],
+    [handle, buildFilter, debouncedSearch, setQueryPage, setQueryLoading, pushToast],
   );
 
   useEffect(() => {

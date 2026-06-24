@@ -1,6 +1,7 @@
-import { useLayoutEffect, useState } from "react";
+import { useLayoutEffect, useMemo, useState } from "react";
 
 import { useSettingsStore } from "../../state/settingsStore";
+import { useProjectStore } from "../../state/projectStore";
 import styles from "./TooltipHints.module.css";
 
 const CLASSIC_HINTS = [
@@ -35,7 +36,7 @@ const STUDIO_HINTS = [
   {
     id: "studio-catalog",
     target: "hint-catalog",
-    text: "Arrow keys navigate the grid · Enter selects a block.",
+    text: "Press / or Ctrl+F to search · arrow keys navigate · right-click to pin.",
   },
   {
     id: "studio-paint",
@@ -80,6 +81,7 @@ function measurePlacements(activeHints: ReadonlyArray<HintDef>): HintPlacement[]
 }
 
 export function TooltipHints() {
+  const handle = useProjectStore((s) => s.handle);
   const workspaceMode = useSettingsStore((s) => s.workspaceMode);
   const sessionCount = useSettingsStore((s) => s.sessionCount);
   const dismissed = useSettingsStore((s) => s.dismissedHints);
@@ -87,10 +89,18 @@ export function TooltipHints() {
   const [placements, setPlacements] = useState<HintPlacement[]>([]);
 
   const hintPool = workspaceMode === "studio" ? STUDIO_HINTS : CLASSIC_HINTS;
-  const activeHints = hintPool.filter((h) => !dismissed.includes(h.id));
+  const activeHints = useMemo(
+    () => hintPool.filter((h) => !dismissed.includes(h.id)),
+    [hintPool, dismissed],
+  );
 
   useLayoutEffect(() => {
     let cancelled = false;
+
+    if (handle) {
+      setPlacements([]);
+      return;
+    }
 
     const frame = requestAnimationFrame(() => {
       if (cancelled) return;
@@ -105,7 +115,9 @@ export function TooltipHints() {
       cancelled = true;
       cancelAnimationFrame(frame);
     };
-  }, [sessionCount, activeHints, dismissed, workspaceMode]);
+  }, [handle, sessionCount, activeHints, workspaceMode]);
+
+  if (handle) return null;
 
   if (sessionCount > 3 || placements.length === 0) return null;
 

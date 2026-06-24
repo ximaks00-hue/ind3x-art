@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react";
-import * as THREE from "three";
+import { Raycaster, Vector2 } from "three";
 import { useThree } from "@react-three/fiber";
 
 import type { ProjectHandle, RenderableModel } from "../../ipc/types";
@@ -25,6 +25,7 @@ import { hitUvToPixel } from "./uvMapping";
 interface FaceRaycasterProps {
   model: RenderableModel;
   handle: ProjectHandle;
+  studioMode?: boolean;
 }
 
 function buildSelection(
@@ -46,10 +47,11 @@ function buildSelection(
   };
 }
 
-export function FaceRaycaster({ model, handle }: FaceRaycasterProps) {
+export function FaceRaycaster({ model, handle, studioMode = false }: FaceRaycasterProps) {
   const { camera, gl, scene } = useThree();
   const interactionMode = useSelectionStore((s) => s.interactionMode);
   const setSelectedFace = useSelectionStore((s) => s.setSelectedFace);
+  const setHoveredFace = useSelectionStore((s) => s.setHoveredFace);
   const tool = useEditorStore((s) => s.tool);
   const setColor = useEditorStore((s) => s.setColor);
   const pushRecentColor = useEditorStore((s) => s.pushRecentColor);
@@ -62,20 +64,23 @@ export function FaceRaycaster({ model, handle }: FaceRaycasterProps) {
   const shapeStartRef = useRef<{ x: number; y: number } | null>(null);
   const activeTextureRef = useRef<string | null>(null);
   const activePickRef = useRef<FacePickData | null>(null);
+  const raycasterRef = useRef(new Raycaster());
+  const pointerRef = useRef(new Vector2());
+  const hoverRafRef = useRef<number | null>(null);
+  const pendingHoverEventRef = useRef<PointerEvent | null>(null);
 
   useEffect(() => {
     const canvas = gl.domElement;
 
     const castHit = (event: PointerEvent) => {
       const rect = canvas.getBoundingClientRect();
-      const pointer = new THREE.Vector2(
+      pointerRef.current.set(
         ((event.clientX - rect.left) / rect.width) * 2 - 1,
         -((event.clientY - rect.top) / rect.height) * 2 + 1,
       );
 
-      const raycaster = new THREE.Raycaster();
-      raycaster.setFromCamera(pointer, camera);
-      const hits = raycaster.intersectObjects(scene.children, true);
+      raycasterRef.current.setFromCamera(pointerRef.current, camera);
+      const hits = raycasterRef.current.intersectObjects(scene.children, true);
 
       for (const hit of hits) {
         const pick = hit.object.userData[FACE_PICK_KEY];
@@ -162,7 +167,34 @@ export function FaceRaycaster({ model, handle }: FaceRaycasterProps) {
       event.stopPropagation();
     };
 
+    const applyStudioHover = (event: PointerEvent) => {
+      const hoverHit = castHit(event);
+      if (hoverHit) {
+        setHoveredFace({
+          cuboidIndex: hoverHit.pick.cuboidIndex,
+          faceIndex: hoverHit.pick.faceIndex,
+        });
+      } else {
+        setHoveredFace(null);
+      }
+    };
+
+    const scheduleStudioHover = (event: PointerEvent) => {
+      pendingHoverEventRef.current = event;
+      if (hoverRafRef.current !== null) return;
+      hoverRafRef.current = requestAnimationFrame(() => {
+        hoverRafRef.current = null;
+        const pending = pendingHoverEventRef.current;
+        if (!pending) return;
+        applyStudioHover(pending);
+      });
+    };
+
     const onPointerMove = (event: PointerEvent) => {
+      if (studioMode && (event.buttons & 1) === 0) {
+        scheduleStudioHover(event);
+      }
+
       if (interactionMode !== "paint" || (event.buttons & 1) === 0) return;
 
       if (isShapeTool(tool) && shapeStartRef.current) {
@@ -204,16 +236,27 @@ export function FaceRaycaster({ model, handle }: FaceRaycasterProps) {
       setFaceShapeDraft(null);
     };
 
+    const onPointerLeave = (event: PointerEvent) => {
+      if (studioMode) setHoveredFace(null);
+      endStroke(event);
+    };
+
     canvas.addEventListener("pointerdown", onPointerDown);
     canvas.addEventListener("pointermove", onPointerMove);
     canvas.addEventListener("pointerup", endStroke);
-    canvas.addEventListener("pointerleave", endStroke);
+    canvas.addEventListener("pointerleave", onPointerLeave);
     return () => {
+      if (hoverRafRef.current !== null) {
+        cancelAnimationFrame(hoverRafRef.current);
+        hoverRafRef.current = null;
+      }
+      pendingHoverEventRef.current = null;
       canvas.removeEventListener("pointerdown", onPointerDown);
       canvas.removeEventListener("pointermove", onPointerMove);
       canvas.removeEventListener("pointerup", endStroke);
-      canvas.removeEventListener("pointerleave", endStroke);
+      canvas.removeEventListener("pointerleave", onPointerLeave);
       setFaceShapeDraft(null);
+      if (studioMode) setHoveredFace(null);
     };
   }, [
     camera,
@@ -224,6 +267,8 @@ export function FaceRaycaster({ model, handle }: FaceRaycasterProps) {
     handle,
     tool,
     setSelectedFace,
+    setHoveredFace,
+    studioMode,
     setColor,
     pushRecentColor,
     bumpRevision,

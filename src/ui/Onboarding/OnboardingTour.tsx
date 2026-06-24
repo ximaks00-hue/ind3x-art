@@ -1,3 +1,4 @@
+import { useProjectStore } from "../../state/projectStore";
 import { useSettingsStore } from "../../state/settingsStore";
 import { Button } from "../primitives";
 import {
@@ -73,17 +74,18 @@ function OnboardingTourBody({
 }
 
 export function OnboardingTour() {
+  const handle = useProjectStore((s) => s.handle);
   const workspaceMode = useSettingsStore((s) => s.workspaceMode);
-
   const classicCompleted = useSettingsStore((s) => s.onboardingCompleted);
   const classicStep = useSettingsStore((s) => s.onboardingTourStep);
   const setClassicStep = useSettingsStore((s) => s.setOnboardingTourStep);
   const completeClassic = useSettingsStore((s) => s.completeOnboarding);
-
   const studioCompleted = useSettingsStore((s) => s.studioOnboardingCompleted);
   const studioStep = useSettingsStore((s) => s.studioOnboardingTourStep);
   const setStudioStep = useSettingsStore((s) => s.setStudioOnboardingTourStep);
   const completeStudio = useSettingsStore((s) => s.completeStudioOnboarding);
+
+  if (handle) return null;
 
   if (workspaceMode === "studio") {
     if (

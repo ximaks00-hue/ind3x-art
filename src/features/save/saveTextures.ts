@@ -1,6 +1,7 @@
 import { ipc } from "../../ipc/client";
 import type { ProjectHandle, SaveOptions } from "../../ipc/types";
 import { collectDirtyTextureEntries, markTexturesSaved } from "../editor/textureDocument";
+import { invalidateCatalogIconsForTextures } from "../catalog/catalogIconInvalidation";
 
 export async function saveDirtyTextures(handle: ProjectHandle, options?: SaveOptions) {
   const snapshots = await collectDirtyTextureEntries();
@@ -35,6 +36,7 @@ export async function saveDirtyTextures(handle: ProjectHandle, options?: SaveOpt
     ? ipc.saveBatch(handle, textures, options)
     : ipc.saveTextures(handle, textures, options));
   markTexturesSaved(result.savedPaths, result.originalPaths, snapshots);
+  await invalidateCatalogIconsForTextures(handle, result.savedPaths);
   return {
     savedCount: result.savedCount,
     originalPaths: result.originalPaths,

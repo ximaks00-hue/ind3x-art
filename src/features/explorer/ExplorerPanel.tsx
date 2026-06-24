@@ -67,6 +67,7 @@ export function ExplorerPanel({
   const selectedAssetId = useProjectStore((s) => s.selectedAssetId);
   const validationById = useProjectStore((s) => s.validationById);
   const setFacets = useProjectStore((s) => s.setFacets);
+  const queryRevision = useProjectStore((s) => s.queryRevision);
   const setKindFilter = useProjectStore((s) => s.setKindFilter);
   const setNamespaceFilter = useProjectStore((s) => s.setNamespaceFilter);
   const setSearch = useProjectStore((s) => s.setSearch);
@@ -119,10 +120,21 @@ export function ExplorerPanel({
       setFacets(null);
       return;
     }
+    const handleId = handle.id;
+    let cancelled = false;
     void getAssetFacets(handle)
-      .then(setFacets)
-      .catch(() => setFacets(null));
-  }, [handle, setFacets]);
+      .then((next) => {
+        if (cancelled) return;
+        if (useProjectStore.getState().handle?.id !== handleId) return;
+        setFacets(next);
+      })
+      .catch(() => {
+        if (!cancelled) setFacets(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [handle, queryRevision, setFacets]);
 
   const collapsedSet = useMemo(
     () => new Set(Object.keys(collapsedGroups).filter((k) => collapsedGroups[k])),
@@ -136,6 +148,13 @@ export function ExplorerPanel({
   }, [assets, viewMode, collapsedSet]);
 
   const navigableRows = useMemo(() => assetRows(rows), [rows]);
+
+  useEffect(() => {
+    setFocusRowIndex((index) => {
+      if (navigableRows.length === 0) return 0;
+      return Math.min(index, navigableRows.length - 1);
+    });
+  }, [navigableRows.length]);
 
   const virtualizer = useVirtualizer({
     count: rows.length,

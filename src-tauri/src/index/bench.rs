@@ -1,6 +1,7 @@
 /// Benchmarks for the indexer pipeline.
 ///
 /// Run with:  cargo test --release bench_ -- --ignored --nocapture
+/// CI (`.github/workflows/ci.yml`) runs the same command on Windows builds.
 ///
 /// bench_classify_30k     — raw path classification only  (< 3 s)
 /// bench_run_index_cold   — full run_index without sled cache (cold)  (< 8 s)
@@ -112,7 +113,7 @@ mod tests {
 
         let t = Instant::now();
         let (entries, from_cache) =
-            run_index(&FolderSource::new(tmp.path()).unwrap(), &db, &fingerprint, &cancel, &ch)
+            run_index(&FolderSource::new(tmp.path()).unwrap(), &db, &fingerprint, &cancel, &ch, None, false)
                 .expect("run_index cold");
         let elapsed_ms = t.elapsed().as_millis();
 
@@ -152,6 +153,8 @@ mod tests {
             &fingerprint,
             &cancel,
             &make_channel(),
+            None,
+            false,
         )
         .expect("cold warm-up");
 
@@ -163,6 +166,8 @@ mod tests {
             &fingerprint,
             &cancel,
             &make_channel(),
+            None,
+            false,
         )
         .expect("warm run_index");
         let elapsed_ms = t.elapsed().as_millis();

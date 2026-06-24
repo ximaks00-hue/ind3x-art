@@ -1,30 +1,33 @@
 import { useCallback, useEffect, useMemo, useRef } from "react";
-import { useVirtualizer } from "@tanstack/react-virtual";
 
 import type { CatalogEntry } from "../../ipc/types";
 import { useProjectStore } from "../../state/projectStore";
 import { useSettingsStore } from "../../state/settingsStore";
 import { useUiStore } from "../../state/uiStore";
 import { CatalogCategoryTabs } from "./CatalogCategoryTabs";
-import { CatalogCell } from "./CatalogCell";
+import { CatalogQuickRow } from "./CatalogQuickRow";
+import { refreshCatalogCaches } from "../../app/projectDataRevision";
 import { CatalogSearch } from "./CatalogSearch";
+import { CatalogVirtualGrid } from "./CatalogVirtualGrid";
 import styles from "./CatalogPanel.module.css";
-import { useCatalogStore } from "./catalogStore";
-import { CATALOG_GRID_COLS, catalogRowCount } from "./catalogUtils";
+import { flushCatalogSearchDebounce, useCatalogStore } from "./catalogStore";
 import {
-  useCatalogIconPipeline,
-  useCatalogIconPendingCount,
-} from "./useCatalogIconPipeline";
-import { useCatalogQuery } from "./useCatalogQuery";
+  catalogCategoryCount,
+  catalogTotalCount,
+  CATALOG_CATEGORY_LABELS,
+} from "./catalogUtils";
+import { useCatalogIconPendingCount } from "./useCatalogIconPipeline";
+import { useCatalogKeyboardNav } from "./useCatalogKeyboardNav";
+import { useCatalogLoadMore } from "./useCatalogQuery";
+import { useCatalogQuickEntries } from "./useCatalogQuickEntries";
 import { useCatalogSelection } from "./useCatalogSelection";
-
-const ROW_HEIGHT = 72;
+import { useCatalogSessionRestore } from "./useCatalogSessionRestore";
+import { PanelErrorBoundary } from "../../ui/PanelErrorBoundary/PanelErrorBoundary";
 
 export function CatalogPanel() {
-  const parentRef = useRef<HTMLDivElement>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
-  const keyboardScopeActiveRef = useRef(false);
   const studioFocusDoneRef = useRef(false);
 
   const handle = useProjectStore((s) => s.handle);
@@ -33,6 +36,10 @@ export function CatalogPanel() {
   const fuzzySearch = useProjectStore((s) => s.fuzzySearch);
   const setFuzzySearch = useProjectStore((s) => s.setFuzzySearch);
   const workspaceMode = useSettingsStore((s) => s.workspaceMode);
+  const pinnedCatalogIds = useSettingsStore((s) => s.pinnedCatalogIds);
+  const recentCatalogIds = useSettingsStore((s) => s.recentCatalogIds);
+  const togglePinnedCatalogId = useSettingsStore((s) => s.togglePinnedCatalogId);
+  const setStudioCatalogCategory = useSettingsStore((s) => s.setStudioCatalogCategory);
   const explorerFocusTick = useUiStore((s) => s.explorerFocusTick);
 
   const entries = useCatalogStore((s) => s.entries);
@@ -49,16 +56,35 @@ export function CatalogPanel() {
   const setSearch = useCatalogStore((s) => s.setSearch);
   const setCategory = useCatalogStore((s) => s.setCategory);
   const setFocusIndex = useCatalogStore((s) => s.setFocusIndex);
-  const bumpQueryRevision = useCatalogStore((s) => s.bumpQueryRevision);
-  const recentAssetIds = useSettingsStore((s) => s.recentAssetIds);
-  const studioSelectedCatalogId = useSettingsStore((s) => s.studioSelectedCatalogId);
-  const studioCatalogCategory = useSettingsStore((s) => s.studioCatalogCategory);
-  const setStudioCatalogCategory = useSettingsStore((s) => s.setStudioCatalogCategory);
-  const sessionRestoredRef = useRef(false);
+  const refreshCatalog = refreshCatalogCaches;
 
   const { selectEntry } = useCatalogSelection();
-  const { loadMore, searchPending } = useCatalogQuery();
+  const { loadMore, searchPending } = useCatalogLoadMore();
   const iconPending = useCatalogIconPendingCount();
+
+  useCatalogSessionRestore();
+
+  const quickIds = useMemo(
+    () => [...new Set([...pinnedCatalogIds, ...recentCatalogIds])],
+    [pinnedCatalogIds, recentCatalogIds],
+  );
+  const quickEntryMap = useCatalogQuickEntries(handle, quickIds);
+  const pinnedEntries = useMemo(
+    () =>
+      pinnedCatalogIds
+        .map((id) => quickEntryMap.get(id))
+        .filter((e): e is CatalogEntry => Boolean(e)),
+    [pinnedCatalogIds, quickEntryMap],
+  );
+  const recentEntries = useMemo(
+    () =>
+      recentCatalogIds
+        .filter((id) => !pinnedCatalogIds.includes(id))
+        .map((id) => quickEntryMap.get(id))
+        .filter((e): e is CatalogEntry => Boolean(e)),
+    [recentCatalogIds, pinnedCatalogIds, quickEntryMap],
+  );
+  const pinnedIdSet = useMemo(() => new Set(pinnedCatalogIds), [pinnedCatalogIds]);
 
   useEffect(() => {
     if (explorerFocusTick > 0) {
@@ -82,152 +108,65 @@ export function CatalogPanel() {
     }
   }, [workspaceMode, indexStatus, handle]);
 
-  useEffect(() => {
-    const panel = panelRef.current;
-    if (!panel) return;
-    const onFocusIn = () => {
-      keyboardScopeActiveRef.current = true;
-    };
-    const onFocusOut = (event: FocusEvent) => {
-      const next = event.relatedTarget as Node | null;
-      keyboardScopeActiveRef.current = !!(next && panel.contains(next));
-    };
-    panel.addEventListener("focusin", onFocusIn);
-    panel.addEventListener("focusout", onFocusOut);
-    return () => {
-      panel.removeEventListener("focusin", onFocusIn);
-      panel.removeEventListener("focusout", onFocusOut);
-    };
-  }, []);
-
-  const rowCount = catalogRowCount(entries.length);
-
-  const virtualizer = useVirtualizer({
-    count: rowCount,
-    getScrollElement: () => parentRef.current,
-    estimateSize: () => ROW_HEIGHT,
-    overscan: 4,
+  useCatalogKeyboardNav({
+    panelRef,
+    searchRef,
+    entries,
+    focusIndex,
+    setFocusIndex,
+    selectEntry,
+    scrollToRow: (row) => {
+      const el = scrollRef.current;
+      if (!el) return;
+      const targetTop = row * 48;
+      el.scrollTo({ top: targetTop, behavior: "auto" });
+    },
   });
 
-  const virtualItems = virtualizer.getVirtualItems();
-
-  const visibleEntries = useMemo(() => {
-    const indices = new Set<number>();
-    for (const item of virtualItems) {
-      const start = item.index * CATALOG_GRID_COLS;
-      for (let col = 0; col < CATALOG_GRID_COLS; col++) {
-        const idx = start + col;
-        if (idx < entries.length) indices.add(idx);
-      }
-    }
-    return [...indices]
-      .sort((a, b) => a - b)
-      .map((i) => entries[i])
-      .filter((e): e is CatalogEntry => Boolean(e));
-  }, [virtualItems, entries]);
-
-  useCatalogIconPipeline(visibleEntries);
-
   useEffect(() => {
-    if (sessionRestoredRef.current || !entries.length) return;
-    if (studioCatalogCategory && category !== studioCatalogCategory) {
-      setCategory(studioCatalogCategory);
-      return;
+    if (!facets || category == null) return;
+    if (catalogCategoryCount(facets, category) === 0) {
+      setCategory(null);
+      setStudioCatalogCategory(null);
     }
-    if (studioSelectedCatalogId) {
-      const idx = entries.findIndex((e) => e.id === studioSelectedCatalogId);
-      if (idx >= 0) {
-        setFocusIndex(idx);
-        sessionRestoredRef.current = true;
-      }
-    }
-  }, [
-    entries,
-    studioSelectedCatalogId,
-    studioCatalogCategory,
-    category,
-    setCategory,
-    setFocusIndex,
-  ]);
+  }, [facets, category, setCategory, setStudioCatalogCategory]);
 
   useEffect(() => {
     if (category != null) setStudioCatalogCategory(category);
   }, [category, setStudioCatalogCategory]);
 
-  const recentEntries = useMemo(() => {
-    if (!recentAssetIds.length || !entries.length) return [];
-    return recentAssetIds
-      .map((assetId) =>
-        entries.find(
-          (e) => `${e.namespace}:${e.sourcePath}` === assetId || e.id === assetId,
-        ),
-      )
-      .filter((e): e is CatalogEntry => Boolean(e))
-      .slice(0, 8);
-  }, [recentAssetIds, entries]);
-
-  useEffect(() => {
-    const last = virtualItems[virtualItems.length - 1];
-    if (!last || !hasMore || loading) return;
-    if (last.index >= rowCount - 3) loadMore();
-  }, [virtualItems, hasMore, loading, loadMore, rowCount]);
-
-  const moveFocus = useCallback(
-    (next: number) => {
-      if (!entries.length) return;
-      const clamped = Math.max(0, Math.min(entries.length - 1, next));
-      setFocusIndex(clamped);
-      const row = Math.floor(clamped / CATALOG_GRID_COLS);
-      virtualizer.scrollToIndex(row, { align: "auto" });
+  const handleTogglePin = useCallback(
+    (entry: { id: string }) => {
+      togglePinnedCatalogId(entry.id);
     },
-    [entries.length, setFocusIndex, virtualizer],
+    [togglePinnedCatalogId],
   );
 
-  useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (!keyboardScopeActiveRef.current || !entries.length) return;
-      if (event.key === "ArrowRight") {
-        event.preventDefault();
-        moveFocus(focusIndex + 1);
-      } else if (event.key === "ArrowLeft") {
-        event.preventDefault();
-        moveFocus(focusIndex - 1);
-      } else if (event.key === "ArrowDown") {
-        event.preventDefault();
-        moveFocus(focusIndex + CATALOG_GRID_COLS);
-      } else if (event.key === "ArrowUp") {
-        event.preventDefault();
-        moveFocus(focusIndex - CATALOG_GRID_COLS);
-      } else if (event.key === "Home") {
-        event.preventDefault();
-        moveFocus(0);
-      } else if (event.key === "End") {
-        event.preventDefault();
-        moveFocus(entries.length - 1);
-      } else if (event.key === "Enter") {
-        const entry = entries[focusIndex];
-        if (entry) {
-          event.preventDefault();
-          selectEntry(entry);
-        }
-      }
-    };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [entries, focusIndex, moveFocus, selectEntry]);
-
-  useEffect(() => {
-    if (focusIndex >= entries.length) {
-      setFocusIndex(Math.max(0, entries.length - 1));
-    }
-  }, [entries.length, focusIndex, setFocusIndex]);
+  const handleSelect = useCallback(
+    (entry: (typeof entries)[number], index: number) => {
+      setFocusIndex(index);
+      selectEntry(entry);
+    },
+    [setFocusIndex, selectEntry],
+  );
 
   const shownCount = total > 0 ? Math.min(entries.length, total) : entries.length;
   const isLoading = loading || searchPending;
   const showNoMatches =
     !queryError && entries.length === 0 && !isLoading && indexStatus === "done" && handle;
+  const allCatalogCount = catalogTotalCount(facets);
+  const hasActiveFilter = Boolean(category) || search.trim().length > 0;
+
+  const clearCatalogFilters = useCallback(() => {
+    setSearch("");
+    setCategory(null);
+    setStudioCatalogCategory(null);
+    flushCatalogSearchDebounce();
+    refreshCatalog();
+  }, [setSearch, setCategory, setStudioCatalogCategory, refreshCatalog]);
 
   return (
+    <PanelErrorBoundary name="Catalog">
     <div
       ref={panelRef}
       className={styles.panel}
@@ -267,26 +206,29 @@ export function CatalogPanel() {
         onSelect={setCategory}
       />
 
-      {recentEntries.length > 0 ? (
-        <div className={styles.recentRow} aria-label="Recent catalog picks">
-          <span className={styles.recentLabel}>Recent</span>
-          <div className={styles.recentChips}>
-            {recentEntries.map((entry) => (
-              <button
-                key={entry.id}
-                type="button"
-                className={styles.recentChip}
-                onClick={() => selectEntry(entry)}
-                title={entry.displayName}
-              >
-                {entry.displayName}
-              </button>
-            ))}
-          </div>
-        </div>
+      {pinnedEntries.length > 0 ? (
+        <CatalogQuickRow
+          label="Pinned"
+          entries={pinnedEntries}
+          pinnedIds={pinnedIdSet}
+          selectedId={selectedId}
+          onSelect={selectEntry}
+          onTogglePin={handleTogglePin}
+        />
       ) : null}
 
-      <div ref={parentRef} className={styles.scroll}>
+      {recentEntries.length > 0 ? (
+        <CatalogQuickRow
+          label="Recent"
+          entries={recentEntries}
+          pinnedIds={pinnedIdSet}
+          selectedId={selectedId}
+          onSelect={selectEntry}
+          onTogglePin={handleTogglePin}
+        />
+      ) : null}
+
+      <div ref={scrollRef} className={styles.scroll}>
         {!handle || indexStatus !== "done" ? (
           <div className={styles.empty}>
             <p className={styles.emptyTitle}>Creative catalog</p>
@@ -302,7 +244,7 @@ export function CatalogPanel() {
             <button
               type="button"
               className={styles.retryBtn}
-              onClick={() => bumpQueryRevision()}
+              onClick={() => refreshCatalog()}
             >
               Retry
             </button>
@@ -312,52 +254,36 @@ export function CatalogPanel() {
             <p className={styles.emptyTitle}>No matches</p>
             <p className={styles.emptyBody}>
               {search.trim()
-                ? "Try a different search or clear the category filter."
-                : "No entries in this category."}
+                ? "Try a different search or clear the filters."
+                : category
+                  ? `No entries in ${CATALOG_CATEGORY_LABELS[category]}.`
+                  : allCatalogCount === 0
+                    ? "This pack has no catalog entries yet."
+                    : "No entries match the current filters."}
             </p>
+            {hasActiveFilter ? (
+              <button type="button" className={styles.retryBtn} onClick={clearCatalogFilters}>
+                Show all items
+              </button>
+            ) : null}
           </div>
         ) : (
-          <div
-            className={styles.virtualSpacer}
-            style={{ height: virtualizer.getTotalSize() }}
-          >
-            {virtualItems.map((virtualRow) => {
-              const rowStart = virtualRow.index * CATALOG_GRID_COLS;
-              return (
-                <div
-                  key={virtualRow.key}
-                  className={styles.row}
-                  style={{
-                    transform: `translateY(${virtualRow.start}px)`,
-                    height: virtualRow.size,
-                  }}
-                >
-                  {Array.from({ length: CATALOG_GRID_COLS }, (_, col) => {
-                    const index = rowStart + col;
-                    const entry = entries[index];
-                    if (!entry) {
-                      return <span key={col} className={styles.cellGap} />;
-                    }
-                    return (
-                      <CatalogCell
-                        key={entry.id}
-                        entry={entry}
-                        selected={selectedId === entry.id}
-                        focused={focusIndex === index}
-                        onClick={() => {
-                          setFocusIndex(index);
-                          selectEntry(entry);
-                        }}
-                      />
-                    );
-                  })}
-                </div>
-              );
-            })}
-          </div>
+          <CatalogVirtualGrid
+            scrollRef={scrollRef}
+            entries={entries}
+            selectedId={selectedId}
+            focusIndex={focusIndex}
+            pinnedIdSet={pinnedIdSet}
+            hasMore={hasMore}
+            loading={isLoading}
+            onSelect={handleSelect}
+            onTogglePin={handleTogglePin}
+            loadMore={loadMore}
+          />
         )}
         {isLoading ? <p className={styles.loading}>Loading…</p> : null}
       </div>
     </div>
+    </PanelErrorBoundary>
   );
 }

@@ -4,5 +4,6 @@ pub mod indexer;
 pub mod texture_index;
 
 pub use indexer::{
-    cache_key_for, invalidate_index, patch_entries_for_paths, run_index, source_fingerprint,
+    cache_key_for, invalidate_index, patch_entries_for_paths, prune_orphan_entries, run_index,
+    scan_index_entries, source_fingerprint,
 };

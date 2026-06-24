@@ -4,31 +4,32 @@ import { AppDialogs } from "./app/AppDialogs";
 import { useAppBootstrap } from "./app/useAppBootstrap";
 import { useAppCommandBindings } from "./app/useAppCommandBindings";
 import { useAppHotkeyBindings } from "./app/useAppHotkeyBindings";
+import { useAppStatusBar } from "./app/useAppStatusBar";
 import { useProjectSource } from "./app/useProjectSource";
 import { useSaveWorkflow } from "./app/useSaveWorkflow";
 import type { ScreenshotExportOptions } from "./lib/exportScreenshot";
 import { EditorPanel } from "./features/editor/EditorPanel";
-import { CatalogPanelLazy } from "./features/catalog/CatalogPanelLazy";
-import { useCatalogStore } from "./features/catalog/catalogStore";
-import { formatFaceDirection, textureBasename } from "./app/studioStatusLabels";
+import { useCatalogBootstrap } from "./features/catalog/useCatalogBootstrap";
 import { ExplorerPanel } from "./features/explorer/ExplorerPanel";
-import { ViewerPanelLazy } from "./features/viewer3d/ViewerPanelLazy";
-import { getActiveLayerIndex } from "./features/editor/documentStore";
-import { useDirtyTextureCount } from "./features/save/useDirtyTextures";
-import { useEditorStore, TOOL_LABELS } from "./state/editorStore";
+import { ViewerPanel } from "./features/viewer3d/ViewerPanel";
 import { useProjectStore } from "./state/projectStore";
 import { useSelectionStore } from "./state/selectionStore";
 import { useSettingsStore } from "./state/settingsStore";
 import { useUiStore } from "./state/uiStore";
-import { CAMERA_PRESET_LABELS, useViewerStore } from "./state/viewerStore";
 import { AppShell } from "./ui/AppShell/AppShell";
-import { TooltipHints } from "./ui/Onboarding/TooltipHints";
+import { shouldShowOnboardingTour } from "./ui/Onboarding/onboardingSteps";
+import { ProjectOpenOverlay } from "./ui/ProjectOpenOverlay/ProjectOpenOverlay";
 import { SessionRestoreDialog } from "./ui/SessionRestore/SessionRestoreDialog";
 import { StatusBar } from "./ui/StatusBar/StatusBar";
 import { TitleBar } from "./ui/TitleBar/TitleBar";
+import { TooltipHints } from "./ui/Onboarding/TooltipHints";
 
 const OnboardingTour = lazy(() =>
   import("./ui/Onboarding/OnboardingTour").then((m) => ({ default: m.OnboardingTour })),
+);
+
+const CatalogPanel = lazy(() =>
+  import("./features/catalog/CatalogPanel").then((m) => ({ default: m.CatalogPanel })),
 );
 
 function App() {
@@ -37,61 +38,16 @@ function App() {
   const [sessionRestoreDismissed, setSessionRestoreDismissed] = useState(false);
 
   const { ipcHealthy } = useAppBootstrap();
+  const statusBar = useAppStatusBar();
 
-  const { handle, indexStatus, queryTotal, sourcePath } = useProjectStore();
+  const { handle, indexStatus, indexProgress, indexStage, sourcePath } = useProjectStore();
   const lastSessionPath = useSettingsStore((s) => s.lastSessionPath);
   const incrementSessionCount = useSettingsStore((s) => s.incrementSessionCount);
   const onboardingCompleted = useSettingsStore((s) => s.onboardingCompleted);
   const studioOnboardingCompleted = useSettingsStore((s) => s.studioOnboardingCompleted);
   const workspaceMode = useSettingsStore((s) => s.workspaceMode);
 
-  const catalogSelectedEntry = useCatalogStore((s) => s.selectedEntry);
-  const catalogTotal = useCatalogStore((s) => s.total);
-  const catalogLoading = useCatalogStore((s) => s.loading);
-  const catalogQueryError = useCatalogStore((s) => s.queryError);
-
-  const interactionMode = useSelectionStore((s) => s.interactionMode);
   const selectedFace = useSelectionStore((s) => s.selectedFace);
-  const editorTool = useEditorStore((s) => s.tool);
-  const editorZoom = useEditorStore((s) => s.zoom);
-  const editorCursorX = useEditorStore((s) => s.cursorX);
-  const editorCursorY = useEditorStore((s) => s.cursorY);
-  const viewerFps = useViewerStore((s) => s.fps);
-  const cameraPreset = useViewerStore((s) => s.cameraPreset);
-  const dirtyCount = useDirtyTextureCount();
-
-  const editorRevision = useEditorStore((s) => s.revision);
-  const layerInfo = useMemo(() => {
-    if (!selectedFace) return null;
-    void editorRevision;
-    return getActiveLayerIndex(selectedFace.texturePath);
-  }, [selectedFace, editorRevision]);
-
-  const showOnboardingTour =
-    workspaceMode === "studio" ? !studioOnboardingCompleted : !onboardingCompleted;
-
-  const studioStatus = useMemo(() => {
-    if (workspaceMode !== "studio") return null;
-    return {
-      workspaceLabel: "Studio",
-      catalogTotal: indexStatus === "done" ? catalogTotal : undefined,
-      catalogLoading,
-      catalogQueryError,
-      catalogEntryLabel: catalogSelectedEntry?.displayName ?? catalogSelectedEntry?.id,
-      faceDirection: selectedFace
-        ? formatFaceDirection(selectedFace.direction)
-        : undefined,
-      textureLabel: selectedFace ? textureBasename(selectedFace.texturePath) : undefined,
-    };
-  }, [
-    workspaceMode,
-    catalogSelectedEntry,
-    selectedFace,
-    catalogTotal,
-    catalogLoading,
-    catalogQueryError,
-    indexStatus,
-  ]);
 
   const commandPaletteOpen = useUiStore((s) => s.commandPaletteOpen);
   const shortcutsHelpOpen = useUiStore((s) => s.shortcutsHelpOpen);
@@ -114,6 +70,17 @@ function App() {
     openSource,
     subscribeSourceEvents,
   } = useProjectSource();
+
+  useCatalogBootstrap();
+
+  const showOnboardingTour = shouldShowOnboardingTour({
+    workspaceMode,
+    studioOnboardingCompleted,
+    onboardingCompleted,
+    hasOpenProject: Boolean(handle),
+    opening,
+    indexStatus,
+  });
 
   const openRecent = (path: string) => {
     void openSource(path);
@@ -146,6 +113,9 @@ function App() {
 
   return (
     <>
+      {(opening || indexStatus === "running") && (
+        <ProjectOpenOverlay stage={indexStage} progress={indexProgress} />
+      )}
       <AppShell
         titleBar={
           <TitleBar
@@ -160,7 +130,9 @@ function App() {
         }
         leftPanel={
           workspaceMode === "studio" ? (
-            <CatalogPanelLazy />
+            <Suspense fallback={null}>
+              <CatalogPanel />
+            </Suspense>
           ) : (
             <ExplorerPanel
               onOpenJar={() => void openJar()}
@@ -171,7 +143,7 @@ function App() {
           )
         }
         center={
-          <ViewerPanelLazy
+          <ViewerPanel
             onOpenJar={() => void openJar()}
             onOpenFolder={() => void openFolder()}
             onOpenRecent={openRecent}
@@ -182,25 +154,27 @@ function App() {
         statusBar={
           <StatusBar
             ipcHealthy={ipcHealthy}
-            assetCount={indexStatus === "done" ? queryTotal : undefined}
-            indexStatus={indexStatus}
-            workspaceLabel={studioStatus?.workspaceLabel}
-            catalogTotal={studioStatus?.catalogTotal}
-            catalogLoading={studioStatus?.catalogLoading}
-            catalogQueryError={studioStatus?.catalogQueryError}
-            catalogEntryLabel={studioStatus?.catalogEntryLabel}
-            faceDirection={studioStatus?.faceDirection}
-            textureLabel={studioStatus?.textureLabel}
-            toolLabel={selectedFace ? TOOL_LABELS[editorTool] : undefined}
-            layerIndex={layerInfo?.index}
-            layerTotal={layerInfo?.total}
-            dirtyCount={dirtyCount}
-            zoom={selectedFace ? editorZoom : undefined}
-            cursorX={selectedFace ? editorCursorX : undefined}
-            cursorY={selectedFace ? editorCursorY : undefined}
-            interactionMode={handle ? interactionMode : undefined}
-            cameraPreset={handle ? CAMERA_PRESET_LABELS[cameraPreset] : undefined}
-            fps={handle ? viewerFps : undefined}
+            assetCount={statusBar.assetCount}
+            indexStatus={statusBar.indexStatus}
+            workspaceLabel={statusBar.studioStatus?.workspaceLabel}
+            catalogTotal={statusBar.studioStatus?.catalogTotal}
+            catalogLoading={statusBar.studioStatus?.catalogLoading}
+            catalogQueryError={statusBar.studioStatus?.catalogQueryError}
+            catalogEntryLabel={statusBar.studioStatus?.catalogEntryLabel}
+            faceDirection={statusBar.studioStatus?.faceDirection}
+            textureLabel={statusBar.studioStatus?.textureLabel}
+            textureDirty={statusBar.studioStatus?.textureDirty}
+            studioCompact={statusBar.studioCompact}
+            toolLabel={statusBar.toolLabel}
+            layerIndex={statusBar.layerIndex}
+            layerTotal={statusBar.layerTotal}
+            dirtyCount={statusBar.dirtyCount}
+            zoom={statusBar.zoom}
+            cursorX={statusBar.cursorX}
+            cursorY={statusBar.cursorY}
+            interactionMode={statusBar.interactionMode}
+            cameraPreset={statusBar.cameraPreset}
+            fps={statusBar.fps}
           />
         }
       />

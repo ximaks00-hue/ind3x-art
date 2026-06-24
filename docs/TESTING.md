@@ -10,7 +10,7 @@ inD3X Art uses a layered test strategy: fast unit tests, browser smoke tests, an
 | Rust | `npm run test` | `cargo test` | Indexer, models, save pipeline |
 | E2E smoke | `npm run test:e2e` | Vite dev server only | UI shell, hotkeys, panels |
 | E2E integration | `npm run test:e2e:integration` | Vite + `VITE_E2E_MOCK` | Open → paint → save; Block Studio catalog flow |
-| E2E native (optional) | `npm run test:e2e:native` | Tauri WebDriver | Studio toggle scaffold when `TAURI_WEBDRIVER_URL` set |
+| E2E native (optional) | `npm run test:e2e:native` | Tauri WebDriver | Demo pack → catalog → unfold panel when `TAURI_WEBDRIVER_URL` set |
 | Local CI | `npm run ci` | All of the above | Mirrors GitHub Actions |
 
 ## Vitest

@@ -45,6 +45,8 @@ describe("catalogService", () => {
     expect(ipcMock.resolveCatalogEntry).toHaveBeenCalledWith(
       handle,
       "minecraft:test_stone",
+      "icon",
+      null,
     );
   });
 

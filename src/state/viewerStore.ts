@@ -31,6 +31,7 @@ interface ViewerState {
   currentRenderable: RenderableModel | null;
   vramTextures: number;
   vramGeometries: number;
+  textureReloadTick: number;
   setCameraPreset: (preset: CameraPreset) => void;
   resetCamera: () => void;
   requestFaceZoom: (
@@ -47,6 +48,7 @@ interface ViewerState {
   setActiveTextureMeta: (meta: Record<string, TextureMetaInfo>) => void;
   setCurrentRenderable: (model: RenderableModel | null) => void;
   setVram: (textures: number, geometries: number) => void;
+  bumpTextureReloadTick: () => void;
 }
 
 export const useViewerStore = create<ViewerState>((set) => ({
@@ -65,6 +67,7 @@ export const useViewerStore = create<ViewerState>((set) => ({
   currentRenderable: null,
   vramTextures: 0,
   vramGeometries: 0,
+  textureReloadTick: 0,
   setCameraPreset: (cameraPreset) =>
     set((state) => ({
       cameraPreset,
@@ -95,4 +98,6 @@ export const useViewerStore = create<ViewerState>((set) => ({
   setActiveTextureMeta: (activeTextureMeta) => set({ activeTextureMeta }),
   setCurrentRenderable: (currentRenderable) => set({ currentRenderable }),
   setVram: (vramTextures, vramGeometries) => set({ vramTextures, vramGeometries }),
+  bumpTextureReloadTick: () =>
+    set((state) => ({ textureReloadTick: state.textureReloadTick + 1 })),
 }));

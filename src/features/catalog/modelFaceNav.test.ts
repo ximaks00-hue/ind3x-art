@@ -55,9 +55,10 @@ describe("modelFaceNav", () => {
     expect(nav[0]?.label).toContain("Top");
   });
 
-  it("groups multipart cuboids separately", () => {
+  it("groups multipart cuboids with schematic labels from model id", () => {
     const model = mockModel({
       kind: "multipart",
+      modelId: "minecraft:block/fence_post + minecraft:block/fence_side",
       cuboids: [
         mockModel().cuboids[0]!,
         {
@@ -77,7 +78,8 @@ describe("modelFaceNav", () => {
     });
     const groups = groupModelFaceNav(buildModelFaceNav(model));
     expect(groups).toHaveLength(2);
-    expect(groups[0]?.cuboidLabel).toBe("Part 1");
+    expect(groups[0]?.cuboidLabel).toBe("Fence Post");
+    expect(groups[1]?.cuboidLabel).toBe("Fence Side");
     expect(groups[1]?.items[0]?.texturePath).toContain("oak_planks");
   });
 
@@ -136,5 +138,21 @@ describe("modelFaceNav", () => {
     const selected = buildSelectedFaceFromModel(mockModel(), 0, 1);
     expect(selected?.direction).toBe("north");
     expect(selected?.pixel).toEqual([8, 8]);
+  });
+
+  it("supports itemGenerated texture previews without cuboids", () => {
+    const model = mockModel({
+      kind: "itemGenerated",
+      cuboids: [],
+      textureRefs: { layer0: "assets/ic2/textures/block/copper_ore.png" },
+      modelId: "texture:assets/ic2/textures/block/copper_ore.png",
+    });
+    const nav = buildModelFaceNav(model);
+    expect(nav).toHaveLength(1);
+    expect(nav[0]?.texturePath).toContain("copper_ore");
+    const preferred = pickPreferredStudioFace(model);
+    expect(preferred?.texturePath).toContain("copper_ore");
+    const selected = buildSelectedFaceFromModel(model, 0, 0);
+    expect(selected?.direction).toBe("item");
   });
 });

@@ -1,61 +1,30 @@
 import { beforeEach, describe, expect, it } from "vitest";
 
+import { refreshCatalogCaches } from "../../app/projectDataRevision";
+import { useProjectStore } from "../../state/projectStore";
 import { useCatalogStore } from "./catalogStore";
 import {
-  catalogCellIndex,
-  catalogEntryHasWarnings,
-  catalogEntryToAssetEntry,
-  catalogRowCount,
-  getCatalogEntryWarnings,
-} from "./catalogUtils";
+  clearStudioResolveCache,
+  getStudioResolveCache,
+  setStudioResolveCache,
+  studioResolveKey,
+} from "./studioResolveCache";
 
-describe("catalogUtils", () => {
-  it("maps blockstate catalog entry to asset entry", () => {
-    const asset = catalogEntryToAssetEntry({
-      id: "minecraft:test_stone",
-      namespace: "minecraft",
-      displayName: "Test Stone",
-      kind: "block",
-      sourcePath: "assets/minecraft/blockstates/test_stone.json",
-      resolveKind: "blockstate",
-      defaultVariantKey: "",
-      category: "building",
-      searchTokens: [],
-      texturePaths: [],
-      iconKey: "minecraft:test_stone:",
-      aliases: [],
-    });
-    expect(asset.kind).toBe("blockstate");
-    expect(asset.id).toBe("minecraft:assets/minecraft/blockstates/test_stone.json");
-    expect(asset.path).toBe("assets/minecraft/blockstates/test_stone.json");
-  });
-
-  it("computes grid row count", () => {
-    expect(catalogRowCount(0)).toBe(0);
-    expect(catalogRowCount(9)).toBe(1);
-    expect(catalogRowCount(10)).toBe(2);
-    expect(catalogRowCount(5000)).toBe(Math.ceil(5000 / 9));
-    expect(catalogCellIndex(1, 0)).toBe(9);
-  });
-
-  it("flags entries missing texture paths", () => {
-    const entry = {
-      id: "minecraft:orphan",
-      namespace: "minecraft",
-      displayName: "Orphan",
-      kind: "block" as const,
-      sourcePath: "assets/minecraft/models/block/orphan.json",
-      resolveKind: "model" as const,
-      category: "misc" as const,
-      searchTokens: [],
-      texturePaths: [],
-      iconKey: "minecraft:orphan:",
-      aliases: [],
-    };
-    expect(getCatalogEntryWarnings(entry)).toHaveLength(2);
-    expect(catalogEntryHasWarnings(entry)).toBe(true);
-  });
-});
+const sampleEntry = {
+  id: "minecraft:stone",
+  namespace: "minecraft",
+  displayName: "Stone",
+  kind: "block" as const,
+  sourcePath: "assets/minecraft/blockstates/stone.json",
+  resolveKind: "blockstate" as const,
+  category: "building" as const,
+  searchTokens: [],
+  texturePaths: [],
+  iconKey: "minecraft:stone:",
+  aliases: [],
+  studioModelPath: "assets/minecraft/blockstates/stone.json",
+  presentation: "block" as const,
+};
 
 describe("catalogStore", () => {
   beforeEach(() => {
@@ -63,29 +32,45 @@ describe("catalogStore", () => {
   });
 
   it("merges paginated entries without duplicates", () => {
-    const entry = {
-      id: "minecraft:stone",
-      namespace: "minecraft",
-      displayName: "Stone",
-      kind: "block" as const,
-      sourcePath: "assets/minecraft/blockstates/stone.json",
-      resolveKind: "blockstate" as const,
-      category: "building" as const,
-      searchTokens: [],
-      texturePaths: [],
-      iconKey: "minecraft:stone:",
-      aliases: [],
-    };
     const dirt = {
-      ...entry,
+      ...sampleEntry,
       id: "minecraft:dirt",
       displayName: "Dirt",
       sourcePath: "assets/minecraft/blockstates/dirt.json",
+      studioModelPath: "assets/minecraft/blockstates/dirt.json",
       iconKey: "minecraft:dirt:",
     };
-    useCatalogStore.getState().setQueryPage([entry], 2, false, 0);
+    useCatalogStore.getState().setQueryPage([sampleEntry], 2, false, 0);
     useCatalogStore.getState().setQueryPage([dirt], 2, true, 1);
     expect(useCatalogStore.getState().entries).toHaveLength(2);
     expect(useCatalogStore.getState().hasMore).toBe(false);
+  });
+
+  it("selectEntry tracks selected id and entry", () => {
+    useCatalogStore.getState().selectEntry(sampleEntry);
+    expect(useCatalogStore.getState().selectedId).toBe("minecraft:stone");
+    expect(useCatalogStore.getState().selectedEntry?.displayName).toBe("Stone");
+    useCatalogStore.getState().clearSelection();
+    expect(useCatalogStore.getState().selectedId).toBeNull();
+  });
+
+  it("reset restores initial query state", () => {
+    useCatalogStore.getState().setSearch("torch");
+    useCatalogStore.getState().setQueryPage([sampleEntry], 1, false, 0);
+    useCatalogStore.getState().setQueryError("boom");
+    useCatalogStore.getState().reset();
+    expect(useCatalogStore.getState().entries).toEqual([]);
+    expect(useCatalogStore.getState().search).toBe("");
+    expect(useCatalogStore.getState().queryError).toBeNull();
+  });
+
+  it("refreshCatalogCaches clears studio resolve cache for open project", () => {
+    clearStudioResolveCache();
+    useProjectStore.setState({ handle: { id: 7 } } as Partial<ReturnType<typeof useProjectStore.getState>>);
+    const key = studioResolveKey(7, "minecraft:stone", "");
+    setStudioResolveCache(key, { kind: "block" } as import("../../ipc/types").RenderableModel);
+    refreshCatalogCaches();
+    expect(getStudioResolveCache(key)).toBeUndefined();
+    expect(useCatalogStore.getState().queryRevision).toBe(1);
   });
 });

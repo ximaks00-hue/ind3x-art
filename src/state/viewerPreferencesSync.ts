@@ -34,6 +34,23 @@ export function syncViewerPreferencesFromSettings(): void {
   applyViewerPreferencesToViewerStore();
 }
 
+/** Read persisted viewer display prefs — single source of truth for UI. */
+export function useViewerLightingPreset() {
+  return useSettingsStore((s) => s.viewerLightingPreset);
+}
+
+export function useViewerShowGrid() {
+  return useSettingsStore((s) => s.viewerShowGrid);
+}
+
+export function useViewerShowVignette() {
+  return useSettingsStore((s) => s.viewerShowVignette);
+}
+
+export function useViewerShowDevOverlay() {
+  return useSettingsStore((s) => s.viewerShowDevOverlay);
+}
+
 function commitViewerPreferences(prefs: ViewerPreferences): void {
   const settings = useSettingsStore.getState();
   settings.setViewerLightingPreset(prefs.lightingPreset);

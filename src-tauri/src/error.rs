@@ -78,6 +78,13 @@ impl serde::Serialize for CoreError {
 
 pub type CoreResult<T> = Result<T, CoreError>;
 
+/// Log non-fatal cache/index invalidation failures (stale entry cleanup, etc.).
+pub fn log_if_err<T>(result: CoreResult<T>, context: &'static str) {
+    if let Err(ref err) = result {
+        tracing::warn!(context, error = %err, "non-fatal operation failed");
+    }
+}
+
 impl From<zip::result::ZipError> for CoreError {
     fn from(value: zip::result::ZipError) -> Self {
         CoreError::Archive(value.to_string())

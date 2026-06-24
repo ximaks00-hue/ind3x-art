@@ -1,3 +1,6 @@
+import type { IndexStatus } from "../../state/projectStore";
+import type { WorkspaceMode } from "../../state/settingsStore";
+
 export interface OnboardingStep {
   title: string;
   body: string;
@@ -29,33 +32,40 @@ export const CLASSIC_ONBOARDING_STEPS: OnboardingStep[] = [
 
 export const STUDIO_ONBOARDING_STEPS: OnboardingStep[] = [
   {
-    title: "Block Studio mode",
-    body: "Studio replaces the file explorer with a creative catalog grid — like Minecraft's inventory.",
-    target: "tour-workspace-mode",
-  },
-  {
-    title: "Browse the catalog",
-    body: "Search and filter by category. Arrow keys move the grid; Enter opens the selected block in 3D.",
+    title: "Creative catalog",
+    body: "Browse blocks like Minecraft's creative inventory. Press / to search, arrow keys to move the grid.",
     target: "tour-catalog",
   },
   {
-    title: "Paint in 3D",
-    body: "The viewport loads your pick in Paint mode. Click any face to edit it — top faces are auto-selected for blocks.",
+    title: "Pick a block",
+    body: "Click any icon — the 3D view opens in Paint mode on the top face.",
     target: "tour-studio-viewport",
   },
   {
-    title: "Switch textures",
-    body: "Multipart models (fences, walls) expose each part here. Click a chip to jump to that face's texture.",
-    target: "tour-texture-nav",
-  },
-  {
-    title: "Texture editor",
-    body: "The right panel shows the active face texture with layers, tools, and undo. Changes are tracked per texture.",
+    title: "Paint a face",
+    body: "Click faces in 3D or use texture chips below. The editor on the right follows your selection.",
     target: "tour-editor",
   },
   {
-    title: "Save your work",
-    body: "Ctrl+S saves all dirty textures. Every save creates a backup you can restore from the command palette.",
+    title: "Save",
+    body: "Ctrl+S saves your changes. Every save creates a backup you can restore later.",
     target: "tour-save",
   },
 ];
+
+/** Onboarding dims the whole window — hide it while a pack is open or loading. */
+export function shouldShowOnboardingTour(opts: {
+  workspaceMode: WorkspaceMode;
+  studioOnboardingCompleted: boolean;
+  onboardingCompleted: boolean;
+  hasOpenProject: boolean;
+  opening: boolean;
+  indexStatus: IndexStatus;
+}): boolean {
+  if (opts.hasOpenProject || opts.opening || opts.indexStatus === "running") {
+    return false;
+  }
+  return opts.workspaceMode === "studio"
+    ? !opts.studioOnboardingCompleted
+    : !opts.onboardingCompleted;
+}

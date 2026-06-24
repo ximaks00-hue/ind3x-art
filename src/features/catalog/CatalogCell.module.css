@@ -1,12 +1,19 @@
+.cellHost {
+  position: relative;
+  width: 40px;
+  height: 40px;
+}
+
 .cell {
   position: relative;
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 4px;
-  width: 100%;
-  min-width: 0;
-  padding: 6px 4px;
+  justify-content: center;
+  gap: 2px;
+  width: 40px;
+  height: 40px;
+  padding: 0;
   border: 1px solid transparent;
   border-radius: var(--radius-sm);
   background: transparent;
@@ -33,12 +40,27 @@
   outline-offset: 1px;
 }
 
+.pinned {
+  border-color: color-mix(in srgb, var(--color-warning) 30%, transparent);
+}
+
 .warned {
   position: relative;
 }
 
 .dirty {
   border-color: color-mix(in srgb, var(--color-warning) 40%, transparent);
+}
+
+.pinBadge {
+  position: absolute;
+  top: 1px;
+  right: 1px;
+  z-index: 1;
+  font-size: 8px;
+  color: var(--color-warning);
+  line-height: 1;
+  pointer-events: none;
 }
 
 .dirtyBadge {
@@ -54,36 +76,44 @@
 
 .warnBadge {
   position: absolute;
-  top: 2px;
-  right: 2px;
+  bottom: 1px;
+  right: 1px;
   z-index: 1;
-  width: 14px;
-  height: 14px;
+  width: 12px;
+  height: 12px;
   border-radius: 50%;
   background: var(--color-warning);
   color: var(--color-bg-panel);
-  font-size: 9px;
+  font-size: 8px;
   font-weight: 700;
-  line-height: 14px;
+  line-height: 12px;
   text-align: center;
   pointer-events: none;
+}
+
+.warnRetry {
+  pointer-events: auto;
+  cursor: pointer;
+  border: none;
+  padding: 0;
 }
 
 .iconSlot {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 44px;
-  height: 44px;
+  width: 40px;
+  height: 40px;
 }
 
 .placeholder {
-  font-size: 16px;
+  font-size: 14px;
   font-weight: 650;
   color: var(--color-text-muted);
 }
 
 .label {
+  display: none;
   width: 100%;
   font-size: 9px;
   line-height: 1.2;

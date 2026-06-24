@@ -1,0 +1,99 @@
+.panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border-top: 1px solid var(--color-border);
+  background: color-mix(in srgb, var(--color-bg-panel) 94%, transparent);
+}
+
+.header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
+.title {
+  margin: 0;
+  font-size: 10px;
+  font-weight: 650;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+}
+
+.hint {
+  font-size: 10px;
+  color: var(--color-text-muted);
+}
+
+.grid {
+  display: grid;
+  gap: 4px;
+  width: fit-content;
+}
+
+.empty {
+  display: block;
+}
+
+.face {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  width: 44px;
+  height: 44px;
+  padding: 2px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-bg-input);
+  color: var(--color-text-muted);
+  cursor: pointer;
+  overflow: hidden;
+  transition:
+    border-color var(--transition-fast),
+    box-shadow var(--transition-fast);
+}
+
+.face:hover {
+  border-color: color-mix(in srgb, var(--color-accent) 35%, var(--color-border));
+}
+
+.faceSelected {
+  border-color: color-mix(in srgb, var(--color-accent) 65%, transparent);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--color-accent) 35%, transparent);
+}
+
+.faceHovered:not(.faceSelected) {
+  border-color: color-mix(in srgb, #4aa3ff 55%, var(--color-border));
+}
+
+.preview {
+  position: absolute;
+  inset: 2px;
+  width: calc(100% - 4px);
+  height: calc(100% - 4px);
+  object-fit: cover;
+  image-rendering: pixelated;
+  pointer-events: none;
+}
+
+.placeholder {
+  position: absolute;
+  inset: 8px;
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--color-border) 55%, transparent);
+}
+
+.label {
+  position: relative;
+  z-index: 1;
+  font-size: 8px;
+  line-height: 1;
+  padding: 1px 3px;
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--color-bg-panel) 80%, transparent);
+}

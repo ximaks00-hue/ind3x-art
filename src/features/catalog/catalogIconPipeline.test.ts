@@ -9,18 +9,21 @@ import {
 } from "./catalogIconPipeline";
 
 function sampleEntry(overrides: Partial<CatalogEntry> = {}): CatalogEntry {
+  const sourcePath = "assets/minecraft/blockstates/stone.json";
   return {
     id: "minecraft:stone",
     namespace: "minecraft",
     displayName: "Stone",
     kind: "block",
-    sourcePath: "assets/minecraft/blockstates/stone.json",
+    sourcePath,
     resolveKind: "blockstate",
     category: "building",
     searchTokens: [],
     texturePaths: ["assets/minecraft/textures/block/stone.png"],
     iconKey: "minecraft:stone:",
     aliases: [],
+    studioModelPath: sourcePath,
+    presentation: "block",
     ...overrides,
   };
 }
@@ -31,16 +34,18 @@ describe("catalogIconPipeline", () => {
     resetCatalogIconPipeline();
   });
 
-  it("auto mode upgrades items to tier-2", () => {
+  it("auto mode upgrades all entries to tier-2 3D", () => {
+    const block = sampleEntry();
     const item = sampleEntry({ kind: "item", id: "minecraft:stick" });
+    expect(shouldUpgradeTo3d(block, "auto")).toBe(true);
     expect(shouldUpgradeTo3d(item, "auto")).toBe(true);
-    expect(shouldBakeTier1(item, "auto")).toBe(true);
+    expect(shouldBakeTier1(block, "auto")).toBe(false);
   });
 
-  it("auto mode keeps blocks on preview when texture exists", () => {
+  it("preview mode uses tier-1 only", () => {
     const block = sampleEntry();
-    expect(shouldUpgradeTo3d(block, "auto")).toBe(false);
-    expect(shouldBakeTier1(block, "auto")).toBe(true);
+    expect(shouldUpgradeTo3d(block, "preview")).toBe(false);
+    expect(shouldBakeTier1(block, "preview")).toBe(true);
   });
 
   it("auto mode upgrades texture-less entries to tier-2", () => {

@@ -1,6 +1,8 @@
 .studio {
   display: flex;
   flex-direction: column;
+  flex: 1;
+  width: 100%;
   height: 100%;
   min-height: 0;
 }
@@ -23,6 +25,16 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.schematic {
+  font-weight: 500;
+  color: var(--color-text-muted);
+}
+
+.itemViews {
+  display: flex;
+  gap: 2px;
 }
 
 .variantSelect {
@@ -106,10 +118,85 @@
   border-color: var(--color-accent);
 }
 
+.resolveOverlay {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  display: grid;
+  place-items: center;
+  pointer-events: none;
+  background: color-mix(in srgb, var(--color-bg-elevated) 35%, transparent);
+}
+
+.resolveError {
+  position: absolute;
+  top: var(--space-2);
+  left: var(--space-2);
+  right: var(--space-2);
+  z-index: 3;
+  margin: 0;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-sm);
+  border: 1px solid color-mix(in srgb, var(--color-danger) 40%, transparent);
+  background: color-mix(in srgb, var(--color-bg-panel) 92%, transparent);
+  font-size: 11px;
+  color: var(--color-danger);
+}
+
+.previewBanner {
+  position: absolute;
+  z-index: 2;
+  top: var(--space-3);
+  left: 50%;
+  transform: translateX(-50%);
+  display: grid;
+  gap: 2px;
+  max-width: min(92%, 440px);
+  padding: var(--space-2) var(--space-3);
+  font-size: 11px;
+  line-height: 1.35;
+  text-align: center;
+  color: var(--color-text-secondary);
+  background: color-mix(in srgb, var(--color-bg-elevated) 90%, transparent);
+  border: 1px solid color-mix(in srgb, var(--color-border) 70%, transparent);
+  border-radius: var(--radius-sm);
+  pointer-events: none;
+}
+
+.previewBanner strong {
+  font-size: 12px;
+  font-weight: 650;
+  color: var(--color-text-primary);
+}
+
 .canvasArea {
   position: relative;
-  flex: 1;
-  min-height: 0;
+  flex: 1 1 0;
+  min-height: 180px;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  background: radial-gradient(
+    ellipse at center,
+    transparent 40%,
+    color-mix(in srgb, var(--color-bg-app) 55%, transparent) 100%
+  );
+}
+
+.floorGrid {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background-image:
+    linear-gradient(color-mix(in srgb, var(--color-border) 35%, transparent) 1px, transparent 1px),
+    linear-gradient(
+      90deg,
+      color-mix(in srgb, var(--color-border) 35%, transparent) 1px,
+      transparent 1px
+    );
+  background-size: 32px 32px;
+  opacity: 0.35;
 }
 
 .hintBar {
@@ -122,4 +209,28 @@
   font-size: 10px;
   color: var(--color-text-muted);
   text-align: center;
+}
+
+.centerPlaceholder {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  display: grid;
+  place-content: center;
+  gap: var(--space-2);
+  padding: var(--space-6);
+  text-align: center;
+  pointer-events: none;
+}
+
+.centerPlaceholderTitle {
+  font-size: 16px;
+  font-weight: 650;
+  color: var(--color-text-primary);
+}
+
+.centerPlaceholderHint {
+  font-size: 12px;
+  color: var(--color-text-muted);
+  max-width: 360px;
 }

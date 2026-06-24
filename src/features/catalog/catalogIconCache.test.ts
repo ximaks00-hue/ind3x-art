@@ -6,6 +6,9 @@ import {
   getCatalogIconCache,
   readCatalogIconUrl,
   resetCatalogIconCache,
+  setCatalogIconFailure,
+  clearCatalogIconFailure,
+  readCatalogIconState,
   subscribeCatalogIconCache,
 } from "./catalogIconCache";
 
@@ -48,5 +51,30 @@ describe("catalogIconCache", () => {
     getCatalogIconCache(64).set("k", { url: "data:x", tier: 1 });
     expect(listener).toHaveBeenCalled();
     unsub();
+  });
+
+  it("notifies subscribers when failure is cleared", () => {
+    const key = catalogIconCacheKey(1, "minecraft:stone:");
+    setCatalogIconFailure(key, "bake failed");
+    expect(readCatalogIconState(1, "minecraft:stone:", 64).status).toBe("failed");
+
+    const listener = vi.fn();
+    const unsub = subscribeCatalogIconCache(listener);
+    clearCatalogIconFailure(key);
+    expect(listener).toHaveBeenCalled();
+    expect(readCatalogIconState(1, "minecraft:stone:", 64).status).toBe("idle");
+    unsub();
+  });
+
+  it("resizes shared cache without dropping entries when limit changes", () => {
+    const key = catalogIconCacheKey(1, "minecraft:stone:");
+    getCatalogIconCache(64).set(key, { url: "data:image/png;base64,abc", tier: 1 });
+    expect(readCatalogIconUrl(1, "minecraft:stone:", 64)).toBe("data:image/png;base64,abc");
+
+    getCatalogIconCache(128);
+    expect(readCatalogIconUrl(1, "minecraft:stone:", 128)).toBe("data:image/png;base64,abc");
+
+    getCatalogIconCache(32);
+    expect(readCatalogIconUrl(1, "minecraft:stone:", 32)).toBe("data:image/png;base64,abc");
   });
 });

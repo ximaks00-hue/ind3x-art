@@ -1,6 +1,8 @@
 export type CatalogIconTier = 1 | 2;
 
-export type CatalogIconStatus = "idle" | "baking" | "ready" | "failed";
+export type CatalogIconStatus = "idle" | "baking" | "low" | "ready" | "failed";
+
+export type CatalogIconProgress = "skeleton" | "low" | "final";
 
 export interface CatalogIconCacheEntry {
   url: string;
@@ -27,7 +29,7 @@ export function estimateDataUrlBytes(url: string): number {
 
 /** LRU cache for baked catalog icon data URLs (tier-1 preview, tier-2 GUI 3D). */
 export class CatalogIconLruCache {
-  private readonly max: number;
+  private max: number;
   private readonly maxBytes: number;
   private readonly map = new Map<string, CatalogIconCacheEntry>();
   private totalBytes = 0;
@@ -94,6 +96,13 @@ export class CatalogIconLruCache {
     notifyCatalogIconCache();
   }
 
+  /** Shrink or grow entry cap without discarding cached icons (LRU evicts if over new limit). */
+  setMaxEntries(limit: number): void {
+    this.max = Math.max(32, limit);
+    this.evictWhileOverBudget();
+    notifyCatalogIconCache();
+  }
+
   private evictWhileOverBudget(): void {
     while (
       (this.map.size > this.max || this.totalBytes > this.maxBytes) &&
@@ -115,6 +124,7 @@ let sharedCache = new CatalogIconLruCache(256);
 const listeners = new Set<Listener>();
 const inflightKeys = new Set<string>();
 const failureMessages = new Map<string, string>();
+const progressByKey = new Map<string, CatalogIconProgress>();
 
 export function catalogIconCacheKey(handleId: number, iconKey: string): string {
   return `${handleId}:${iconKey}`;
@@ -123,7 +133,7 @@ export function catalogIconCacheKey(handleId: number, iconKey: string): string {
 export function getCatalogIconCache(limit: number): CatalogIconLruCache {
   if (limit !== sharedLimit) {
     sharedLimit = limit;
-    sharedCache = new CatalogIconLruCache(limit);
+    sharedCache.setMaxEntries(limit);
   }
   return sharedCache;
 }
@@ -141,6 +151,7 @@ export function resetCatalogIconCache(): void {
   sharedCache.clear();
   inflightKeys.clear();
   failureMessages.clear();
+  progressByKey.clear();
 }
 
 export function invalidateCatalogIconCacheForHandle(handleId: number): void {
@@ -165,14 +176,21 @@ export function clearCatalogIconInflight(key: string): void {
   notifyCatalogIconCache();
 }
 
+export function setCatalogIconProgress(key: string, phase: CatalogIconProgress): void {
+  progressByKey.set(key, phase);
+  notifyCatalogIconCache();
+}
+
 export function setCatalogIconFailure(key: string, message: string): void {
   inflightKeys.delete(key);
+  progressByKey.delete(key);
   failureMessages.set(key, message);
   notifyCatalogIconCache();
 }
 
 export function clearCatalogIconFailure(key: string): void {
   failureMessages.delete(key);
+  notifyCatalogIconCache();
 }
 
 export function getCatalogIconPendingCount(): number {
@@ -200,7 +218,12 @@ export function readCatalogIconState(
   const key = catalogIconCacheKey(handleId, iconKey);
   const url = getCatalogIconCache(limit).get(key)?.url ?? null;
   if (url) {
-    return { src: url, status: "ready", error: null };
+    const phase = progressByKey.get(key);
+    return {
+      src: url,
+      status: phase === "low" ? "low" : "ready",
+      error: null,
+    };
   }
   const failure = failureMessages.get(key);
   if (failure) {

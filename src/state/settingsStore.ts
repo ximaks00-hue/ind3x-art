@@ -1,6 +1,11 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 
+import {
+  classicEnterFromStudio,
+  studioEnterPatch,
+} from "../features/catalog/workspaceTransition";
+
 import type { CatalogCategory } from "../ipc/types";
 
 export type Theme = "dark" | "light" | "high-contrast";
@@ -24,6 +29,7 @@ interface SettingsState {
   workspaceMode: WorkspaceMode;
   catalogIconMode: CatalogIconMode;
   catalogIconCacheLimit: number;
+  catalogShowCellLabels: boolean;
   explorerPanelWidth: number;
   editorPanelWidth: number;
   leftPanelCollapsed: boolean;
@@ -35,6 +41,9 @@ interface SettingsState {
   viewerShowDevOverlay: boolean;
   pinnedAssetIds: string[];
   recentAssetIds: string[];
+  pinnedCatalogIds: string[];
+  recentCatalogIds: string[];
+  studioShowFloorGrid: boolean;
   onboardingCompleted: boolean;
   onboardingTourStep: number;
   studioOnboardingCompleted: boolean;
@@ -44,6 +53,7 @@ interface SettingsState {
   lastSessionPath: string | null;
   studioSelectedCatalogId: string | null;
   studioCatalogCategory: CatalogCategory | null;
+  catalogLanguage: string;
   setTheme: (theme: Theme) => void;
   cycleTheme: () => void;
   toggleTheme: () => void;
@@ -56,6 +66,7 @@ interface SettingsState {
   toggleWorkspaceMode: () => void;
   setCatalogIconMode: (mode: CatalogIconMode) => void;
   setCatalogIconCacheLimit: (n: number) => void;
+  setCatalogShowCellLabels: (show: boolean) => void;
   setExplorerPanelWidth: (width: number) => void;
   setEditorPanelWidth: (width: number) => void;
   setLeftPanelCollapsed: (collapsed: boolean) => void;
@@ -73,6 +84,9 @@ interface SettingsState {
   togglePinnedAsset: (assetId: string) => void;
   pushRecentAsset: (assetId: string) => void;
   clearRecentAssets: () => void;
+  togglePinnedCatalogId: (catalogId: string) => void;
+  pushRecentCatalogId: (catalogId: string) => void;
+  setStudioShowFloorGrid: (show: boolean) => void;
   completeOnboarding: () => void;
   setOnboardingTourStep: (step: number) => void;
   completeStudioOnboarding: () => void;
@@ -83,6 +97,7 @@ interface SettingsState {
   setLastSessionPath: (path: string | null) => void;
   setStudioSelectedCatalogId: (id: string | null) => void;
   setStudioCatalogCategory: (category: CatalogCategory | null) => void;
+  setCatalogLanguage: (language: string) => void;
 }
 
 export const useSettingsStore = create<SettingsState>()(
@@ -96,6 +111,7 @@ export const useSettingsStore = create<SettingsState>()(
       workspaceMode: "classic" as WorkspaceMode,
       catalogIconMode: "auto" as CatalogIconMode,
       catalogIconCacheLimit: 256,
+      catalogShowCellLabels: false,
       explorerPanelWidth: 300,
       editorPanelWidth: 300,
       leftPanelCollapsed: false,
@@ -107,6 +123,9 @@ export const useSettingsStore = create<SettingsState>()(
       viewerShowDevOverlay: false,
       pinnedAssetIds: [],
       recentAssetIds: [],
+      pinnedCatalogIds: [],
+      recentCatalogIds: [],
+      studioShowFloorGrid: false,
       onboardingCompleted: false,
       onboardingTourStep: 0,
       studioOnboardingCompleted: false,
@@ -116,6 +135,7 @@ export const useSettingsStore = create<SettingsState>()(
       lastSessionPath: null,
       studioSelectedCatalogId: null,
       studioCatalogCategory: null,
+      catalogLanguage: "en_us",
       setTheme: (theme) => set({ theme }),
       cycleTheme: () => {
         const idx = THEME_ORDER.indexOf(get().theme);
@@ -140,23 +160,38 @@ export const useSettingsStore = create<SettingsState>()(
       setUiScale: (uiScale) => set({ uiScale: Math.max(0.8, Math.min(1.5, uiScale)) }),
       setWorkspaceMode: (workspaceMode) => {
         const prev = get();
+        if (workspaceMode === "classic" && prev.workspaceMode === "studio") {
+          classicEnterFromStudio();
+        }
+        const enteringStudio =
+          workspaceMode === "studio" && prev.workspaceMode !== "studio";
+        const studioPatch = enteringStudio ? studioEnterPatch() : {};
         if (
           workspaceMode === "studio" &&
           prev.workspaceMode !== "studio" &&
           !prev.studioOnboardingCompleted
         ) {
-          set({ workspaceMode, studioOnboardingTourStep: 0 });
+          set({ ...studioPatch, workspaceMode, studioOnboardingTourStep: 0 });
         } else {
-          set({ workspaceMode });
+          set({ ...studioPatch, workspaceMode });
         }
       },
-      toggleWorkspaceMode: () =>
-        set({ workspaceMode: get().workspaceMode === "classic" ? "studio" : "classic" }),
+      toggleWorkspaceMode: () => {
+        const prev = get();
+        const next = prev.workspaceMode === "classic" ? "studio" : "classic";
+        if (next === "classic") {
+          classicEnterFromStudio();
+          set({ workspaceMode: next });
+          return;
+        }
+        set({ ...studioEnterPatch(), workspaceMode: next });
+      },
       setCatalogIconMode: (catalogIconMode) => set({ catalogIconMode }),
       setCatalogIconCacheLimit: (catalogIconCacheLimit) =>
         set({
           catalogIconCacheLimit: Math.max(64, Math.min(2048, catalogIconCacheLimit)),
         }),
+      setCatalogShowCellLabels: (catalogShowCellLabels) => set({ catalogShowCellLabels }),
       setExplorerPanelWidth: (explorerPanelWidth) =>
         set({ explorerPanelWidth: Math.max(220, Math.min(520, explorerPanelWidth)) }),
       setEditorPanelWidth: (editorPanelWidth) =>
@@ -194,6 +229,21 @@ export const useSettingsStore = create<SettingsState>()(
         set({ recentAssetIds: next });
       },
       clearRecentAssets: () => set({ recentAssetIds: [] }),
+      togglePinnedCatalogId: (catalogId) => {
+        const pinned = get().pinnedCatalogIds;
+        const next = pinned.includes(catalogId)
+          ? pinned.filter((id) => id !== catalogId)
+          : [catalogId, ...pinned].slice(0, 32);
+        set({ pinnedCatalogIds: next });
+      },
+      pushRecentCatalogId: (catalogId) => {
+        const next = [
+          catalogId,
+          ...get().recentCatalogIds.filter((id) => id !== catalogId),
+        ].slice(0, 12);
+        set({ recentCatalogIds: next });
+      },
+      setStudioShowFloorGrid: (studioShowFloorGrid) => set({ studioShowFloorGrid }),
       completeOnboarding: () => set({ onboardingCompleted: true, onboardingTourStep: 0 }),
       setOnboardingTourStep: (onboardingTourStep) => set({ onboardingTourStep }),
       completeStudioOnboarding: () =>
@@ -212,6 +262,7 @@ export const useSettingsStore = create<SettingsState>()(
       setStudioSelectedCatalogId: (studioSelectedCatalogId) =>
         set({ studioSelectedCatalogId }),
       setStudioCatalogCategory: (studioCatalogCategory) => set({ studioCatalogCategory }),
+      setCatalogLanguage: (catalogLanguage) => set({ catalogLanguage }),
     }),
     {
       name: "ind3x-art-settings",
@@ -224,6 +275,7 @@ export const useSettingsStore = create<SettingsState>()(
         workspaceMode: state.workspaceMode,
         catalogIconMode: state.catalogIconMode,
         catalogIconCacheLimit: state.catalogIconCacheLimit,
+        catalogShowCellLabels: state.catalogShowCellLabels,
         explorerPanelWidth: state.explorerPanelWidth,
         editorPanelWidth: state.editorPanelWidth,
         leftPanelCollapsed: state.leftPanelCollapsed,
@@ -235,6 +287,9 @@ export const useSettingsStore = create<SettingsState>()(
         viewerShowDevOverlay: state.viewerShowDevOverlay,
         pinnedAssetIds: state.pinnedAssetIds,
         recentAssetIds: state.recentAssetIds,
+        pinnedCatalogIds: state.pinnedCatalogIds,
+        recentCatalogIds: state.recentCatalogIds,
+        studioShowFloorGrid: state.studioShowFloorGrid,
         onboardingCompleted: state.onboardingCompleted,
         onboardingTourStep: state.onboardingTourStep,
         studioOnboardingCompleted: state.studioOnboardingCompleted,
@@ -244,6 +299,7 @@ export const useSettingsStore = create<SettingsState>()(
         lastSessionPath: state.lastSessionPath,
         studioSelectedCatalogId: state.studioSelectedCatalogId,
         studioCatalogCategory: state.studioCatalogCategory,
+        catalogLanguage: state.catalogLanguage,
       }),
     },
   ),

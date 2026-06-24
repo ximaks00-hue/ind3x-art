@@ -8,11 +8,36 @@ import type {
 } from "../../ipc/types";
 
 const cache = new Map<string, THREE.Texture>();
+let cacheLimit = 512;
+
+function evictExcessTextures(): void {
+  while (cache.size > cacheLimit) {
+    const oldest = cache.keys().next().value;
+    if (oldest === undefined) break;
+    cache.get(oldest)?.dispose();
+    cache.delete(oldest);
+  }
+}
+
+function touchCachedTexture(key: string, texture: THREE.Texture): THREE.Texture {
+  if (cache.has(key)) {
+    cache.delete(key);
+  }
+  cache.set(key, texture);
+  evictExcessTextures();
+  return texture;
+}
+
+export function setViewerTextureCacheLimit(limit: number): void {
+  cacheLimit = Math.max(8, limit);
+  evictExcessTextures();
+}
 
 export interface TextureAnimationState {
   meta: TextureAnimationMeta;
   frameIndex: number;
   elapsed: number;
+  paused?: boolean;
 }
 
 function cacheKey(handle: ProjectHandle, path: string): string {
@@ -55,7 +80,9 @@ export async function loadTexture(
 ): Promise<THREE.Texture> {
   const key = cacheKey(handle, path);
   const cached = cache.get(key);
-  if (cached) return cached;
+  if (cached) {
+    return touchCachedTexture(key, cached);
+  }
 
   // Use binary IPC to avoid base64 overhead when available
   const image = await (async () => {
@@ -103,7 +130,7 @@ export async function loadTexture(
     applyAnimationFrame(texture, animState);
   }
 
-  cache.set(key, texture);
+  touchCachedTexture(key, texture);
   return texture;
 }
 
@@ -117,6 +144,7 @@ export function refreshTextureFromCanvas(
   if (existing) {
     existing.image = canvas;
     existing.needsUpdate = true;
+    touchCachedTexture(key, existing);
     return;
   }
 
@@ -125,13 +153,14 @@ export function refreshTextureFromCanvas(
   texture.minFilter = THREE.NearestFilter;
   texture.colorSpace = THREE.SRGBColorSpace;
   texture.needsUpdate = true;
-  cache.set(key, texture);
+  touchCachedTexture(key, texture);
 }
 
 export function tickAnimatedTextures(deltaSeconds: number): void {
   for (const texture of cache.values()) {
     const state = texture.userData.animation as TextureAnimationState | undefined;
     if (!state || state.meta.frames.length === 0) continue;
+    if (state.paused) continue;
 
     const tickSeconds = state.meta.frametime / 20;
     state.elapsed += deltaSeconds;
@@ -141,6 +170,40 @@ export function tickAnimatedTextures(deltaSeconds: number): void {
       applyAnimationFrame(texture, state);
     }
   }
+}
+
+/** Seek a cached animated texture to a specific frame (studio preview / editor scrub). */
+export async function seekAnimatedTextureFrame(
+  handle: ProjectHandle,
+  path: string,
+  frameIndex: number,
+  meta?: TextureMetaInfo,
+): Promise<void> {
+  const key = cacheKey(handle, path);
+  let texture = cache.get(key);
+  if (!texture) {
+    try {
+      texture = await loadTexture(handle, path, meta);
+    } catch {
+      return;
+    }
+  }
+
+  const state = texture.userData.animation as TextureAnimationState | undefined;
+  if (!state || state.meta.frames.length === 0) return;
+
+  const clamped = Math.max(0, Math.min(frameIndex, state.meta.frames.length - 1));
+  state.frameIndex = clamped;
+  state.elapsed = 0;
+  state.paused = true;
+  applyAnimationFrame(texture, state);
+}
+
+/** Resume automatic animation ticking for a texture. */
+export function resumeAnimatedTexture(path: string, handle: ProjectHandle): void {
+  const texture = cache.get(cacheKey(handle, path));
+  const state = texture?.userData.animation as TextureAnimationState | undefined;
+  if (state) state.paused = false;
 }
 
 /** Named biome tint palettes for tintindex-based recolouring. */

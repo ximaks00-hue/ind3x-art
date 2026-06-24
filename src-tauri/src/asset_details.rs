@@ -16,7 +16,7 @@ pub fn build_asset_details(project: &Project, entry: &AssetEntry) -> CoreResult<
     let mut texture_height = None;
 
     let linked_models = if entry.kind == AssetKind::Texture {
-        texture_index::models_for_texture_path(&project.texture_model_index, &entry.path)
+        texture_index::models_for_texture_path(&project.index.texture_model_index, &entry.path)
     } else {
         Vec::new()
     };
@@ -99,7 +99,7 @@ fn linked_blockstate_models(
     let pack = crate::model::normalize::PackInfo {
         pack_format: project.pack_format,
     };
-    let mut cache = project.model_cache.lock().ok();
+    let mut cache = project.index.model_cache.lock().ok();
     let mut cache_map = cache.as_deref_mut();
     let mut empty = std::collections::HashMap::new();
     let cache_ref = cache_map.get_or_insert(&mut empty);
@@ -208,6 +208,7 @@ fn validate_blockstate_json(
 
 pub fn find_entry_by_id(project: &Project, asset_id: &str) -> CoreResult<AssetEntry> {
     project
+        .index
         .entries
         .iter()
         .find(|e| e.id == asset_id)

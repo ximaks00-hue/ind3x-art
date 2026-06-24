@@ -28,12 +28,13 @@ import type {
 import type { Channel } from "@tauri-apps/api/core";
 import { buildSyntheticCatalog, E2E_CATALOG_SIZE } from "./e2eCatalogFixture";
 import type { WorkspaceMode } from "../state/settingsStore";
-import { catalogEntryToAssetEntry } from "../features/catalog/catalogUtils";
+import { applyCatalogSelection } from "../features/catalog/catalogSelection";
 
 interface E2EFaultConfig {
   latencyMs: number;
   jitterMs: number;
   failRate: number;
+  failOps?: string[];
 }
 
 function fixtureFace(direction: string) {
@@ -155,6 +156,61 @@ const FIXTURE_RENDERABLE: RenderableModel = {
   ambientOcclusion: true,
 };
 
+const FIXTURE_MULTIPART_RENDERABLE: RenderableModel = {
+  kind: "multipart",
+  modelId: "minecraft:block/fence_post + minecraft:block/fence_side",
+  cuboids: [
+    {
+      from: [0, 0, 0],
+      to: [4, 16, 4],
+      shade: true,
+      rotation: null,
+      faces: [
+        {
+          direction: "up",
+          texture: "assets/minecraft/textures/block/oak_fence_post.png",
+          uv: [0, 0, 16, 16],
+          rotation: 0,
+          tintindex: 0,
+          cullface: null,
+        },
+      ],
+    },
+    {
+      from: [0, 0, 0],
+      to: [16, 16, 4],
+      shade: true,
+      rotation: null,
+      faces: [
+        {
+          direction: "north",
+          texture: "assets/minecraft/textures/block/oak_fence.png",
+          uv: [0, 0, 16, 16],
+          rotation: 0,
+          tintindex: 0,
+          cullface: null,
+        },
+      ],
+    },
+  ],
+  textureRefs: {},
+  textureMeta: {
+    "assets/minecraft/textures/block/oak_fence_post.png": {
+      width: 16,
+      height: 16,
+      animation: null,
+    },
+    "assets/minecraft/textures/block/oak_fence.png": {
+      width: 16,
+      height: 16,
+      animation: null,
+    },
+  },
+  modelRotation: { x: 0, y: 0, z: 0, uvlock: false },
+  display: {},
+  ambientOcclusion: true,
+};
+
 export interface E2EApi {
   openFixture: () => Promise<void>;
   openStudioFixture: () => Promise<void>;
@@ -172,6 +228,10 @@ export interface E2EApi {
     end: [number, number];
   } | null>;
   getSavedTextures: () => TextureSaveEntry[];
+  getStudioModelId: () => Promise<string | null>;
+  getCatalogSelectedId: () => Promise<string | null>;
+  setFaultConfig: (config: Partial<E2EFaultConfig>) => void;
+  clearFaultConfig: () => void;
   isFixtureOpen: () => boolean;
 }
 
@@ -180,6 +240,36 @@ declare global {
     __E2E__?: E2EApi;
     __E2E_FAULTS__?: Partial<E2EFaultConfig>;
   }
+}
+
+function parseStoredE2EFaultConfig(raw: string): Partial<E2EFaultConfig> {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return {};
+  }
+  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+    return {};
+  }
+
+  const record = parsed as Record<string, unknown>;
+  const result: Partial<E2EFaultConfig> = {};
+  if (typeof record.latencyMs === "number" && Number.isFinite(record.latencyMs)) {
+    result.latencyMs = record.latencyMs;
+  }
+  if (typeof record.jitterMs === "number" && Number.isFinite(record.jitterMs)) {
+    result.jitterMs = record.jitterMs;
+  }
+  if (typeof record.failRate === "number" && Number.isFinite(record.failRate)) {
+    result.failRate = record.failRate;
+  }
+  if (Array.isArray(record.failOps)) {
+    result.failOps = record.failOps.filter(
+      (op): op is string => typeof op === "string" && op.length > 0,
+    );
+  }
+  return result;
 }
 
 function readFaultConfig(): E2EFaultConfig {
@@ -193,11 +283,7 @@ function readFaultConfig(): E2EFaultConfig {
   const fromStorageRaw = window.localStorage?.getItem("ind3x:e2e-faults");
   let fromStorage: Partial<E2EFaultConfig> = {};
   if (fromStorageRaw) {
-    try {
-      fromStorage = JSON.parse(fromStorageRaw) as Partial<E2EFaultConfig>;
-    } catch {
-      fromStorage = {};
-    }
+    fromStorage = parseStoredE2EFaultConfig(fromStorageRaw);
   }
   return {
     latencyMs: Math.max(
@@ -227,6 +313,9 @@ async function applyFaultPoint(opName: string): Promise<void> {
       await new Promise((resolve) => setTimeout(resolve, wait));
     }
   }
+  if (fault.failOps?.includes(opName)) {
+    throw new Error(`E2E mock injected failure at ${opName}`);
+  }
   if (fault.failRate > 0 && Math.random() < fault.failRate) {
     throw new Error(`E2E mock injected failure at ${opName}`);
   }
@@ -241,7 +330,7 @@ export function createE2eMockIpc() {
 
   const appInfo: AppInfo = {
     name: "inD3X Art",
-    version: "0.3.0-e2e",
+    version: "0.3.1-e2e",
     identifier: "com.ind3x.art",
     target: "e2e-mock",
     profile: "test",
@@ -259,7 +348,10 @@ export function createE2eMockIpc() {
       sourceKind: "folder",
       entryCount: FIXTURE_ASSETS.length,
       fromCache: false,
+      catalogFromCache: false,
+      catalogEntryCount: E2E_CATALOG_SIZE,
       packFormat: 15,
+      catalogLanguage: "en_us",
     };
 
     useProjectStore.getState().finishOpen(result);
@@ -268,8 +360,8 @@ export function createE2eMockIpc() {
       .setQueryPage(FIXTURE_ASSETS, FIXTURE_ASSETS.length, false, 0);
     useProjectStore.getState().setIndexStatus("done");
     useProjectStore.getState().setIndexProgress(100, 100, "fixture");
-    const { useCatalogStore } = await import("../features/catalog/catalogStore");
-    useCatalogStore.getState().bumpQueryRevision();
+    const { bumpProjectDataRevision } = await import("../app/projectDataRevision");
+    bumpProjectDataRevision();
   }
 
   async function setWorkspaceMode(mode: WorkspaceMode) {
@@ -285,10 +377,7 @@ export function createE2eMockIpc() {
   async function selectCatalogEntry(entryId: string) {
     const entry = catalogById.get(entryId);
     if (!entry) throw new Error(`Catalog entry not found: ${entryId}`);
-    const { useCatalogStore } = await import("../features/catalog/catalogStore");
-    const { useProjectStore } = await import("../state/projectStore");
-    useCatalogStore.getState().selectEntry(entry);
-    useProjectStore.getState().selectAsset(catalogEntryToAssetEntry(entry));
+    applyCatalogSelection(entry);
   }
 
   async function getCatalogTotal() {
@@ -372,7 +461,21 @@ export function createE2eMockIpc() {
     });
   }
 
-  if (typeof window !== "undefined") {
+  function setFaultConfig(config: Partial<E2EFaultConfig>) {
+    if (typeof window === "undefined") return;
+    window.__E2E_FAULTS__ = { ...window.__E2E_FAULTS__, ...config };
+  }
+
+  function clearFaultConfig() {
+    if (typeof window === "undefined") return;
+    delete window.__E2E_FAULTS__;
+    window.localStorage?.removeItem("ind3x:e2e-faults");
+  }
+
+  const e2eMockEnabled =
+    import.meta.env.DEV && import.meta.env.VITE_E2E_MOCK === "true";
+
+  if (typeof window !== "undefined" && e2eMockEnabled) {
     window.__E2E__ = {
       openFixture: openFixtureProject,
       openStudioFixture,
@@ -384,6 +487,16 @@ export function createE2eMockIpc() {
       setFaceShapeDraft,
       getFaceShapeDraft,
       getSavedTextures: () => [...savedTextures],
+      getStudioModelId: async () => {
+        const { useViewerStore } = await import("../state/viewerStore");
+        return useViewerStore.getState().currentRenderable?.modelId ?? null;
+      },
+      getCatalogSelectedId: async () => {
+        const { useCatalogStore } = await import("../features/catalog/catalogStore");
+        return useCatalogStore.getState().selectedId;
+      },
+      setFaultConfig,
+      clearFaultConfig,
       isFixtureOpen: () => currentHandle !== null,
     };
   }
@@ -419,7 +532,10 @@ export function createE2eMockIpc() {
         sourceKind: "folder" as const,
         entryCount: FIXTURE_ASSETS.length,
         fromCache: false,
+        catalogFromCache: false,
+        catalogEntryCount: E2E_CATALOG_SIZE,
         packFormat: 15,
+        catalogLanguage: "en_us",
       };
     },
     closeSource: async () => {
@@ -475,12 +591,31 @@ export function createE2eMockIpc() {
         byCategory: [...counts.entries()].map(([key, count]) => ({ key, count })),
       };
     },
-    resolveCatalogEntry: async (_handle: ProjectHandle, entryId: string) => {
+    resolveCatalogEntry: async (
+      _handle: ProjectHandle,
+      entryId: string,
+      _context?: string,
+      variantKey?: string | null,
+    ) => {
       if (entryId === "minecraft:broken_block") {
         throw new Error("Missing parent model: minecraft:block/missing_parent");
       }
+      if (entryId === "minecraft:test_fence_multipart") {
+        return FIXTURE_MULTIPART_RENDERABLE;
+      }
+      if (entryId === "minecraft:test_fence_variant") {
+        return {
+          ...FIXTURE_RENDERABLE,
+          modelId: `minecraft:block/oak_fence:${variantKey ?? "default"}`,
+        };
+      }
       return FIXTURE_RENDERABLE;
     },
+    rebuildProjectCatalog: async () => undefined,
+    getProjectFingerprint: async () => "e2e-fingerprint",
+    getCatalogIconCache: async () => null,
+    setCatalogIconCache: async () => undefined,
+    invalidateCatalogIconsForTextures: async () => [],
     getAssetEntry: async (
       _handle: ProjectHandle,
       assetId: string,
@@ -578,7 +713,7 @@ export function createE2eMockIpc() {
     }),
     reindexProject: async () => {
       await applyFaultPoint("reindexProject");
-      return 0;
+      return { assetCount: FIXTURE_ASSETS.length, catalogCount: E2E_CATALOG_SIZE };
     },
     invalidateProjectIndex: async () => undefined,
     rollbackLastSave: async () => undefined,

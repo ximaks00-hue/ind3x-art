@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Canvas, useThree } from "@react-three/fiber";
 import { OrbitControls } from "@react-three/drei";
 
@@ -9,16 +9,24 @@ import { FaceHighlight } from "./FaceHighlight";
 import { FaceRaycaster } from "./FaceRaycaster";
 import { FaceShapePreview } from "./FaceShapePreview";
 import { FaceZoomHandler } from "./FaceZoomHandler";
-import { MinecraftModel } from "./MinecraftModel";
+import { MinecraftModel, type MeshBuildState } from "./MinecraftModel";
 import { SceneLighting } from "./SceneLighting";
 import { SceneRig } from "./SceneRig";
 import { UvDebugOverlay } from "./UvDebugOverlay";
+import {
+  useViewerShowDevOverlay,
+  useViewerShowVignette,
+} from "../../state/viewerPreferencesSync";
+import { Spinner } from "../../ui/primitives/Spinner";
+import { PanelErrorBoundary } from "../../ui/PanelErrorBoundary/PanelErrorBoundary";
 import styles from "./Scene3D.module.css";
 
 interface Scene3DProps {
   model: RenderableModel;
   handle: ProjectHandle;
   showVignette?: boolean;
+  studioMode?: boolean;
+  preferredDisplaySlot?: string;
 }
 
 function SceneControls() {
@@ -66,7 +74,7 @@ function DevOverlay({ model }: DevOverlayProps) {
   const fps = useViewerStore((s) => s.fps);
   const vramTextures = useViewerStore((s) => s.vramTextures);
   const vramGeometries = useViewerStore((s) => s.vramGeometries);
-  const showDevOverlay = useViewerStore((s) => s.showDevOverlay);
+  const showDevOverlay = useViewerShowDevOverlay();
   const uvDebugMode = useViewerStore((s) => s.uvDebugMode);
   if (!showDevOverlay && !uvDebugMode) return null;
 
@@ -91,13 +99,36 @@ function DevOverlay({ model }: DevOverlayProps) {
   );
 }
 
-export function Scene3D({ model, handle, showVignette = true }: Scene3DProps) {
+export function Scene3D({
+  model,
+  handle,
+  showVignette = true,
+  studioMode = false,
+  preferredDisplaySlot,
+}: Scene3DProps) {
   const interactionMode = useSelectionStore((s) => s.interactionMode);
   const uvDebugMode = useViewerStore((s) => s.uvDebugMode);
-  const vignetteEnabled = useViewerStore((s) => s.showVignette) && showVignette;
-  const showDevOverlay = useViewerStore((s) => s.showDevOverlay);
+  const showVignettePref = useViewerShowVignette();
+  const vignetteEnabled = showVignettePref && showVignette;
+  const showDevOverlay = useViewerShowDevOverlay();
+  const [meshState, setMeshState] = useState<MeshBuildState>("loading");
+  const [meshError, setMeshError] = useState<string | null>(null);
+  const meshStateHandlerRef = useRef<(state: MeshBuildState, error?: string | null) => void>(
+    () => {},
+  );
+
+  meshStateHandlerRef.current = (state, error) => {
+    setMeshState(state);
+    setMeshError(error ?? null);
+  };
+
+  useEffect(() => {
+    setMeshState("loading");
+    setMeshError(null);
+  }, [model, handle]);
 
   return (
+    <PanelErrorBoundary name="3D preview">
     <div
       className={styles.canvasWrap}
       data-interaction-mode={interactionMode}
@@ -110,17 +141,36 @@ export function Scene3D({ model, handle, showVignette = true }: Scene3DProps) {
       >
         <SceneLighting modelUsesAo={model.ambientOcclusion} />
         <SceneRig />
-        <MinecraftModel model={model} handle={handle} />
-        <FaceHighlight model={model} />
+        <MinecraftModel
+          model={model}
+          handle={handle}
+          studioMode={studioMode}
+          preferredDisplaySlot={preferredDisplaySlot}
+          onMeshState={(state, error) => meshStateHandlerRef.current(state, error)}
+        />
+        <FaceHighlight model={model} studioMode={studioMode} />
         <FaceShapePreview model={model} />
-        <FaceRaycaster model={model} handle={handle} />
+        <FaceRaycaster model={model} handle={handle} studioMode={studioMode} />
         <FaceZoomHandler />
         {uvDebugMode && <UvDebugOverlay model={model} />}
         <SceneControls />
         {showDevOverlay && <VramPoller />}
       </Canvas>
+      {meshState === "loading" ? (
+        <div className={styles.meshStatus} role="status">
+          <Spinner label="Building 3D mesh…" />
+          <span>Building 3D mesh…</span>
+        </div>
+      ) : null}
+      {meshState === "error" ? (
+        <div className={styles.meshStatus} role="alert">
+          <span className={styles.meshError}>3D preview failed</span>
+          <span className={styles.meshErrorDetail}>{meshError}</span>
+        </div>
+      ) : null}
       {vignetteEnabled && <div className={styles.vignette} aria-hidden />}
       <DevOverlay model={model} />
     </div>
+    </PanelErrorBoundary>
   );
 }

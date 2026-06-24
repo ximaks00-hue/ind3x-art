@@ -2,6 +2,7 @@ import { useCallback, useRef, useState, type ReactNode } from "react";
 import { PanelLeft, PanelRight, PanelLeftClose } from "lucide-react";
 
 import { useSettingsStore } from "../../state/settingsStore";
+import { CATALOG_PANEL_WIDTH } from "../../features/catalog/catalogUtils";
 import { Icon } from "../icons/Icon";
 import styles from "./AppShell.module.css";
 
@@ -30,6 +31,7 @@ export function AppShell({
   const setExplorerPanelWidth = useSettingsStore((s) => s.setExplorerPanelWidth);
   const setEditorPanelWidth = useSettingsStore((s) => s.setEditorPanelWidth);
   const focusMode = useSettingsStore((s) => s.focusMode);
+  const workspaceMode = useSettingsStore((s) => s.workspaceMode);
   const leftCollapsed = useSettingsStore((s) => s.leftPanelCollapsed);
   const rightCollapsed = useSettingsStore((s) => s.rightPanelCollapsed);
   const toggleLeftPanel = useSettingsStore((s) => s.toggleLeftPanel);
@@ -38,9 +40,11 @@ export function AppShell({
 
   const leftHidden = focusMode || leftCollapsed;
   const rightHidden = rightCollapsed;
+  const studioCatalog = workspaceMode === "studio";
 
   const [leftWidth, setLeftWidth] = useState(storedLeftWidth);
   const [rightWidth, setRightWidth] = useState(storedRightWidth);
+  const effectiveLeftWidth = studioCatalog ? CATALOG_PANEL_WIDTH : leftWidth;
   const leftDragRef = useRef(leftWidth);
   const rightDragRef = useRef(rightWidth);
 
@@ -143,7 +147,7 @@ export function AppShell({
 
   const columns: string[] = [];
   if (!leftHidden) {
-    columns.push(`${leftWidth}px`, "5px");
+    columns.push(`${effectiveLeftWidth}px`, studioCatalog ? "0px" : "5px");
   } else {
     columns.push("var(--panel-rail-width)");
   }
@@ -180,7 +184,7 @@ export function AppShell({
           <aside className={styles.leftPanel}>{leftPanel}</aside>
         )}
 
-        {!leftHidden && (
+        {!leftHidden && !studioCatalog && (
           <div
             className={styles.resizeHandle}
             role="separator"

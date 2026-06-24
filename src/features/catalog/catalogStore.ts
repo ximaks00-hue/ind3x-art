@@ -1,8 +1,6 @@
 import { create } from "zustand";
 
 import type { CatalogCategory, CatalogEntry, CatalogFacets } from "../../ipc/types";
-import { useProjectStore } from "../../state/projectStore";
-import { invalidateCatalogIconCacheForHandle } from "./catalogIconCache";
 
 let searchDebounceTimer: ReturnType<typeof setTimeout> | undefined;
 
@@ -22,6 +20,7 @@ interface CatalogState {
   selectedEntry: CatalogEntry | null;
   focusIndex: number;
   queryRevision: number;
+  sessionRestorePending: boolean;
   setSearch: (search: string) => void;
   setCategory: (category: CatalogCategory | null) => void;
   setQueryPage: (
@@ -39,6 +38,7 @@ interface CatalogState {
   setFocusIndex: (index: number) => void;
   clearSelection: () => void;
   bumpQueryRevision: () => void;
+  setSessionRestorePending: (pending: boolean) => void;
   reset: () => void;
 }
 
@@ -58,9 +58,10 @@ const initialState = {
   selectedEntry: null as CatalogEntry | null,
   focusIndex: 0,
   queryRevision: 0,
+  sessionRestorePending: false,
 };
 
-export const useCatalogStore = create<CatalogState>((set, get) => ({
+export const useCatalogStore = create<CatalogState>((set) => ({
   ...initialState,
   setSearch: (search) => {
     set({ search });
@@ -101,11 +102,8 @@ export const useCatalogStore = create<CatalogState>((set, get) => ({
     }),
   setFocusIndex: (focusIndex) => set({ focusIndex }),
   clearSelection: () => set({ selectedId: null, selectedEntry: null }),
-  bumpQueryRevision: () => {
-    const handle = useProjectStore.getState().handle;
-    if (handle) invalidateCatalogIconCacheForHandle(handle.id);
-    set({ queryRevision: get().queryRevision + 1 });
-  },
+  bumpQueryRevision: () => set((s) => ({ queryRevision: s.queryRevision + 1 })),
+  setSessionRestorePending: (sessionRestorePending) => set({ sessionRestorePending }),
   reset: () => {
     if (searchDebounceTimer) clearTimeout(searchDebounceTimer);
     set({ ...initialState });
@@ -125,6 +123,70 @@ function mergeCatalogEntries(
     }
   }
   return out;
+}
+
+/** Snapshot of catalog query/selection state for open-source failure recovery. */
+export type CatalogSnapshot = Pick<
+  CatalogState,
+  | "entries"
+  | "total"
+  | "offset"
+  | "loading"
+  | "hasMore"
+  | "search"
+  | "debouncedSearch"
+  | "category"
+  | "facets"
+  | "queryError"
+  | "facetsError"
+  | "selectedId"
+  | "selectedEntry"
+  | "focusIndex"
+  | "queryRevision"
+  | "sessionRestorePending"
+>;
+
+export function snapshotCatalogState(): CatalogSnapshot {
+  const {
+    entries,
+    total,
+    offset,
+    loading,
+    hasMore,
+    search,
+    debouncedSearch,
+    category,
+    facets,
+    queryError,
+    facetsError,
+    selectedId,
+    selectedEntry,
+    focusIndex,
+    queryRevision,
+    sessionRestorePending,
+  } = useCatalogStore.getState();
+  return {
+    entries,
+    total,
+    offset,
+    loading,
+    hasMore,
+    search,
+    debouncedSearch,
+    category,
+    facets,
+    queryError,
+    facetsError,
+    selectedId,
+    selectedEntry,
+    focusIndex,
+    queryRevision,
+    sessionRestorePending,
+  };
+}
+
+export function restoreCatalogState(snapshot: CatalogSnapshot): void {
+  useCatalogStore.setState(snapshot);
 }
 
 /** Flush debounced search immediately (tests). */

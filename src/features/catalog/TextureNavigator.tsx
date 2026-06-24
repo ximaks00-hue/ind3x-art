@@ -2,9 +2,13 @@ import { useMemo } from "react";
 
 import type { RenderableModel } from "../../ipc/types";
 import type { SelectedFace } from "../../state/selectionStore";
-import { isTextureDirty } from "../editor/textureDocument";
+import { isTextureDirty, useDocumentRevision } from "../editor/documentStore";
 import { TextureThumbnail } from "../explorer/TextureThumbnail";
-import { buildModelFaceNav, groupModelFaceNav, isSameModelFace } from "./modelFaceNav";
+import {
+  buildUniqueTextureChips,
+  isSameModelFace,
+  multipartSchematicLabel,
+} from "./modelFaceNav";
 import styles from "./TextureNavigator.module.css";
 
 interface TextureNavigatorProps {
@@ -18,13 +22,34 @@ export function TextureNavigator({
   selectedFace,
   onSelectFace,
 }: TextureNavigatorProps) {
-  const groups = useMemo(() => {
-    const items = buildModelFaceNav(model);
-    return groupModelFaceNav(items);
-  }, [model]);
+  const docRevision = useDocumentRevision();
+  const chips = useMemo(() => buildUniqueTextureChips(model), [model]);
+  const schematic = useMemo(() => multipartSchematicLabel(model), [model]);
+  const dirtyByPath = useMemo(() => {
+    const map = new Map<string, boolean>();
+    for (const chip of chips) {
+      map.set(chip.texturePath, isTextureDirty(chip.texturePath));
+    }
+    return map;
+  }, [chips, docRevision]);
 
-  const faceCount = groups.reduce((sum, g) => sum + g.items.length, 0);
-  if (faceCount === 0) return null;
+  if (chips.length === 0) return null;
+
+  const faceCount = chips.reduce((sum, chip) => sum + chip.faces.length, 0);
+
+  const handleChipClick = (chip: (typeof chips)[number]) => {
+    const activeInChip = chip.faces.find((face) =>
+      isSameModelFace(selectedFace, face.cuboidIndex, face.faceIndex),
+    );
+    if (activeInChip) {
+      const idx = chip.faces.indexOf(activeInChip);
+      const next = chip.faces[(idx + 1) % chip.faces.length]!;
+      onSelectFace(next.cuboidIndex, next.faceIndex);
+      return;
+    }
+    const first = chip.faces[0]!;
+    onSelectFace(first.cuboidIndex, first.faceIndex);
+  };
 
   return (
     <nav
@@ -35,47 +60,42 @@ export function TextureNavigator({
       <div className={styles.header}>
         <h3 className={styles.title}>Textures</h3>
         <span className={styles.hint}>
-          {faceCount} face{faceCount === 1 ? "" : "s"} · click to edit
+          {chips.length} unique · {faceCount} face{faceCount === 1 ? "" : "s"} · click to edit
+          {schematic ? ` · ${schematic}` : ""}
         </span>
       </div>
-      {groups.map((group) => (
-        <div key={group.cuboidIndex} className={styles.group}>
-          {groups.length > 1 ? (
-            <span className={styles.groupLabel}>{group.cuboidLabel}</span>
-          ) : null}
-          <div className={styles.row} role="tablist">
-            {group.items.map((item) => {
-              const active = isSameModelFace(
-                selectedFace,
-                item.cuboidIndex,
-                item.faceIndex,
-              );
-              const dirty = isTextureDirty(item.texturePath);
-              return (
-                <button
-                  key={item.id}
-                  type="button"
-                  role="tab"
-                  aria-selected={active}
-                  title={item.label}
-                  className={[
-                    active ? styles.chipActive : styles.chip,
-                    dirty ? styles.chipDirty : "",
-                  ]
-                    .filter(Boolean)
-                    .join(" ")}
-                  onClick={() => onSelectFace(item.cuboidIndex, item.faceIndex)}
-                >
-                  <span className={styles.thumbWrap}>
-                    <TextureThumbnail assetPath={item.texturePath} size={32} />
-                  </span>
-                  <span className={styles.direction}>{item.label.split(" · ")[0]}</span>
-                </button>
-              );
-            })}
-          </div>
-        </div>
-      ))}
+      <div className={styles.row} role="tablist">
+        {chips.map((chip) => {
+          const active = chip.faces.some((face) =>
+            isSameModelFace(selectedFace, face.cuboidIndex, face.faceIndex),
+          );
+          const dirty = dirtyByPath.get(chip.texturePath) ?? false;
+          const directions = [...new Set(chip.faces.map((f) => f.label.split(" · ")[0]))].join(
+            ", ",
+          );
+          return (
+            <button
+              key={chip.id}
+              type="button"
+              role="tab"
+              aria-selected={active}
+              title={`${chip.label} · ${directions}${chip.faces.length > 1 ? ` (${chip.faces.length} faces)` : ""}`}
+              className={[active ? styles.chipActive : styles.chip, dirty ? styles.chipDirty : ""]
+                .filter(Boolean)
+                .join(" ")}
+              onClick={() => handleChipClick(chip)}
+            >
+              <span className={styles.thumbWrap}>
+                <TextureThumbnail assetPath={chip.texturePath} size={32} />
+              </span>
+              <span className={styles.direction}>
+                {chip.label}
+                {chips.length > 1 && chip.cuboidLabel !== "Block" ? ` · ${chip.cuboidLabel}` : ""}
+              </span>
+            </button>
+          );
+        })}
+      </div>
     </nav>
   );
 }

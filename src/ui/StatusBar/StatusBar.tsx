@@ -12,6 +12,8 @@ interface StatusBarProps {
   catalogEntryLabel?: string;
   faceDirection?: string;
   textureLabel?: string;
+  textureDirty?: boolean;
+  studioCompact?: boolean;
   toolLabel?: string;
   layerIndex?: number;
   layerTotal?: number;
@@ -35,6 +37,8 @@ export function StatusBar({
   catalogEntryLabel,
   faceDirection,
   textureLabel,
+  textureDirty = false,
+  studioCompact = false,
   toolLabel,
   layerIndex,
   layerTotal,
@@ -63,6 +67,30 @@ export function StatusBar({
         : catalogTotal != null
           ? `${catalogTotal.toLocaleString()} catalog`
           : undefined;
+
+  if (studioCompact && catalogEntryLabel) {
+    const creativeParts = [catalogEntryLabel];
+    if (faceDirection) creativeParts.push(`${faceDirection} face`);
+    if (textureLabel) creativeParts.push(textureLabel);
+    if (textureDirty) creativeParts.push("dirty");
+
+    return (
+      <div
+        key={saveFlashTick}
+        className={`${styles.bar} ${styles.studioBar}${saveFlashTick > 0 ? ` ${styles.saveFlash}` : ""}`}
+        aria-label="Application status"
+      >
+        <span className={styles.studioLine}>
+          {creativeParts.map((part, i) => (
+            <span key={part}>
+              {i > 0 ? <span className={styles.dotSep}> · </span> : null}
+              <span className={part === "dirty" ? styles.dirty : undefined}>{part}</span>
+            </span>
+          ))}
+        </span>
+      </div>
+    );
+  }
 
   const segments: string[] = [];
   segments.push(`IPC ${ipcHealthy ? "●" : "○"}`);

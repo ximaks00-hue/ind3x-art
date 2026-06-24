@@ -4,6 +4,7 @@ import { exportViewerScreenshot } from "../../lib/exportScreenshot";
 import type {
   AssetEntry,
   ModelRefInfo,
+  ProjectHandle,
   RenderableModel,
   VariantKey,
 } from "../../ipc/types";
@@ -17,15 +18,19 @@ import {
 import {
   setViewerLightingPreset,
   toggleViewerShowGrid,
+  useViewerLightingPreset,
+  useViewerShowGrid,
 } from "../../state/viewerPreferencesSync";
 import { IconButton } from "../../ui/primitives/IconButton";
 import { Select } from "../../ui/primitives/Select";
-import { BIOME_TINT_PALETTES, clearTextureCache, setActiveBiome } from "./textureLoader";
+import { BIOME_TINT_PALETTES } from "./textureLoader";
+import { applyBiomeChange } from "./viewerTextureSync";
 import styles from "./ViewerToolbar.module.css";
 
 const BIOME_NAMES = Object.keys(BIOME_TINT_PALETTES);
 
 interface ViewerToolbarProps {
+  handle: ProjectHandle | null;
   selected: AssetEntry | null;
   renderable: RenderableModel | null;
   variants: VariantKey[];
@@ -40,6 +45,7 @@ interface ViewerToolbarProps {
 }
 
 export function ViewerToolbar({
+  handle,
   selected,
   renderable,
   variants,
@@ -55,8 +61,8 @@ export function ViewerToolbar({
   const interactionMode = useSelectionStore((s) => s.interactionMode);
   const cameraPreset = useViewerStore((s) => s.cameraPreset);
   const storeDisplaySlot = useViewerStore((s) => s.displaySlot);
-  const lightingPreset = useViewerStore((s) => s.lightingPreset);
-  const showGrid = useViewerStore((s) => s.showGrid);
+  const lightingPreset = useViewerLightingPreset();
+  const showGrid = useViewerShowGrid();
   const uvDebugMode = useViewerStore((s) => s.uvDebugMode);
   const setCameraPreset = useViewerStore((s) => s.setCameraPreset);
   const resetCamera = useViewerStore((s) => s.resetCamera);
@@ -100,9 +106,9 @@ export function ViewerToolbar({
           value={biome}
           aria-label="Biome tint"
           onChange={(e) => {
-            onBiomeChange(e.target.value);
-            setActiveBiome(e.target.value);
-            clearTextureCache();
+            const next = e.target.value;
+            onBiomeChange(next);
+            if (handle) applyBiomeChange(handle, next);
           }}
         >
           {BIOME_NAMES.map((b) => (

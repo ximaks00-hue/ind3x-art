@@ -6,9 +6,10 @@ Open a JAR or folder, browse assets with fuzzy search, preview block models in r
 
 **Stack:** Tauri 2 · Rust · React 19 · TypeScript · Three.js · Vitest · Playwright
 
-**Current version:** 0.3.0 — see [CHANGELOG.md](CHANGELOG.md)
+**Current version:** 0.3.1 — see [CHANGELOG.md](CHANGELOG.md)
 
 [![CI](https://github.com/ximaks00-hue/ind3x-art/actions/workflows/ci.yml/badge.svg)](https://github.com/ximaks00-hue/ind3x-art/actions/workflows/ci.yml)
+[![Release](https://github.com/ximaks00-hue/ind3x-art/actions/workflows/release.yml/badge.svg)](https://github.com/ximaks00-hue/ind3x-art/actions/workflows/release.yml)
 
 **Author:** [ximaks00-hue](https://github.com/ximaks00-hue) · [ximaks00@gmail.com](mailto:ximaks00@gmail.com)
 
@@ -35,6 +36,14 @@ Full program overview: **[docs/PROJECT.md](docs/PROJECT.md)**
 - **Node.js** 20+
 - **Rust** stable ([rustup](https://rustup.rs))
 - **Windows:** WebView2 (bundled by NSIS installer)
+- **Linux:** WebKitGTK dev packages to **build** locally; end users can run the **AppImage** without installing dependencies — see [docs/DISTRIBUTION.md](docs/DISTRIBUTION.md)
+
+### Download (recommended)
+
+| Platform | Artifact | Install |
+|----------|----------|---------|
+| **Linux** | `inD3X Art_*_amd64.AppImage` | `chmod +x` → run — [distribution guide](docs/DISTRIBUTION.md) |
+| **Windows** | `inD3X Art_*_x64-setup.exe` | NSIS installer from [Releases](https://github.com/ximaks00-hue/ind3x-art/releases) |
 
 ---
 
@@ -56,6 +65,8 @@ npm run tauri dev
 | `npm run tauri dev` | Development app (Tauri + Vite HMR) |
 | `npm run build` | Typecheck + Vite production build |
 | `npm run build:release` | Full Tauri release build |
+| `npm run build:appimage` | Linux AppImage only (run on Linux) |
+| `npm run build:nsis` | Windows NSIS installer |
 | `npm run typecheck` | TypeScript only |
 | `npm run lint` | ESLint |
 | `npm run format` | Prettier write |
@@ -110,10 +121,23 @@ e2e/                    Playwright smoke + integration/
 
 ## Building installers
 
+**Windows**
+
 ```powershell
 .\scripts\build-windows.ps1 -Bundles nsis
-# → src-tauri\target\release\bundle\nsis\inD3X Art_0.3.0_x64-setup.exe
+# → src-tauri\target\release\bundle\nsis\inD3X Art_0.3.1_x64-setup.exe
 ```
+
+**Linux (AppImage)**
+
+```bash
+./scripts/build-linux.sh
+# → src-tauri/target/release/bundle/appimage/inD3X Art_0.3.1_amd64.AppImage
+```
+
+Full distribution notes: **[docs/DISTRIBUTION.md](docs/DISTRIBUTION.md)**
+
+Tagged releases (`git tag v0.3.1 && git push origin v0.3.1`) are built automatically by GitHub Actions and uploaded to [Releases](https://github.com/ximaks00-hue/ind3x-art/releases).
 
 ### Code signing (optional)
 

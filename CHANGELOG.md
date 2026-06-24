@@ -5,6 +5,57 @@ All notable changes to **inD3X Art** are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.1] - 2026-06-24
+
+### Added
+
+#### Linux distribution
+
+- **AppImage** bundle target — portable Linux install without system packages; build via `npm run build:appimage` or `./scripts/build-linux.sh`.
+- **Release CI** — [`.github/workflows/release.yml`](.github/workflows/release.yml) builds AppImage (Ubuntu 22.04) + NSIS (Windows) on every `v*` tag and uploads to GitHub Releases.
+- **[docs/DISTRIBUTION.md](docs/DISTRIBUTION.md)** — install, build-deps, and CI release documentation.
+
+#### Block Studio & catalog (continued)
+
+- **IC2 / texture-only packs** — split lang files, texture catalog seeds, creative tabs, icon cache on disk.
+- **Studio UI** — `CatalogQuickRow`, `UnfoldPanel`, animation/texture previews, compare cells, session restore orchestration, keyboard nav, virtual grid split.
+- **Project cache invalidation** — `invalidateProjectCaches({ explorer, catalog, icons, studio, thumbnails })` single entry point; `refreshCatalogCaches()` for catalog-only refresh.
+- **`useAppStatusBar`** — status bar subscriptions extracted from `App.tsx` to reduce root re-renders.
+- **`workspaceTransition`** — studio/classic workspace orchestration decoupled from `settingsStore`.
+- **`AppErrorBoundary`** — top-level React error boundary in `main.tsx`.
+- **`ReindexResult`** — separate `assetCount` / `catalogCount` from `reindex_project` IPC (fixes explorer pagination totals).
+- **E2E fault injection** — `failOps` + `__E2E__.setFaultConfig()` for targeted mock failures; `failure-paths.spec.ts` integration tests.
+
+#### Rust backend
+
+- **IPC modularization** — `commands.rs` split into `project`, `catalog`, `assets`, `save`, `logging`, `helpers`.
+- **Catalog pipeline** — patch invalidation, icon cache, texture catalog, query bench, integration tests.
+- **Watcher / builtins** — fallible init, mutex skip on contention, fingerprint tests.
+
+#### Tests
+
+- `useProjectSource.test.tsx`, `useAppStatusBar.test.ts`, `onboardingHooks.test.tsx` (Rules-of-Hooks regression).
+- Catalog/viewer RTL coverage: `CatalogPanel`, `CatalogCell`, `BlockStudioViewport`, `FaceRaycaster`.
+- `catalogUtils.test.ts` split from store tests; expanded `catalogStore.test.ts`.
+- Golden icon tests, studio resolve cache tests, mapWithConcurrency for dirty texture export.
+
+### Changed
+
+- **Viewer preferences** — lighting/grid/vignette/dev overlay read from `settingsStore` selectors (`viewerPreferencesSync`); `viewerStore` kept for runtime sync only.
+- **Vite chunks** — catalog split into `catalog-panel`, `catalog-studio`, `catalog-icons`; `CatalogPanel` lazy-loaded in `App`.
+- **TextureCanvas** — zoom cap aligned to 32×; brush cursor on separate RAF-throttled layer; parallel dirty PNG export (concurrency 4).
+- **Open project flow** — catalog snapshot restore on failed reopen; single index-event transport (no duplicate Channel + listener).
+- **Bootstrap errors** — IPC failure logs + user toast; `formatIpcError()` for open/rebuild toasts.
+- **E2E security** — validated `localStorage` fault JSON; `__E2E__` stripped outside `DEV` + mock mode; production `VITE_E2E_MOCK` forced false in Vite define.
+
+### Fixed
+
+- Studio status bar **textureDirty** stale after save (`useDocumentRevision` in `useAppStatusBar`).
+- Explorer **keyboard focus** index out of bounds after filter shrink.
+- **openSource** error path: `indexStatus` stays `error` (clearProject no longer overwrites).
+- Clipboard paste scoped to active texture path; onboarding/tooltip hooks order (APP-001/002).
+- Icon pipeline worker counter reset; FaceRaycaster RAF coalescing; catalog search sort in Rust query.
+
 ## [0.3.0] - 2026-06-24
 
 ### Added
@@ -83,6 +134,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Initial release: asset indexer, explorer, 3D viewer, texture editor, save pipeline, Tauri 2 desktop shell.
 
+[0.3.1]: https://github.com/ximaks00-hue/ind3x-art/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/ximaks00-hue/ind3x-art/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/ximaks00-hue/ind3x-art/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/ximaks00-hue/ind3x-art/releases/tag/v0.1.0

@@ -55,10 +55,15 @@
 }
 
 .canvas,
-.overlay {
+.overlay,
+.cursorLayer {
   grid-area: 1 / 1;
   image-rendering: pixelated;
   touch-action: none;
+}
+
+.cursorLayer {
+  pointer-events: none;
 }
 
 .overlay {

@@ -22,12 +22,19 @@ export interface FacePickData {
   face: RenderFace;
 }
 
+export interface HoveredFace {
+  cuboidIndex: number;
+  faceIndex: number;
+}
+
 export const FACE_PICK_KEY = "facePick";
 
 interface SelectionState {
   selectedFace: SelectedFace | null;
+  hoveredFace: HoveredFace | null;
   interactionMode: InteractionMode;
   setSelectedFace: (face: SelectedFace | null) => void;
+  setHoveredFace: (face: HoveredFace | null) => void;
   setInteractionMode: (mode: InteractionMode) => void;
   toggleInteractionMode: () => void;
   clearSelection: () => void;
@@ -35,12 +42,14 @@ interface SelectionState {
 
 export const useSelectionStore = create<SelectionState>((set, get) => ({
   selectedFace: null,
+  hoveredFace: null,
   interactionMode: "orbit",
   setSelectedFace: (selectedFace) => set({ selectedFace }),
+  setHoveredFace: (hoveredFace) => set({ hoveredFace }),
   setInteractionMode: (interactionMode) => set({ interactionMode }),
   toggleInteractionMode: () =>
     set({
       interactionMode: get().interactionMode === "orbit" ? "paint" : "orbit",
     }),
-  clearSelection: () => set({ selectedFace: null }),
+  clearSelection: () => set({ selectedFace: null, hoveredFace: null }),
 }));

@@ -39,6 +39,21 @@
   color: var(--color-danger);
 }
 
+.studioBar {
+  font-family: var(--font-sans);
+  font-size: 12px;
+}
+
+.studioLine {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.dotSep {
+  color: var(--color-text-muted);
+  user-select: none;
+}
+
 .saveFlash {
   animation: statusSaveFlash 600ms ease;
 }
