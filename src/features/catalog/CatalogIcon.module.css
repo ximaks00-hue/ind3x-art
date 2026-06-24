@@ -1,0 +1,63 @@
+.slot {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--color-bg-input) 80%, transparent);
+  overflow: hidden;
+}
+
+.itemSlot {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.06), rgba(0, 0, 0, 0.12)),
+    color-mix(in srgb, var(--color-bg-input) 70%, transparent);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08);
+}
+
+.image {
+  image-rendering: pixelated;
+  object-fit: contain;
+  width: 100%;
+  height: 100%;
+}
+
+.placeholder {
+  font-size: 16px;
+  font-weight: 650;
+  color: var(--color-text-muted);
+}
+
+.shimmer {
+  display: block;
+  width: 70%;
+  height: 70%;
+  border-radius: var(--radius-sm);
+  background: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--color-bg-input) 90%, transparent) 0%,
+    color-mix(in srgb, var(--color-text-muted) 25%, transparent) 50%,
+    color-mix(in srgb, var(--color-bg-input) 90%, transparent) 100%
+  );
+  background-size: 200% 100%;
+  animation: catalogIconShimmer 1.1s ease-in-out infinite;
+}
+
+@keyframes catalogIconShimmer {
+  0% {
+    background-position: 100% 0;
+  }
+  100% {
+    background-position: -100% 0;
+  }
+}
+
+.cubePlaceholder {
+  width: 55%;
+  height: 55%;
+  background: color-mix(in srgb, var(--color-text-muted) 35%, var(--color-bg-input));
+  border: 1px solid color-mix(in srgb, var(--color-text-muted) 50%, transparent);
+  transform: rotate(45deg) skew(-8deg, -8deg);
+  box-shadow:
+    2px 2px 0 color-mix(in srgb, var(--color-text-muted) 25%, transparent),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.06);
+}

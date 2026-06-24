@@ -30,6 +30,15 @@
   color: var(--color-warning);
 }
 
+.modeBadge {
+  color: var(--color-accent);
+  font-weight: 600;
+}
+
+.catalogError {
+  color: var(--color-danger);
+}
+
 .saveFlash {
   animation: statusSaveFlash 600ms ease;
 }

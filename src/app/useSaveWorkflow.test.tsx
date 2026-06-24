@@ -35,6 +35,7 @@ vi.mock("@tauri-apps/plugin-dialog", () => ({
 }));
 
 import { saveDirtyTextures } from "../features/save/saveTextures";
+import { restoreLatestBackup } from "../features/save/saveTextures";
 import { useSaveWorkflow } from "./useSaveWorkflow";
 
 describe("useSaveWorkflow", () => {
@@ -62,5 +63,30 @@ describe("useSaveWorkflow", () => {
     expect(saveDirtyTextures).toHaveBeenCalledWith({ id: 1 }, { mode: "overwrite" });
     expect(pushToast).toHaveBeenCalledWith("Saved 1 texture(s)", "success");
     expect(triggerSaveFlash).toHaveBeenCalled();
+  });
+
+  it("handleSave surfaces save errors to toast", async () => {
+    vi.mocked(saveDirtyTextures).mockRejectedValueOnce(new Error("save failed hard"));
+    const { result } = renderHook(() =>
+      useSaveWorkflow({ openSource: vi.fn(), opening: false }),
+    );
+    await act(async () => {
+      await result.current.handleSave();
+    });
+    expect(pushToast).toHaveBeenCalledWith("save failed hard", "error");
+  });
+
+  it("handleRestoreBackup reports non-restored reason", async () => {
+    vi.mocked(restoreLatestBackup).mockResolvedValueOnce({
+      restored: false,
+      reason: "No backup found",
+    });
+    const { result } = renderHook(() =>
+      useSaveWorkflow({ openSource: vi.fn(), opening: false }),
+    );
+    await act(async () => {
+      await result.current.handleRestoreBackup();
+    });
+    expect(pushToast).toHaveBeenCalledWith("No backup found", "info");
   });
 });

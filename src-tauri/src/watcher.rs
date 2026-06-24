@@ -1,6 +1,7 @@
 /// File-system watcher using the `notify` crate.
 /// Watches a source path and emits Tauri events when it changes externally.
 use std::path::{Path, PathBuf};
+use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -58,17 +59,18 @@ impl SourceWatcher {
     }
 }
 
-/// Global active watcher (one per app instance).
-pub type SharedWatcher = Arc<Mutex<Option<SourceWatcher>>>;
+/// Active watchers keyed by project handle id.
+pub type SharedWatcher = Arc<Mutex<HashMap<u64, SourceWatcher>>>;
 
 pub fn install_watcher(
     app: AppHandle,
+    handle_id: u64,
     source_path: PathBuf,
     shared: &SharedWatcher,
 ) {
     match SourceWatcher::new(app, source_path) {
         Ok(w) => {
-            *shared.lock().expect("watcher mutex") = Some(w);
+            shared.lock().expect("watcher mutex").insert(handle_id, w);
         }
         Err(e) => {
             tracing::warn!("file watcher failed to start: {e}");
@@ -76,6 +78,6 @@ pub fn install_watcher(
     }
 }
 
-pub fn stop_watcher(shared: &SharedWatcher) {
-    *shared.lock().expect("watcher mutex") = None;
+pub fn stop_watcher(handle_id: u64, shared: &SharedWatcher) {
+    shared.lock().expect("watcher mutex").remove(&handle_id);
 }

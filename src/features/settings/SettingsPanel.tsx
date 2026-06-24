@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 import { useFocusTrap } from "../../hooks/useFocusTrap";
 import { ipc } from "../../ipc/client";
 import { downloadShortcutsExport } from "../../lib/shortcuts";
-import { useSettingsStore, type Theme } from "../../state/settingsStore";
+import { useSettingsStore, type CatalogIconMode, type Theme } from "../../state/settingsStore";
 import { Button } from "../../ui/primitives";
 import styles from "./SettingsPanel.module.css";
 
@@ -21,6 +21,10 @@ export function SettingsPanel({ open, onClose }: Props) {
     setTextureCacheLimit,
     modelCacheLimit,
     setModelCacheLimit,
+    catalogIconMode,
+    setCatalogIconMode,
+    catalogIconCacheLimit,
+    setCatalogIconCacheLimit,
     uiScale,
     setUiScale,
   } = useSettingsStore();
@@ -139,6 +143,40 @@ export function SettingsPanel({ open, onClose }: Props) {
               value={modelCacheLimit}
               className={styles.numberInput}
               onChange={(e) => setModelCacheLimit(Number(e.target.value))}
+            />
+          </div>
+        </section>
+
+        <section className={styles.section}>
+          <h3 className={styles.sectionTitle}>Block Studio</h3>
+          <div className={styles.row}>
+            <label className={styles.rowLabel} htmlFor="catalog-icon-mode">
+              Catalog icon quality
+            </label>
+            <select
+              id="catalog-icon-mode"
+              className={styles.select}
+              value={catalogIconMode}
+              onChange={(e) => setCatalogIconMode(e.target.value as CatalogIconMode)}
+            >
+              <option value="auto">Auto (preview + 3D items)</option>
+              <option value="preview">Texture preview only</option>
+              <option value="3d">3D GUI bake</option>
+            </select>
+          </div>
+          <div className={styles.row}>
+            <label className={styles.rowLabel} htmlFor="catalog-icon-cache">
+              Catalog icon cache (entries)
+            </label>
+            <input
+              id="catalog-icon-cache"
+              type="number"
+              min={64}
+              max={2048}
+              step={64}
+              value={catalogIconCacheLimit}
+              className={styles.numberInput}
+              onChange={(e) => setCatalogIconCacheLimit(Number(e.target.value))}
             />
           </div>
         </section>

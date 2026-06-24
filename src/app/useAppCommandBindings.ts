@@ -14,6 +14,11 @@ import { useSelectionStore } from "../state/selectionStore";
 import { useSettingsStore } from "../state/settingsStore";
 import { useUiStore } from "../state/uiStore";
 import { useViewerStore } from "../state/viewerStore";
+import {
+  setViewerLightingPreset,
+  toggleViewerShowGrid,
+  toggleViewerShowVignette,
+} from "../state/viewerPreferencesSync";
 
 interface SaveWorkflowApi {
   handleSave: () => Promise<void>;
@@ -42,20 +47,15 @@ export function useAppCommandBindings(
   const setNamespaceFilter = useProjectStore((s) => s.setNamespaceFilter);
   const toggleTheme = useSettingsStore((s) => s.toggleTheme);
   const setTheme = useSettingsStore((s) => s.setTheme);
-  const setViewerLightingPreset = useSettingsStore((s) => s.setViewerLightingPreset);
-  const viewerShowGrid = useSettingsStore((s) => s.viewerShowGrid);
-  const setViewerShowGrid = useSettingsStore((s) => s.setViewerShowGrid);
-  const viewerShowVignette = useSettingsStore((s) => s.viewerShowVignette);
-  const setViewerShowVignette = useSettingsStore((s) => s.setViewerShowVignette);
+  const setWorkspaceMode = useSettingsStore((s) => s.setWorkspaceMode);
+  const toggleWorkspaceMode = useSettingsStore((s) => s.toggleWorkspaceMode);
+  const restartStudioOnboarding = useSettingsStore((s) => s.restartStudioOnboarding);
   const toggleFocusMode = useSettingsStore((s) => s.toggleFocusMode);
   const clearRecentProjects = useSettingsStore((s) => s.clearRecentProjects);
   const setTool = useEditorStore((s) => s.setTool);
   const cycleComparator = useInteractionStore((s) => s.cycleComparator);
   const toggleInteractionMode = useSelectionStore((s) => s.toggleInteractionMode);
   const setCameraPreset = useViewerStore((s) => s.setCameraPreset);
-  const setLightingPreset = useViewerStore((s) => s.setLightingPreset);
-  const setShowGrid = useViewerStore((s) => s.setShowGrid);
-  const setShowVignette = useViewerStore((s) => s.setShowVignette);
   const openCommandPalette = useUiStore((s) => s.openCommandPalette);
   const openShortcutsHelp = useUiStore((s) => s.openShortcutsHelp);
   const requestExplorerFocus = useUiStore((s) => s.requestExplorerFocus);
@@ -114,21 +114,20 @@ export function useAppCommandBindings(
         cycleComparator(current);
       },
       onSetCameraPreset: setCameraPreset,
-      onSetLightingPreset: (preset: import("../lib/lightingPresets").LightingPreset) => {
-        setViewerLightingPreset(preset);
-        setLightingPreset(preset);
-      },
+      onSetLightingPreset: setViewerLightingPreset,
       onToggleGrid: () => {
-        const next = !viewerShowGrid;
-        setViewerShowGrid(next);
-        setShowGrid(next);
+        toggleViewerShowGrid();
       },
       onToggleVignette: () => {
-        const next = !viewerShowVignette;
-        setViewerShowVignette(next);
-        setShowVignette(next);
+        toggleViewerShowVignette();
       },
       onToggleFocusMode: toggleFocusMode,
+      onSetWorkspaceMode: setWorkspaceMode,
+      onToggleWorkspaceMode: toggleWorkspaceMode,
+      onRestartStudioOnboarding: () => {
+        restartStudioOnboarding();
+        pushToast("Block Studio tour restarted", "info");
+      },
       onSetKindFilter: setKindFilter,
       onSetNamespaceFilter: setNamespaceFilter,
       onToggleTheme: toggleTheme,
@@ -154,15 +153,10 @@ export function useAppCommandBindings(
       saveWorkflow,
       cycleComparator,
       setCameraPreset,
-      setViewerLightingPreset,
-      setLightingPreset,
-      viewerShowGrid,
-      setViewerShowGrid,
-      setShowGrid,
-      viewerShowVignette,
-      setViewerShowVignette,
-      setShowVignette,
       toggleFocusMode,
+      setWorkspaceMode,
+      toggleWorkspaceMode,
+      restartStudioOnboarding,
       setKindFilter,
       setNamespaceFilter,
       toggleTheme,

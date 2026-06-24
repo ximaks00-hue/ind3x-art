@@ -62,9 +62,15 @@ describe("golden paint renders", () => {
     const name = "pencil-symmetry-16.png";
     const baselinePath = join(GOLDEN_DIR, name);
     const actual = await renderBaseline();
+    const updateGolden = process.env.UPDATE_GOLDEN === "1";
 
-    if (!existsSync(baselinePath) || process.env.UPDATE_GOLDEN === "1") {
+    if (updateGolden) {
       writeFileSync(baselinePath, actual);
+    }
+    if (!existsSync(baselinePath)) {
+      throw new Error(
+        `Golden baseline is missing: ${baselinePath}. Set UPDATE_GOLDEN=1 to regenerate baselines intentionally.`,
+      );
     }
 
     const expected = readFileSync(baselinePath);

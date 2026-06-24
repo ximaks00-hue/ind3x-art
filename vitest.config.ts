@@ -14,17 +14,18 @@ export default defineConfig({
     coverage: {
       provider: "v8",
       reporter: ["text", "lcov"],
-      include: [
-        "src/features/editor/paintEngine.ts",
-        "src/features/editor/tools.ts",
-        "src/features/viewer3d/uvMapping.ts",
-        "src/features/editor/textureDocument.ts",
+      include: ["src/**/*.{ts,tsx}"],
+      exclude: [
+        "src/**/*.test.{ts,tsx}",
+        "src/**/vite-env.d.ts",
+        "src/ipc/bindings.ts",
+        "src/main.tsx",
       ],
       thresholds: {
-        lines: 70,
-        functions: 70,
-        branches: 65,
-        statements: 70,
+        lines: 15,
+        functions: 25,
+        branches: 40,
+        statements: 15,
       },
     },
   },

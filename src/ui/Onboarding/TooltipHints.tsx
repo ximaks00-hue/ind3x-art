@@ -3,7 +3,7 @@ import { useLayoutEffect, useState } from "react";
 import { useSettingsStore } from "../../state/settingsStore";
 import styles from "./TooltipHints.module.css";
 
-const HINTS = [
+const CLASSIC_HINTS = [
   {
     id: "explorer-search",
     target: "hint-explorer",
@@ -26,6 +26,36 @@ const HINTS = [
   },
 ] as const;
 
+const STUDIO_HINTS = [
+  {
+    id: "studio-workspace",
+    target: "tour-workspace-mode",
+    text: "Switch between Classic explorer and Block Studio anytime.",
+  },
+  {
+    id: "studio-catalog",
+    target: "hint-catalog",
+    text: "Arrow keys navigate the grid · Enter selects a block.",
+  },
+  {
+    id: "studio-paint",
+    target: "tour-studio-viewport",
+    text: "Click faces in the viewport or use texture chips below to switch.",
+  },
+  {
+    id: "command-palette",
+    target: "hint-commands",
+    text: "Ctrl+K — switch workspace, tools, and restart the Studio tour.",
+  },
+  {
+    id: "save",
+    target: "hint-save",
+    text: "Ctrl+S saves all dirty textures with automatic backup.",
+  },
+] as const;
+
+type HintDef = (typeof CLASSIC_HINTS)[number] | (typeof STUDIO_HINTS)[number];
+
 interface HintPlacement {
   id: string;
   text: string;
@@ -33,9 +63,7 @@ interface HintPlacement {
   left: number;
 }
 
-function measurePlacements(
-  activeHints: ReadonlyArray<(typeof HINTS)[number]>,
-): HintPlacement[] {
+function measurePlacements(activeHints: ReadonlyArray<HintDef>): HintPlacement[] {
   const next: HintPlacement[] = [];
   for (const hint of activeHints) {
     const el = document.querySelector(`[data-tour~="${hint.target}"]`);
@@ -52,12 +80,14 @@ function measurePlacements(
 }
 
 export function TooltipHints() {
+  const workspaceMode = useSettingsStore((s) => s.workspaceMode);
   const sessionCount = useSettingsStore((s) => s.sessionCount);
   const dismissed = useSettingsStore((s) => s.dismissedHints);
   const dismissHint = useSettingsStore((s) => s.dismissHint);
   const [placements, setPlacements] = useState<HintPlacement[]>([]);
 
-  const activeHints = HINTS.filter((h) => !dismissed.includes(h.id));
+  const hintPool = workspaceMode === "studio" ? STUDIO_HINTS : CLASSIC_HINTS;
+  const activeHints = hintPool.filter((h) => !dismissed.includes(h.id));
 
   useLayoutEffect(() => {
     let cancelled = false;
@@ -75,7 +105,7 @@ export function TooltipHints() {
       cancelled = true;
       cancelAnimationFrame(frame);
     };
-  }, [sessionCount, activeHints, dismissed]);
+  }, [sessionCount, activeHints, dismissed, workspaceMode]);
 
   if (sessionCount > 3 || placements.length === 0) return null;
 

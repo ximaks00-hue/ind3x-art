@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef } from "react";
 
-import { ipc } from "../../ipc/client";
 import type { AssetFilter, AssetKind } from "../../ipc/types";
+import { queryAssets } from "../../app/services/assetService";
 import { useProjectStore } from "../../state/projectStore";
 
 export const EXPLORER_PAGE_SIZE = 200;
@@ -34,13 +34,24 @@ export function useAssetQuery(debouncedSearch: string) {
     async (offset: number, append: boolean) => {
       if (!handle) return;
       const id = ++requestId.current;
+      const handleId = handle.id;
+      const filterKey = JSON.stringify(buildFilter());
       setQueryLoading(true);
       try {
-        const page = await ipc.queryAssets(handle, buildFilter(), {
+        const page = await queryAssets(handle, buildFilter(), {
           offset,
           limit: EXPLORER_PAGE_SIZE,
         });
         if (id !== requestId.current) return;
+        const current = useProjectStore.getState();
+        if (!current.handle || current.handle.id !== handleId) return;
+        const currentFilterKey = JSON.stringify({
+          kind: current.kindFilter === "all" ? null : (current.kindFilter as AssetKind),
+          namespace: current.namespaceFilter || null,
+          search: current.search.trim() || null,
+          fuzzy: current.fuzzySearch,
+        });
+        if (currentFilterKey !== filterKey) return;
         setQueryPage(page.entries, page.total, append, offset);
       } finally {
         if (id === requestId.current) setQueryLoading(false);

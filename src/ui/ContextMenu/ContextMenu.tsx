@@ -18,25 +18,66 @@ interface ContextMenuProps {
   onClose: () => void;
 }
 
+function menuButtons(menu: HTMLDivElement): HTMLButtonElement[] {
+  return Array.from(menu.querySelectorAll<HTMLButtonElement>('button[role="menuitem"]:not([disabled])'));
+}
+
 export function ContextMenu({ items, x, y, onSelect, onClose }: ContextMenuProps) {
   const menuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
+    const menu = menuRef.current;
+    if (!menu) return;
+
+    const buttons = menuButtons(menu);
+    buttons[0]?.focus();
+
     const onDown = (e: MouseEvent) => {
       if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
         onClose();
       }
     };
+
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
+      if (e.key === "Escape") {
+        e.preventDefault();
+        onClose();
+        return;
+      }
+
+      const enabled = menuButtons(menu);
+      if (enabled.length === 0) return;
+
+      const active = document.activeElement;
+      const index = enabled.findIndex((btn) => btn === active);
+
+      if (e.key === "ArrowDown") {
+        e.preventDefault();
+        const next = index < 0 ? 0 : (index + 1) % enabled.length;
+        enabled[next].focus();
+      } else if (e.key === "ArrowUp") {
+        e.preventDefault();
+        const next = index < 0 ? enabled.length - 1 : (index - 1 + enabled.length) % enabled.length;
+        enabled[next].focus();
+      } else if (e.key === "Home") {
+        e.preventDefault();
+        enabled[0].focus();
+      } else if (e.key === "End") {
+        e.preventDefault();
+        enabled[enabled.length - 1].focus();
+      } else if (e.key === "Enter" && active instanceof HTMLButtonElement && menu.contains(active)) {
+        e.preventDefault();
+        active.click();
+      }
     };
+
     document.addEventListener("mousedown", onDown);
     document.addEventListener("keydown", onKey);
     return () => {
       document.removeEventListener("mousedown", onDown);
       document.removeEventListener("keydown", onKey);
     };
-  }, [onClose]);
+  }, [onClose, items]);
 
   // Clamp to viewport
   const style: React.CSSProperties = {

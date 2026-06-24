@@ -29,6 +29,12 @@ pub enum CoreError {
     #[error("invalid pack: {0}")]
     InvalidPack(String),
 
+    #[error("invalid input: {0}")]
+    InvalidInput(String),
+
+    #[error("unavailable: {0}")]
+    Unavailable(String),
+
     #[error("internal error: {0}")]
     Internal(String),
 }
@@ -51,6 +57,8 @@ impl CoreError {
                 CoreError::AssetNotFound(_) => "assetNotFound",
                 CoreError::ModelNotFound(_) => "modelNotFound",
                 CoreError::InvalidPack(_) => "invalidPack",
+                CoreError::InvalidInput(_) => "invalidInput",
+                CoreError::Unavailable(_) => "unavailable",
                 CoreError::Internal(_) => "internal",
             }
             .to_string(),

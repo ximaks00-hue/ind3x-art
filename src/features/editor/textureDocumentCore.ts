@@ -53,6 +53,8 @@ export interface TextureDoc {
   redo: UndoEntry[];
   dirty: boolean;
   dirtyBox: { x0: number; y0: number; x1: number; y1: number } | null;
+  revision: number;
+  savedRevision: number;
 }
 
 export function readRgba(ctx: CanvasRenderingContext2D, x: number, y: number): Rgba {
@@ -128,10 +130,17 @@ export function applyChangesToDoc(
   }
 
   compositeDocument(doc);
+  doc.revision += 1;
   doc.dirty = true;
 }
 
 export function canvasToPngBase64(canvas: HTMLCanvasElement): Promise<string> {
+  if (typeof canvas.toBlob !== "function") {
+    const dataUrl = canvas.toDataURL("image/png");
+    const comma = dataUrl.indexOf(",");
+    return Promise.resolve(comma >= 0 ? dataUrl.slice(comma + 1) : dataUrl);
+  }
+
   return new Promise((resolve, reject) => {
     canvas.toBlob((blob) => {
       if (!blob) {

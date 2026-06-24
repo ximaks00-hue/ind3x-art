@@ -16,7 +16,7 @@ import { LIGHTING_PRESET_LABELS, type LightingPreset } from "../lib/lightingPres
 import { formatShortcutDisplay, SHORTCUT_BY_ID } from "../lib/shortcuts";
 import { ASSET_KIND_LABELS, type AssetKind } from "../ipc/types";
 import { TOOL_HOTKEYS, TOOL_LABELS, type EditorTool } from "../state/editorStore";
-import { useSettingsStore, type Theme } from "../state/settingsStore";
+import { useSettingsStore, type Theme, type WorkspaceMode } from "../state/settingsStore";
 
 import type { AppCommand } from "./types";
 import type { CameraPreset } from "../lib/cameraPresets";
@@ -75,6 +75,9 @@ export interface AppCommandHandlers {
   onToggleVignette?: () => void;
   onSetKindFilter?: (kind: AssetKind | "all") => void;
   onSetNamespaceFilter?: (namespace: string) => void;
+  onSetWorkspaceMode?: (mode: WorkspaceMode) => void;
+  onToggleWorkspaceMode?: () => void;
+  onRestartStudioOnboarding?: () => void;
   onExportShortcuts?: () => void;
   canSave: boolean;
   hasProject: boolean;
@@ -88,6 +91,7 @@ function sc(id: string, fallback = ""): string | undefined {
 export function useAppCommands(handlers: AppCommandHandlers): AppCommand[] {
   const recentProjects = useSettingsStore((s) => s.recentProjects);
   const theme = useSettingsStore((s) => s.theme);
+  const workspaceMode = useSettingsStore((s) => s.workspaceMode);
 
   return useMemo(() => {
     const toolCommands: AppCommand[] = ALL_TOOLS.map((tool) => ({
@@ -193,6 +197,45 @@ export function useAppCommands(handlers: AppCommandHandlers): AppCommand[] {
           ] satisfies AppCommand[])
         : []),
     ];
+
+    const workspaceCommands: AppCommand[] = handlers.onToggleWorkspaceMode
+      ? [
+          {
+            id: "workspace-studio",
+            label: "Switch to Block Studio",
+            group: "navigation" as const,
+            keywords: "catalog creative inventory studio workspace",
+            disabled: workspaceMode === "studio",
+            run: () => handlers.onSetWorkspaceMode?.("studio"),
+          },
+          {
+            id: "workspace-classic",
+            label: "Switch to Classic explorer",
+            group: "navigation" as const,
+            keywords: "explorer files workspace classic",
+            disabled: workspaceMode === "classic",
+            run: () => handlers.onSetWorkspaceMode?.("classic"),
+          },
+          {
+            id: "workspace-toggle",
+            label: `Toggle workspace (current: ${workspaceMode})`,
+            group: "navigation" as const,
+            keywords: "studio classic catalog explorer switch",
+            run: handlers.onToggleWorkspaceMode,
+          },
+          ...(handlers.onRestartStudioOnboarding
+            ? [
+                {
+                  id: "restart-studio-onboarding",
+                  label: "Restart Block Studio tour",
+                  group: "help" as const,
+                  keywords: "onboarding tutorial studio tour guide",
+                  run: handlers.onRestartStudioOnboarding,
+                },
+              ]
+            : []),
+        ]
+      : [];
 
     const explorerCommands: AppCommand[] = handlers.onSetKindFilter
       ? [
@@ -361,6 +404,7 @@ export function useAppCommands(handlers: AppCommandHandlers): AppCommand[] {
       ...viewerCommands,
       ...cameraCommands,
       ...toolCommands,
+      ...workspaceCommands,
       ...explorerCommands,
       {
         id: "focus-explorer",
@@ -420,5 +464,5 @@ export function useAppCommands(handlers: AppCommandHandlers): AppCommand[] {
     }
 
     return commands;
-  }, [handlers, recentProjects, theme]);
+  }, [handlers, recentProjects, theme, workspaceMode]);
 }

@@ -1,3 +1,4 @@
+mod catalog;
 mod asset_details;
 mod builtins;
 mod compile;

@@ -8,6 +8,12 @@ import { useProjectSource } from "./app/useProjectSource";
 import { useSaveWorkflow } from "./app/useSaveWorkflow";
 import type { ScreenshotExportOptions } from "./lib/exportScreenshot";
 import { EditorPanel } from "./features/editor/EditorPanel";
+import { CatalogPanel } from "./features/catalog/CatalogPanel";
+import { useCatalogStore } from "./features/catalog/catalogStore";
+import {
+  formatFaceDirection,
+  textureBasename,
+} from "./features/catalog/modelFaceNav";
 import { ExplorerPanel } from "./features/explorer/ExplorerPanel";
 import { ViewerPanelLazy } from "./features/viewer3d/ViewerPanelLazy";
 import { getActiveLayerIndex } from "./features/editor/documentStore";
@@ -39,6 +45,13 @@ function App() {
   const lastSessionPath = useSettingsStore((s) => s.lastSessionPath);
   const incrementSessionCount = useSettingsStore((s) => s.incrementSessionCount);
   const onboardingCompleted = useSettingsStore((s) => s.onboardingCompleted);
+  const studioOnboardingCompleted = useSettingsStore((s) => s.studioOnboardingCompleted);
+  const workspaceMode = useSettingsStore((s) => s.workspaceMode);
+
+  const catalogSelectedEntry = useCatalogStore((s) => s.selectedEntry);
+  const catalogTotal = useCatalogStore((s) => s.total);
+  const catalogLoading = useCatalogStore((s) => s.loading);
+  const catalogQueryError = useCatalogStore((s) => s.queryError);
 
   const interactionMode = useSelectionStore((s) => s.interactionMode);
   const selectedFace = useSelectionStore((s) => s.selectedFace);
@@ -56,6 +69,30 @@ function App() {
     void editorRevision;
     return getActiveLayerIndex(selectedFace.texturePath);
   }, [selectedFace, editorRevision]);
+
+  const showOnboardingTour =
+    workspaceMode === "studio" ? !studioOnboardingCompleted : !onboardingCompleted;
+
+  const studioStatus = useMemo(() => {
+    if (workspaceMode !== "studio") return null;
+    return {
+      workspaceLabel: "Studio",
+      catalogTotal: indexStatus === "done" ? catalogTotal : undefined,
+      catalogLoading,
+      catalogQueryError,
+      catalogEntryLabel: catalogSelectedEntry?.displayName ?? catalogSelectedEntry?.id,
+      faceDirection: selectedFace ? formatFaceDirection(selectedFace.direction) : undefined,
+      textureLabel: selectedFace ? textureBasename(selectedFace.texturePath) : undefined,
+    };
+  }, [
+    workspaceMode,
+    catalogSelectedEntry,
+    selectedFace,
+    catalogTotal,
+    catalogLoading,
+    catalogQueryError,
+    indexStatus,
+  ]);
 
   const commandPaletteOpen = useUiStore((s) => s.commandPaletteOpen);
   const shortcutsHelpOpen = useUiStore((s) => s.shortcutsHelpOpen);
@@ -123,12 +160,16 @@ function App() {
           />
         }
         leftPanel={
-          <ExplorerPanel
-            onOpenJar={() => void openJar()}
-            onOpenFolder={() => void openFolder()}
-            onOpenRecent={openRecent}
-            onTryDemo={() => void openDemoPack()}
-          />
+          workspaceMode === "studio" ? (
+            <CatalogPanel />
+          ) : (
+            <ExplorerPanel
+              onOpenJar={() => void openJar()}
+              onOpenFolder={() => void openFolder()}
+              onOpenRecent={openRecent}
+              onTryDemo={() => void openDemoPack()}
+            />
+          )
         }
         center={
           <ViewerPanelLazy
@@ -144,6 +185,13 @@ function App() {
             ipcHealthy={ipcHealthy}
             assetCount={indexStatus === "done" ? queryTotal : undefined}
             indexStatus={indexStatus}
+            workspaceLabel={studioStatus?.workspaceLabel}
+            catalogTotal={studioStatus?.catalogTotal}
+            catalogLoading={studioStatus?.catalogLoading}
+            catalogQueryError={studioStatus?.catalogQueryError}
+            catalogEntryLabel={studioStatus?.catalogEntryLabel}
+            faceDirection={studioStatus?.faceDirection}
+            textureLabel={studioStatus?.textureLabel}
             toolLabel={selectedFace ? TOOL_LABELS[editorTool] : undefined}
             layerIndex={layerInfo?.index}
             layerTotal={layerInfo?.total}
@@ -180,7 +228,7 @@ function App() {
           if (sourcePath) void openSource(sourcePath);
         }}
       />
-      {!onboardingCompleted && (
+      {showOnboardingTour && (
         <Suspense fallback={null}>
           <OnboardingTour />
         </Suspense>

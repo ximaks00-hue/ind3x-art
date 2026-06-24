@@ -1,6 +1,6 @@
 [package]
 name = "ind3x-art"
-version = "0.2.0"
+version = "0.3.0"
 description = "Premium Minecraft asset editor"
 authors = ["inD3X"]
 edition = "2021"

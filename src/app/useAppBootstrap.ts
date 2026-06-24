@@ -2,6 +2,7 @@ import { useEffect } from "react";
 
 import { ipc } from "../ipc/client";
 import { useProjectStore } from "../state/projectStore";
+import { syncViewerPreferencesFromSettings } from "../state/viewerPreferencesSync";
 import { useSettingsStore } from "../state/settingsStore";
 
 export function useAppBootstrap() {
@@ -30,6 +31,7 @@ export function useAppBootstrap() {
         if (cancelled) return;
         setAppInfo(info);
         setIpcHealthy(pong === "pong");
+        syncViewerPreferencesFromSettings();
       } catch {
         if (!cancelled) setIpcHealthy(false);
       }

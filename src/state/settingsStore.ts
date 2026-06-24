@@ -1,7 +1,11 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 
+import type { CatalogCategory } from "../ipc/types";
+
 export type Theme = "dark" | "light" | "high-contrast";
+export type WorkspaceMode = "classic" | "studio";
+export type CatalogIconMode = "auto" | "preview" | "3d";
 
 export const THEME_ORDER: Theme[] = ["dark", "light", "high-contrast"];
 
@@ -17,6 +21,9 @@ interface SettingsState {
   textureCacheLimit: number;
   modelCacheLimit: number;
   uiScale: number;
+  workspaceMode: WorkspaceMode;
+  catalogIconMode: CatalogIconMode;
+  catalogIconCacheLimit: number;
   explorerPanelWidth: number;
   editorPanelWidth: number;
   leftPanelCollapsed: boolean;
@@ -30,9 +37,13 @@ interface SettingsState {
   recentAssetIds: string[];
   onboardingCompleted: boolean;
   onboardingTourStep: number;
+  studioOnboardingCompleted: boolean;
+  studioOnboardingTourStep: number;
   sessionCount: number;
   dismissedHints: string[];
   lastSessionPath: string | null;
+  studioSelectedCatalogId: string | null;
+  studioCatalogCategory: CatalogCategory | null;
   setTheme: (theme: Theme) => void;
   cycleTheme: () => void;
   toggleTheme: () => void;
@@ -41,6 +52,10 @@ interface SettingsState {
   setTextureCacheLimit: (n: number) => void;
   setModelCacheLimit: (n: number) => void;
   setUiScale: (scale: number) => void;
+  setWorkspaceMode: (mode: WorkspaceMode) => void;
+  toggleWorkspaceMode: () => void;
+  setCatalogIconMode: (mode: CatalogIconMode) => void;
+  setCatalogIconCacheLimit: (n: number) => void;
   setExplorerPanelWidth: (width: number) => void;
   setEditorPanelWidth: (width: number) => void;
   setLeftPanelCollapsed: (collapsed: boolean) => void;
@@ -60,9 +75,14 @@ interface SettingsState {
   clearRecentAssets: () => void;
   completeOnboarding: () => void;
   setOnboardingTourStep: (step: number) => void;
+  completeStudioOnboarding: () => void;
+  setStudioOnboardingTourStep: (step: number) => void;
+  restartStudioOnboarding: () => void;
   incrementSessionCount: () => void;
   dismissHint: (hintId: string) => void;
   setLastSessionPath: (path: string | null) => void;
+  setStudioSelectedCatalogId: (id: string | null) => void;
+  setStudioCatalogCategory: (category: CatalogCategory | null) => void;
 }
 
 export const useSettingsStore = create<SettingsState>()(
@@ -73,6 +93,9 @@ export const useSettingsStore = create<SettingsState>()(
       textureCacheLimit: 512,
       modelCacheLimit: 256,
       uiScale: 1,
+      workspaceMode: "classic" as WorkspaceMode,
+      catalogIconMode: "auto" as CatalogIconMode,
+      catalogIconCacheLimit: 256,
       explorerPanelWidth: 300,
       editorPanelWidth: 300,
       leftPanelCollapsed: false,
@@ -86,9 +109,13 @@ export const useSettingsStore = create<SettingsState>()(
       recentAssetIds: [],
       onboardingCompleted: false,
       onboardingTourStep: 0,
+      studioOnboardingCompleted: false,
+      studioOnboardingTourStep: 0,
       sessionCount: 0,
       dismissedHints: [],
       lastSessionPath: null,
+      studioSelectedCatalogId: null,
+      studioCatalogCategory: null,
       setTheme: (theme) => set({ theme }),
       cycleTheme: () => {
         const idx = THEME_ORDER.indexOf(get().theme);
@@ -111,6 +138,23 @@ export const useSettingsStore = create<SettingsState>()(
       setTextureCacheLimit: (textureCacheLimit) => set({ textureCacheLimit }),
       setModelCacheLimit: (modelCacheLimit) => set({ modelCacheLimit }),
       setUiScale: (uiScale) => set({ uiScale: Math.max(0.8, Math.min(1.5, uiScale)) }),
+      setWorkspaceMode: (workspaceMode) => {
+        const prev = get();
+        if (
+          workspaceMode === "studio" &&
+          prev.workspaceMode !== "studio" &&
+          !prev.studioOnboardingCompleted
+        ) {
+          set({ workspaceMode, studioOnboardingTourStep: 0 });
+        } else {
+          set({ workspaceMode });
+        }
+      },
+      toggleWorkspaceMode: () =>
+        set({ workspaceMode: get().workspaceMode === "classic" ? "studio" : "classic" }),
+      setCatalogIconMode: (catalogIconMode) => set({ catalogIconMode }),
+      setCatalogIconCacheLimit: (catalogIconCacheLimit) =>
+        set({ catalogIconCacheLimit: Math.max(64, Math.min(2048, catalogIconCacheLimit)) }),
       setExplorerPanelWidth: (explorerPanelWidth) =>
         set({ explorerPanelWidth: Math.max(220, Math.min(520, explorerPanelWidth)) }),
       setEditorPanelWidth: (editorPanelWidth) =>
@@ -150,6 +194,12 @@ export const useSettingsStore = create<SettingsState>()(
       clearRecentAssets: () => set({ recentAssetIds: [] }),
       completeOnboarding: () => set({ onboardingCompleted: true, onboardingTourStep: 0 }),
       setOnboardingTourStep: (onboardingTourStep) => set({ onboardingTourStep }),
+      completeStudioOnboarding: () =>
+        set({ studioOnboardingCompleted: true, studioOnboardingTourStep: 0 }),
+      setStudioOnboardingTourStep: (studioOnboardingTourStep) =>
+        set({ studioOnboardingTourStep }),
+      restartStudioOnboarding: () =>
+        set({ studioOnboardingCompleted: false, studioOnboardingTourStep: 0 }),
       incrementSessionCount: () => set({ sessionCount: get().sessionCount + 1 }),
       dismissHint: (hintId) => {
         const dismissed = get().dismissedHints;
@@ -157,6 +207,9 @@ export const useSettingsStore = create<SettingsState>()(
         set({ dismissedHints: [...dismissed, hintId] });
       },
       setLastSessionPath: (lastSessionPath) => set({ lastSessionPath }),
+      setStudioSelectedCatalogId: (studioSelectedCatalogId) =>
+        set({ studioSelectedCatalogId }),
+      setStudioCatalogCategory: (studioCatalogCategory) => set({ studioCatalogCategory }),
     }),
     {
       name: "ind3x-art-settings",
@@ -166,6 +219,9 @@ export const useSettingsStore = create<SettingsState>()(
         textureCacheLimit: state.textureCacheLimit,
         modelCacheLimit: state.modelCacheLimit,
         uiScale: state.uiScale,
+        workspaceMode: state.workspaceMode,
+        catalogIconMode: state.catalogIconMode,
+        catalogIconCacheLimit: state.catalogIconCacheLimit,
         explorerPanelWidth: state.explorerPanelWidth,
         editorPanelWidth: state.editorPanelWidth,
         leftPanelCollapsed: state.leftPanelCollapsed,
@@ -179,9 +235,13 @@ export const useSettingsStore = create<SettingsState>()(
         recentAssetIds: state.recentAssetIds,
         onboardingCompleted: state.onboardingCompleted,
         onboardingTourStep: state.onboardingTourStep,
+        studioOnboardingCompleted: state.studioOnboardingCompleted,
+        studioOnboardingTourStep: state.studioOnboardingTourStep,
         sessionCount: state.sessionCount,
         dismissedHints: state.dismissedHints,
         lastSessionPath: state.lastSessionPath,
+        studioSelectedCatalogId: state.studioSelectedCatalogId,
+        studioCatalogCategory: state.studioCatalogCategory,
       }),
     },
   ),

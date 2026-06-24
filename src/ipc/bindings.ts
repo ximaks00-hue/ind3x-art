@@ -34,6 +34,22 @@ export const commands = {
     ),
   getAssetFacets: (handle: ProjectHandle) =>
     typedError<AssetFacets, CoreError>(__TAURI_INVOKE("get_asset_facets", { handle })),
+  queryCatalog: (handle: ProjectHandle, filter: CatalogFilter, page: PageReq) =>
+    typedError<CatalogPage, CoreError>(
+      __TAURI_INVOKE("query_catalog", { handle, filter, page }),
+    ),
+  getCatalogEntry: (handle: ProjectHandle, entryId: string) =>
+    typedError<CatalogEntry, CoreError>(
+      __TAURI_INVOKE("get_catalog_entry", { handle, entryId }),
+    ),
+  getCatalogFacets: (handle: ProjectHandle) =>
+    typedError<CatalogFacets, CoreError>(
+      __TAURI_INVOKE("get_catalog_facets", { handle }),
+    ),
+  resolveCatalogEntry: (handle: ProjectHandle, entryId: string) =>
+    typedError<RenderableModel, CoreError>(
+      __TAURI_INVOKE("resolve_catalog_entry", { handle, entryId }),
+    ),
   getAssetEntry: (handle: ProjectHandle, assetId: string) =>
     typedError<AssetEntry, CoreError>(
       __TAURI_INVOKE("get_asset_entry", { handle, assetId }),
@@ -226,38 +242,110 @@ export type BackupInfo = {
   kind: string;
 };
 
+export type CatalogCategory =
+  | "building"
+  | "nature"
+  | "redstone"
+  | "decoration"
+  | "tools"
+  | "food"
+  | "misc";
+
+export type CatalogEntry = {
+  // Stable id, e.g. `minecraft:stone`
+  id: string;
+  namespace: string;
+  displayName: string;
+  kind: CatalogEntryKind;
+  // blockstate path or item/block model path
+  sourcePath: string;
+  resolveKind: CatalogResolveKind;
+  defaultVariantKey?: string | null;
+  category: CatalogCategory;
+  searchTokens: string[];
+  texturePaths: string[];
+  iconKey: string;
+  aliases?: string[];
+};
+
+export type CatalogEntryKind = "block" | "item";
+
+export type CatalogFacets = {
+  byCategory: FacetCount[];
+};
+
+export type CatalogFilter = {
+  category: CatalogCategory | null;
+  namespace: string | null;
+  search: string | null;
+  fuzzy?: boolean;
+};
+
+export type CatalogPage = {
+  entries: CatalogEntry[];
+  total: number;
+};
+
+export type CatalogResolveKind = "blockstate" | "model";
+
 export type CoreError =
   | ({ Archive: string } & {
       AssetNotFound?: never;
       Internal?: never;
+      InvalidInput?: never;
       InvalidPack?: never;
       ModelNotFound?: never;
+      Unavailable?: never;
     })
   | "Cancelled"
   | "ProjectNotFound"
   | ({ AssetNotFound: string } & {
       Archive?: never;
       Internal?: never;
+      InvalidInput?: never;
       InvalidPack?: never;
       ModelNotFound?: never;
+      Unavailable?: never;
     })
   | ({ ModelNotFound: string } & {
       Archive?: never;
       AssetNotFound?: never;
       Internal?: never;
+      InvalidInput?: never;
       InvalidPack?: never;
+      Unavailable?: never;
     })
   | ({ InvalidPack: string } & {
       Archive?: never;
       AssetNotFound?: never;
       Internal?: never;
+      InvalidInput?: never;
+      ModelNotFound?: never;
+      Unavailable?: never;
+    })
+  | ({ InvalidInput: string } & {
+      Archive?: never;
+      AssetNotFound?: never;
+      Internal?: never;
+      InvalidPack?: never;
+      ModelNotFound?: never;
+      Unavailable?: never;
+    })
+  | ({ Unavailable: string } & {
+      Archive?: never;
+      AssetNotFound?: never;
+      Internal?: never;
+      InvalidInput?: never;
+      InvalidPack?: never;
       ModelNotFound?: never;
     })
   | ({ Internal: string } & {
       Archive?: never;
       AssetNotFound?: never;
+      InvalidInput?: never;
       InvalidPack?: never;
       ModelNotFound?: never;
+      Unavailable?: never;
     });
 
 export type DisplayTransform = {

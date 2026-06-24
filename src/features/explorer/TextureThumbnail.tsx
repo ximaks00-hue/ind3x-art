@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import { ipc } from "../../ipc/client";
 import { useProjectStore } from "../../state/projectStore";
 import { useSettingsStore } from "../../state/settingsStore";
-import { getThumbnailCache } from "./thumbnailCache";
+import { getThumbnailCache, thumbnailCacheKey } from "./thumbnailCache";
 import styles from "./TextureThumbnail.module.css";
 
 interface TextureThumbnailProps {
@@ -14,12 +14,23 @@ interface TextureThumbnailProps {
 export function TextureThumbnail({ assetPath, size = 24 }: TextureThumbnailProps) {
   const handle = useProjectStore((s) => s.handle);
   const cacheLimit = useSettingsStore((s) => s.textureCacheLimit);
+  const cacheKey = handle ? thumbnailCacheKey(handle.id, assetPath) : assetPath;
   const ref = useRef<HTMLDivElement>(null);
   const [src, setSrc] = useState<string | null>(
-    () => getThumbnailCache(cacheLimit).get(assetPath) ?? null,
+    () => getThumbnailCache(cacheLimit).get(cacheKey) ?? null,
   );
   const [loaded, setLoaded] = useState(Boolean(src));
   const [failed, setFailed] = useState(false);
+
+  useEffect(() => {
+    const cached = getThumbnailCache(cacheLimit).get(cacheKey) ?? null;
+    const frame = requestAnimationFrame(() => {
+      setSrc(cached);
+      setLoaded(Boolean(cached));
+      setFailed(false);
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [cacheKey, cacheLimit]);
 
   useEffect(() => {
     if (!handle || src || failed) return;
@@ -37,7 +48,7 @@ export function TextureThumbnail({ assetPath, size = 24 }: TextureThumbnailProps
 
         void (async () => {
           try {
-            const cached = cache.get(assetPath);
+            const cached = cache.get(cacheKey);
             if (cached) {
               if (!cancelled) {
                 setSrc(cached);
@@ -47,7 +58,7 @@ export function TextureThumbnail({ assetPath, size = 24 }: TextureThumbnailProps
             }
             const preview = await ipc.getTexturePreview(handle, assetPath, size * 2);
             const url = `data:image/png;base64,${preview.pngBase64}`;
-            cache.set(assetPath, url);
+            cache.set(cacheKey, url);
             if (!cancelled) {
               setSrc(url);
               setLoaded(true);
@@ -65,7 +76,7 @@ export function TextureThumbnail({ assetPath, size = 24 }: TextureThumbnailProps
       cancelled = true;
       observer.disconnect();
     };
-  }, [handle, assetPath, size, src, failed, cacheLimit]);
+  }, [handle, assetPath, size, src, failed, cacheLimit, cacheKey]);
 
   return (
     <div

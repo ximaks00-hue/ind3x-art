@@ -3,7 +3,7 @@ import { useEffect, useRef } from "react";
 import { ipc } from "../../ipc/client";
 import { useProjectStore } from "../../state/projectStore";
 import { useSettingsStore } from "../../state/settingsStore";
-import { getThumbnailCache } from "./thumbnailCache";
+import { getThumbnailCache, thumbnailCacheKey } from "./thumbnailCache";
 
 const BATCH_SIZE = 32;
 const THUMB_PIXEL_SIZE = 48;
@@ -18,26 +18,29 @@ export function useThumbnailBatchPrefetch(visibleTexturePaths: string[]) {
     if (!handle || !visibleTexturePaths.length) return;
 
     const cache = getThumbnailCache(cacheLimit);
-    const missing = visibleTexturePaths.filter(
-      (path) => !cache.get(path) && !inflight.current.has(path),
-    );
+    const missing = visibleTexturePaths.filter((path) => {
+      const key = thumbnailCacheKey(handle.id, path);
+      return !cache.get(key) && !inflight.current.has(key);
+    });
     if (!missing.length) return;
 
     for (let i = 0; i < missing.length; i += BATCH_SIZE) {
       const chunk = missing.slice(i, i + BATCH_SIZE);
-      for (const path of chunk) inflight.current.add(path);
+      const keys = chunk.map((path) => thumbnailCacheKey(handle.id, path));
+      for (const key of keys) inflight.current.add(key);
 
       void ipc
         .getTexturePreviewsBatch(handle, chunk, THUMB_PIXEL_SIZE)
         .then((batch) => {
           for (const item of batch) {
             if (item.preview) {
-              cache.set(item.path, `data:image/png;base64,${item.preview.pngBase64}`);
+              const key = thumbnailCacheKey(handle.id, item.path);
+              cache.set(key, `data:image/png;base64,${item.preview.pngBase64}`);
             }
           }
         })
         .finally(() => {
-          for (const path of chunk) inflight.current.delete(path);
+          for (const key of keys) inflight.current.delete(key);
         });
     }
   }, [handle, visibleTexturePaths, cacheLimit]);

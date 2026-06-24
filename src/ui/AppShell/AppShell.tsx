@@ -44,6 +44,15 @@ export function AppShell({
   const leftDragRef = useRef(leftWidth);
   const rightDragRef = useRef(rightWidth);
 
+  const clampLeft = useCallback(
+    (width: number) => Math.max(LEFT_MIN, Math.min(LEFT_MAX, width)),
+    [],
+  );
+  const clampRight = useCallback(
+    (width: number) => Math.max(RIGHT_MIN, Math.min(RIGHT_MAX, width)),
+    [],
+  );
+
   const onLeftResizeStart = useCallback(
     (event: React.MouseEvent) => {
       event.preventDefault();
@@ -53,7 +62,7 @@ export function AppShell({
 
       const onMove = (e: MouseEvent) => {
         const delta = e.clientX - startX;
-        const next = Math.max(LEFT_MIN, Math.min(LEFT_MAX, startWidth + delta));
+        const next = clampLeft(startWidth + delta);
         leftDragRef.current = next;
         setLeftWidth(next);
       };
@@ -67,7 +76,25 @@ export function AppShell({
       window.addEventListener("mousemove", onMove);
       window.addEventListener("mouseup", onUp);
     },
-    [setExplorerPanelWidth, leftWidth],
+    [clampLeft, setExplorerPanelWidth, leftWidth],
+  );
+
+  const onLeftResizeKeyDown = useCallback(
+    (event: React.KeyboardEvent) => {
+      const step = event.shiftKey ? 32 : 8;
+      let next = leftWidth;
+      if (event.key === "ArrowLeft") next = leftWidth - step;
+      else if (event.key === "ArrowRight") next = leftWidth + step;
+      else if (event.key === "Home") next = LEFT_MIN;
+      else if (event.key === "End") next = LEFT_MAX;
+      else return;
+      event.preventDefault();
+      const clamped = clampLeft(next);
+      leftDragRef.current = clamped;
+      setLeftWidth(clamped);
+      setExplorerPanelWidth(clamped);
+    },
+    [clampLeft, leftWidth, setExplorerPanelWidth],
   );
 
   const onRightResizeStart = useCallback(
@@ -79,7 +106,7 @@ export function AppShell({
 
       const onMove = (e: MouseEvent) => {
         const delta = startX - e.clientX;
-        const next = Math.max(RIGHT_MIN, Math.min(RIGHT_MAX, startWidth + delta));
+        const next = clampRight(startWidth + delta);
         rightDragRef.current = next;
         setRightWidth(next);
       };
@@ -93,7 +120,25 @@ export function AppShell({
       window.addEventListener("mousemove", onMove);
       window.addEventListener("mouseup", onUp);
     },
-    [setEditorPanelWidth, rightWidth],
+    [clampRight, setEditorPanelWidth, rightWidth],
+  );
+
+  const onRightResizeKeyDown = useCallback(
+    (event: React.KeyboardEvent) => {
+      const step = event.shiftKey ? 32 : 8;
+      let next = rightWidth;
+      if (event.key === "ArrowLeft") next = rightWidth + step;
+      else if (event.key === "ArrowRight") next = rightWidth - step;
+      else if (event.key === "Home") next = RIGHT_MIN;
+      else if (event.key === "End") next = RIGHT_MAX;
+      else return;
+      event.preventDefault();
+      const clamped = clampRight(next);
+      rightDragRef.current = clamped;
+      setRightWidth(clamped);
+      setEditorPanelWidth(clamped);
+    },
+    [clampRight, rightWidth, setEditorPanelWidth],
   );
 
   const columns: string[] = [];
@@ -141,8 +186,12 @@ export function AppShell({
             role="separator"
             aria-orientation="vertical"
             aria-label="Resize explorer panel"
+            aria-valuemin={LEFT_MIN}
+            aria-valuemax={LEFT_MAX}
+            aria-valuenow={leftWidth}
             tabIndex={0}
             onMouseDown={onLeftResizeStart}
+            onKeyDown={onLeftResizeKeyDown}
           />
         )}
 
@@ -180,8 +229,12 @@ export function AppShell({
             role="separator"
             aria-orientation="vertical"
             aria-label="Resize editor panel"
+            aria-valuemin={RIGHT_MIN}
+            aria-valuemax={RIGHT_MAX}
+            aria-valuenow={rightWidth}
             tabIndex={0}
             onMouseDown={onRightResizeStart}
+            onKeyDown={onRightResizeKeyDown}
           />
         )}
 

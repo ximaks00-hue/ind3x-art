@@ -29,6 +29,8 @@ interface ClipboardRegion {
 
 let clipboard: ClipboardRegion | null = null;
 let layerIdCounter = 1;
+const pendingLoads = new Map<string, Promise<TextureDoc>>();
+let lifecycleVersion = 0;
 
 interface DocumentStoreState {
   revision: number;
@@ -109,7 +111,9 @@ export function subscribeTextureDocuments(listener: () => void): () => void {
 }
 
 export function clearTextureDocuments(): void {
+  lifecycleVersion += 1;
   docsMap().clear();
+  pendingLoads.clear();
   notify();
 }
 
@@ -315,44 +319,66 @@ export async function ensureTextureDocument(
   handle: ProjectHandle,
   path: string,
 ): Promise<TextureDoc> {
+  const versionAtStart = lifecycleVersion;
   const existing = docsMap().get(path);
   if (existing) return existing;
+  const pending = pendingLoads.get(path);
+  if (pending) return pending;
 
-  const { image, width, height } = await loadImageForEditor(handle, path);
+  const loadPromise = (async () => {
+    const { image, width, height } = await loadImageForEditor(handle, path);
+    if (versionAtStart !== lifecycleVersion) {
+      throw new Error("texture document lifecycle invalidated during load");
+    }
 
-  const compositeCanvas = document.createElement("canvas");
-  compositeCanvas.width = width;
-  compositeCanvas.height = height;
-  const compositeCtx = compositeCanvas.getContext("2d", { willReadFrequently: true });
-  if (!compositeCtx) throw new Error("2d context unavailable");
+    const compositeCanvas = document.createElement("canvas");
+    compositeCanvas.width = width;
+    compositeCanvas.height = height;
+    const compositeCtx = compositeCanvas.getContext("2d", { willReadFrequently: true });
+    if (!compositeCtx) throw new Error("2d context unavailable");
 
-  const originalCanvas = document.createElement("canvas");
-  originalCanvas.width = width;
-  originalCanvas.height = height;
-  const originalCtx = originalCanvas.getContext("2d", { willReadFrequently: true });
-  if (!originalCtx) throw new Error("2d context unavailable");
+    const originalCanvas = document.createElement("canvas");
+    originalCanvas.width = width;
+    originalCanvas.height = height;
+    const originalCtx = originalCanvas.getContext("2d", { willReadFrequently: true });
+    if (!originalCtx) throw new Error("2d context unavailable");
 
-  const baseLayer = createLayerBuffer(width, height, "Layer 1");
-  baseLayer.ctx.drawImage(image, 0, 0);
-  originalCtx.drawImage(image, 0, 0);
+    const baseLayer = createLayerBuffer(width, height, "Layer 1");
+    baseLayer.ctx.drawImage(image, 0, 0);
+    originalCtx.drawImage(image, 0, 0);
 
-  const doc: TextureDoc = {
-    width,
-    height,
-    layers: [baseLayer],
-    activeLayerId: baseLayer.id,
-    compositeCanvas,
-    compositeCtx,
-    originalCanvas,
-    undo: [],
-    redo: [],
-    dirty: false,
-    dirtyBox: null,
-  };
-  compositeDocument(doc);
-  docsMap().set(path, doc);
-  notify();
-  return doc;
+    const doc: TextureDoc = {
+      width,
+      height,
+      layers: [baseLayer],
+      activeLayerId: baseLayer.id,
+      compositeCanvas,
+      compositeCtx,
+      originalCanvas,
+      undo: [],
+      redo: [],
+      dirty: false,
+      dirtyBox: null,
+      revision: 0,
+      savedRevision: 0,
+    };
+    compositeDocument(doc);
+    if (versionAtStart !== lifecycleVersion) {
+      throw new Error("texture document lifecycle invalidated before commit");
+    }
+    docsMap().set(path, doc);
+    notify();
+    return doc;
+  })();
+
+  pendingLoads.set(path, loadPromise);
+  try {
+    return await loadPromise;
+  } finally {
+    if (pendingLoads.get(path) === loadPromise) {
+      pendingLoads.delete(path);
+    }
+  }
 }
 
 export function getPixel(path: string, x: number, y: number): Rgba | null {
@@ -396,6 +422,7 @@ export function markDirty(path: string): void {
   const doc = docsMap().get(path);
   if (!doc) return;
   doc.dirty = true;
+  doc.revision += 1;
   notify();
 }
 
@@ -454,8 +481,9 @@ export function undoTexture(handle: ProjectHandle | null, path: string): boolean
   }
 
   compositeDocument(doc);
+  doc.revision = Math.max(0, doc.revision - 1);
   doc.redo.push({ changes: entry.changes, label: entry.label });
-  doc.dirty = doc.undo.length > 0 || doc.redo.length > 0;
+  doc.dirty = doc.revision !== doc.savedRevision;
   if (handle) refreshTextureFromCanvas(handle, path, doc.compositeCanvas);
   notify();
   return true;
@@ -468,7 +496,7 @@ export function redoTexture(handle: ProjectHandle | null, path: string): boolean
   const entry = doc.redo.pop()!;
   applyChanges(doc, entry.changes, false);
   doc.undo.push({ changes: entry.changes, label: entry.label });
-  doc.dirty = true;
+  doc.dirty = doc.revision !== doc.savedRevision;
   if (handle) refreshTextureFromCanvas(handle, path, doc.compositeCanvas);
   notify();
   return true;
@@ -501,36 +529,63 @@ export function getActiveLayerContext(path: string): {
 
 export { canvasToPngBase64 } from "./textureDocumentCore";
 
-export function markTexturesSaved(savedPaths: string[], originalPaths?: string[]): void {
+type SavedTextureSnapshot = {
+  path: string;
+  revision: number;
+};
+
+export function markTexturesSaved(
+  savedPaths: string[],
+  originalPaths?: string[],
+  snapshots?: SavedTextureSnapshot[],
+): void {
+  const snapshotByPath = new Map<string, number>(
+    snapshots?.map((item) => [item.path, item.revision]) ?? [],
+  );
+  const isSameRevision = (path: string, doc: TextureDoc): boolean => {
+    const revisionAtSnapshot = snapshotByPath.get(path);
+    return revisionAtSnapshot === undefined || revisionAtSnapshot === doc.revision;
+  };
+  const committedPaths = new Set<string>();
+
   if (originalPaths && originalPaths.length === savedPaths.length) {
     for (let i = 0; i < savedPaths.length; i++) {
       const original = originalPaths[i];
       const saved = savedPaths[i];
       if (original !== saved && docsMap().has(original)) {
         const doc = docsMap().get(original)!;
+        if (!isSameRevision(original, doc)) {
+          continue;
+        }
         docsMap().delete(original);
+        doc.savedRevision = doc.revision;
         doc.dirty = false;
         doc.dirtyBox = null;
         docsMap().set(saved, doc);
+        committedPaths.add(saved);
       } else {
         const doc = docsMap().get(saved);
-        if (doc) {
+        if (doc && isSameRevision(saved, doc)) {
+          doc.savedRevision = doc.revision;
           doc.dirty = false;
           doc.dirtyBox = null;
+          committedPaths.add(saved);
         }
       }
     }
   } else {
     for (const path of savedPaths) {
       const doc = docsMap().get(path);
-      if (doc) {
+      if (doc && isSameRevision(path, doc)) {
+        doc.savedRevision = doc.revision;
         doc.dirty = false;
         doc.dirtyBox = null;
+        committedPaths.add(path);
       }
     }
   }
 
-  for (const path of savedPaths) {
+  for (const path of committedPaths) {
     const doc = docsMap().get(path);
     if (!doc) continue;
     const originalCtx = doc.originalCanvas.getContext("2d");
@@ -543,15 +598,17 @@ export function markTexturesSaved(savedPaths: string[], originalPaths?: string[]
 }
 
 export async function collectDirtyTextureEntries(): Promise<
-  { path: string; pngBase64: string; targetPath?: string }[]
+  { path: string; pngBase64: string; targetPath?: string; revision: number }[]
 > {
-  const entries: { path: string; pngBase64: string }[] = [];
+  const entries: { path: string; pngBase64: string; revision: number }[] = [];
   for (const path of getDirtyTexturePaths()) {
+    const doc = docsMap().get(path);
     const canvas = getTextureCanvas(path);
-    if (!canvas) continue;
+    if (!canvas || !doc) continue;
     entries.push({
       path,
       pngBase64: await canvasToPngBase64(canvas),
+      revision: doc.revision,
     });
   }
   return entries;

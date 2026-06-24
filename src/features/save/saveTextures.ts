@@ -3,14 +3,19 @@ import type { ProjectHandle, SaveOptions } from "../../ipc/types";
 import { collectDirtyTextureEntries, markTexturesSaved } from "../editor/textureDocument";
 
 export async function saveDirtyTextures(handle: ProjectHandle, options?: SaveOptions) {
-  const textures = await collectDirtyTextureEntries();
-  if (textures.length === 0) {
+  const snapshots = await collectDirtyTextureEntries();
+  if (snapshots.length === 0) {
     return {
       savedCount: 0,
       originalPaths: [] as string[],
       backupPath: undefined as string | undefined,
     };
   }
+  const textures = snapshots.map(({ path, pngBase64, targetPath }) => ({
+    path,
+    pngBase64,
+    targetPath,
+  }));
 
   if (options?.mode === "rename") {
     if (textures.length !== 1) {
@@ -29,7 +34,7 @@ export async function saveDirtyTextures(handle: ProjectHandle, options?: SaveOpt
   const result = await (ipc.saveBatch
     ? ipc.saveBatch(handle, textures, options)
     : ipc.saveTextures(handle, textures, options));
-  markTexturesSaved(result.savedPaths, result.originalPaths);
+  markTexturesSaved(result.savedPaths, result.originalPaths, snapshots);
   return {
     savedCount: result.savedCount,
     originalPaths: result.originalPaths,

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 
-import { ipc } from "../../ipc/client";
+import { getAssetFacets, revealAssetInFolder } from "../../app/services/explorerService";
 import type { AssetEntry } from "../../ipc/types";
 import { useProjectStore } from "../../state/projectStore";
 import { useSettingsStore } from "../../state/settingsStore";
@@ -38,7 +38,9 @@ export function ExplorerPanel({
   onTryDemo?: () => void;
 } = {}) {
   const parentRef = useRef<HTMLDivElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
+  const keyboardScopeActiveRef = useRef(false);
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [contextMenu, setContextMenu] = useState<{
     x: number;
@@ -95,12 +97,29 @@ export function ExplorerPanel({
   }, [explorerFocusTick]);
 
   useEffect(() => {
+    const panel = panelRef.current;
+    if (!panel) return;
+    const onFocusIn = () => {
+      keyboardScopeActiveRef.current = true;
+    };
+    const onFocusOut = (event: FocusEvent) => {
+      const next = event.relatedTarget as Node | null;
+      keyboardScopeActiveRef.current = !!(next && panel.contains(next));
+    };
+    panel.addEventListener("focusin", onFocusIn);
+    panel.addEventListener("focusout", onFocusOut);
+    return () => {
+      panel.removeEventListener("focusin", onFocusIn);
+      panel.removeEventListener("focusout", onFocusOut);
+    };
+  }, []);
+
+  useEffect(() => {
     if (!handle) {
       setFacets(null);
       return;
     }
-    void ipc
-      .getAssetFacets(handle)
+    void getAssetFacets(handle)
       .then(setFacets)
       .catch(() => setFacets(null));
   }, [handle, setFacets]);
@@ -149,11 +168,14 @@ export function ExplorerPanel({
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
+      if (!keyboardScopeActiveRef.current) return;
       const target = event.target as HTMLElement | null;
       if (
         target &&
         (target.tagName === "INPUT" ||
           target.tagName === "TEXTAREA" ||
+          target.tagName === "SELECT" ||
+          target.tagName === "BUTTON" ||
           target.isContentEditable)
       ) {
         return;
@@ -223,7 +245,7 @@ export function ExplorerPanel({
       const { entry } = contextMenu;
       if (id === "select") pickAsset(entry);
       if (id === "copy-path") void navigator.clipboard.writeText(entry.path);
-      if (id === "reveal") void ipc.revealAssetInFolder(handle, entry.path);
+      if (id === "reveal") void revealAssetInFolder(handle, entry.path);
       if (id === "find-models" && entry.kind === "texture") {
         setKindFilter("blockModel");
         setSearch(entry.displayName);
@@ -236,7 +258,12 @@ export function ExplorerPanel({
   const shownCount = assetTotal > 0 ? Math.min(assets.length, assetTotal) : assets.length;
 
   return (
-    <div className={styles.panel} data-tour="tour-explorer hint-explorer">
+    <div
+      ref={panelRef}
+      className={styles.panel}
+      data-tour="tour-explorer hint-explorer"
+      tabIndex={-1}
+    >
       {contextMenu && (
         <ContextMenu
           items={contextMenuItems}

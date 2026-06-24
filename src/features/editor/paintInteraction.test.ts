@@ -39,8 +39,8 @@ describe("paintInteraction fill/wand", () => {
     await paintAtTexturePixel(ctx, 0, 0, false, null, { pixelWorker: null });
     const after = getPixel(texturePath, 0, 0);
 
-    expect(before).not.toEqual(after);
-    expect(after?.[0]).toBe(255);
+    expect(before).toEqual([200, 200, 200, 255]);
+    expect(after).toEqual([255, 0, 0, 255]);
   });
 
   it("wand selects region via sync path", async () => {
@@ -58,7 +58,6 @@ describe("paintInteraction fill/wand", () => {
       },
     });
 
-    expect(selection).not.toBeNull();
-    expect(selection![2]).toBeGreaterThanOrEqual(selection![0]);
+    expect(selection).toEqual([0, 0, 15, 15]);
   });
 });

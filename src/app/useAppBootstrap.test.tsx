@@ -27,6 +27,8 @@ vi.mock("../state/projectStore", () => ({
 }));
 
 import { ipc } from "../ipc/client";
+import { useSettingsStore } from "../state/settingsStore";
+import { useViewerStore } from "../state/viewerStore";
 import { useAppBootstrap } from "./useAppBootstrap";
 
 describe("useAppBootstrap", () => {
@@ -44,5 +46,42 @@ describe("useAppBootstrap", () => {
 
     expect(result.current.ipcHealthy).toBe(false);
     expect(ipc.ping).toHaveBeenCalled();
+  });
+
+  it("marks IPC unhealthy when bootstrap fails", async () => {
+    vi.mocked(ipc.ping).mockRejectedValueOnce(new Error("ipc down"));
+
+    renderHook(() => useAppBootstrap());
+
+    await waitFor(() => {
+      expect(setIpcHealthy).toHaveBeenCalledWith(false);
+    });
+  });
+
+  it("syncs viewer preferences after successful bootstrap", async () => {
+    useSettingsStore.setState({
+      viewerLightingPreset: "flat",
+      viewerShowGrid: false,
+      viewerShowVignette: true,
+      viewerShowDevOverlay: false,
+    });
+    useViewerStore.setState({
+      lightingPreset: "studio",
+      showGrid: true,
+      showVignette: false,
+      showDevOverlay: true,
+    });
+
+    renderHook(() => useAppBootstrap());
+
+    await waitFor(() => {
+      expect(setIpcHealthy).toHaveBeenCalledWith(true);
+    });
+
+    const viewer = useViewerStore.getState();
+    expect(viewer.lightingPreset).toBe("flat");
+    expect(viewer.showGrid).toBe(false);
+    expect(viewer.showVignette).toBe(true);
+    expect(viewer.showDevOverlay).toBe(false);
   });
 });

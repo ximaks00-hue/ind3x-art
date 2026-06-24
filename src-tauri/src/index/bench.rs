@@ -1,6 +1,6 @@
 /// Benchmarks for the indexer pipeline.
 ///
-/// Run with:  cargo test --release bench_ -- --nocapture
+/// Run with:  cargo test --release bench_ -- --ignored --nocapture
 ///
 /// bench_classify_30k     — raw path classification only  (< 3 s)
 /// bench_run_index_cold   — full run_index without sled cache (cold)  (< 8 s)
@@ -66,6 +66,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "performance benchmark, excluded from default cargo test"]
     fn bench_classify_30k() {
         let paths = make_fake_paths();
         assert_eq!(paths.len(), TARGET);
@@ -98,6 +99,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "performance benchmark, excluded from default cargo test"]
     fn bench_run_index_cold() {
         let tmp = TempDir::new().unwrap();
         make_folder(&tmp);
@@ -134,6 +136,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "performance benchmark, excluded from default cargo test"]
     fn bench_run_index_warm() {
         let tmp = TempDir::new().unwrap();
         make_folder(&tmp);

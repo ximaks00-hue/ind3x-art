@@ -17,6 +17,9 @@ import {
   canUndo,
   commitChanges,
   ensureTextureDocument,
+  getActiveLayerContext,
+  getDoc,
+  getLayerPixel,
   getTextureCanvas,
   peekRedoLabel,
   peekUndoLabel,
@@ -24,7 +27,9 @@ import {
 } from "./textureDocument";
 import { usePixelWorker } from "./usePixelWorker";
 import { useViewerStore } from "../../state/viewerStore";
+import { buildMoveSelectionChanges, type MoveBuffer } from "./moveSelection";
 import styles from "./TextureCanvas.module.css";
+import type { Rgba } from "./textureDocument";
 
 interface TextureCanvasProps {
   handle: ProjectHandle;
@@ -87,13 +92,7 @@ function TextureCanvasInner({ handle, selectedFace }: TextureCanvasProps) {
   // Local ref mirrors store selection for use during pointer drag (avoids stale closure)
   const selectionRef = useRef<[number, number, number, number] | null>(null);
   // Clipboard for move: pixels captured from the selection
-  const moveBufferRef = useRef<{
-    pixels: Map<string, string>;
-    x0: number;
-    y0: number;
-    w: number;
-    h: number;
-  } | null>(null);
+  const moveBufferRef = useRef<MoveBuffer | null>(null);
   const stabilizerRef = useRef<[number, number][]>([]);
 
   const paintCtx = useCallback(
@@ -413,10 +412,13 @@ function TextureCanvasInner({ handle, selectedFace }: TextureCanvasProps) {
       if (tool === "move" && selection) {
         // Begin dragging: capture pixels in selection into moveBuffer
         const path = selectedFace.texturePath;
-        const canvas = getTextureCanvas(path);
-        if (canvas) {
-          const ctx = canvas.getContext("2d");
-          if (ctx) {
+        const layerCtx = getActiveLayerContext(path);
+        const doc = getDoc(path);
+        const activeLayer = layerCtx
+          ? doc?.layers.find((layer) => layer.id === layerCtx.layerId)
+          : null;
+        if (activeLayer) {
+          const ctx = activeLayer.ctx;
             const [sx0, sy0, sx1, sy1] = [
               Math.min(selection[0], selection[2]),
               Math.min(selection[1], selection[3]),
@@ -426,7 +428,7 @@ function TextureCanvasInner({ handle, selectedFace }: TextureCanvasProps) {
             const w = sx1 - sx0 + 1;
             const h = sy1 - sy0 + 1;
             const data = ctx.getImageData(sx0, sy0, w, h);
-            const pixels = new Map<string, string>();
+            const pixels = new Map<string, Rgba>();
             for (let y = 0; y < h; y++) {
               for (let x = 0; x < w; x++) {
                 const i = (y * w + x) * 4;
@@ -436,11 +438,10 @@ function TextureCanvasInner({ handle, selectedFace }: TextureCanvasProps) {
                   data.data[i + 2],
                   data.data[i + 3],
                 ];
-                pixels.set(`${x},${y}`, `rgba(${r},${g},${b},${a})`);
+                pixels.set(`${x},${y}`, [r, g, b, a]);
               }
             }
             moveBufferRef.current = { pixels, x0: sx0, y0: sy0, w, h };
-          }
         }
       } else {
         // Begin new selection rect
@@ -554,43 +555,19 @@ function TextureCanvasInner({ handle, selectedFace }: TextureCanvasProps) {
         const dx = point[0] - start[0];
         const dy = point[1] - start[1];
         const path = selectedFace.texturePath;
-        const changes: import("./textureDocument").PixelChange[] = [];
-
-        // Erase original region
-        for (let y = 0; y < mb.h; y++) {
-          for (let x = 0; x < mb.w; x++) {
-            changes.push({
-              x: mb.x0 + x,
-              y: mb.y0 + y,
-              before: [0, 0, 0, 0],
-              after: [0, 0, 0, 0],
-              layerId: "",
-            });
+        const layerContext = getActiveLayerContext(path);
+        if (layerContext) {
+          const changes = buildMoveSelectionChanges(
+            layerContext.layerId,
+            mb,
+            dx,
+            dy,
+            (x, y) => getLayerPixel(path, layerContext.layerId, x, y),
+          );
+          if (changes.length > 0) {
+            commitChanges(handle, path, changes);
+            bumpRevision();
           }
-        }
-        // Paint at new position
-        for (let y = 0; y < mb.h; y++) {
-          for (let x = 0; x < mb.w; x++) {
-            const px = mb.x0 + dx + x;
-            const py = mb.y0 + dy + y;
-            const rgba = mb.pixels.get(`${x},${y}`);
-            if (rgba) {
-              const m = rgba.match(/rgba?\((\d+),(\d+),(\d+),(\d+)\)/);
-              if (m) {
-                changes.push({
-                  x: px,
-                  y: py,
-                  before: [0, 0, 0, 0],
-                  after: [Number(m[1]), Number(m[2]), Number(m[3]), Number(m[4])],
-                  layerId: "",
-                });
-              }
-            }
-          }
-        }
-        if (changes.length > 0) {
-          commitChanges(handle, path, changes);
-          bumpRevision();
         }
         const newSel: [number, number, number, number] = [
           mb.x0 + dx,

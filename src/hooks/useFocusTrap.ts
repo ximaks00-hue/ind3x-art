@@ -20,6 +20,9 @@ export function useFocusTrap(active: boolean): React.RefObject<HTMLDivElement | 
     if (!active || !ref.current) return;
 
     const container = ref.current;
+    const previousFocus =
+      document.activeElement instanceof HTMLElement ? document.activeElement : null;
+
     const focusable = () =>
       Array.from(container.querySelectorAll<HTMLElement>(FOCUSABLE)).filter(
         (el) => !el.closest("[aria-hidden='true']"),
@@ -51,7 +54,12 @@ export function useFocusTrap(active: boolean): React.RefObject<HTMLDivElement | 
     };
 
     container.addEventListener("keydown", onKeyDown);
-    return () => container.removeEventListener("keydown", onKeyDown);
+    return () => {
+      container.removeEventListener("keydown", onKeyDown);
+      if (previousFocus?.isConnected) {
+        previousFocus.focus();
+      }
+    };
   }, [active]);
 
   return ref;

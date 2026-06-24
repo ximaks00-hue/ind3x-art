@@ -1,6 +1,11 @@
 import { useCallback, useEffect, useState } from "react";
 
-import { ipc } from "../../ipc/client";
+import {
+  createProjectBackup,
+  getSaveJournal,
+  listProjectBackups,
+  restoreBackup,
+} from "../../app/services/backupService";
 import type { BackupInfo, ProjectHandle, SaveJournalEntry } from "../../ipc/types";
 import { useFocusTrap } from "../../hooks/useFocusTrap";
 import styles from "./BackupManagerDialog.module.css";
@@ -56,8 +61,8 @@ function BackupManagerContent({
       if (showSpinner) setLoading(true);
       try {
         const [b, j] = await Promise.all([
-          ipc.listProjectBackups(handle),
-          ipc.getSaveJournal(handle),
+          listProjectBackups(handle),
+          getSaveJournal(handle),
         ]);
         setBackups(b);
         setJournal([...j].reverse());
@@ -85,8 +90,8 @@ function BackupManagerContent({
       }
       try {
         const [b, j] = await Promise.all([
-          ipc.listProjectBackups(handle),
-          ipc.getSaveJournal(handle),
+          listProjectBackups(handle),
+          getSaveJournal(handle),
         ]);
         if (!cancelled) {
           setBackups(b);
@@ -113,11 +118,7 @@ function BackupManagerContent({
       if (!handle) return;
       setRestoring(backupId);
       try {
-        if (ipc.restoreProjectBackupById) {
-          await ipc.restoreProjectBackupById(handle, backupId);
-        } else {
-          await ipc.restoreProjectBackup(handle, backupPath);
-        }
+        await restoreBackup(handle, backupId, backupPath);
         onRestored();
         onClose();
       } catch (e) {
@@ -147,7 +148,7 @@ function BackupManagerContent({
             if (!handle) return;
             setLoading(true);
             try {
-              await ipc.createProjectBackup(handle);
+              await createProjectBackup(handle);
               await loadData();
             } catch (e) {
               setError(e instanceof Error ? e.message : String(e));

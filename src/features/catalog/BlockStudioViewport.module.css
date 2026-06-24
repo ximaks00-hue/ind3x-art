@@ -1,0 +1,125 @@
+.studio {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+
+.toolbar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border-bottom: 1px solid var(--color-border);
+  flex-wrap: wrap;
+}
+
+.title {
+  font-size: 12px;
+  font-weight: 650;
+  color: var(--color-text-primary);
+  margin-right: auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.variantSelect {
+  font-size: 10px;
+  max-width: 120px;
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-border);
+  background: var(--color-bg-input);
+  color: var(--color-text-primary);
+}
+
+.biomes {
+  display: flex;
+  gap: 2px;
+}
+
+.biomeBtn,
+.biomeActive {
+  font-size: 9px;
+  padding: 3px 6px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-border);
+  background: transparent;
+  color: var(--color-text-muted);
+  text-transform: capitalize;
+}
+
+.biomeBtn:hover {
+  color: var(--color-text-secondary);
+}
+
+.biomeActive {
+  border-color: color-mix(in srgb, var(--color-accent) 45%, transparent);
+  color: var(--color-accent);
+  background: var(--color-bg-accent-subtle);
+}
+
+.modeBtn,
+.modeActive {
+  font-size: 10px;
+  font-weight: 600;
+  padding: 4px 10px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-border);
+  background: transparent;
+  color: var(--color-text-muted);
+}
+
+.modeBtn:hover {
+  background: var(--color-bg-panel-hover);
+  color: var(--color-text-primary);
+}
+
+.modeActive {
+  border-color: color-mix(in srgb, var(--color-accent) 50%, transparent);
+  background: var(--color-bg-accent-subtle);
+  color: var(--color-accent);
+}
+
+.presets {
+  display: flex;
+  gap: 4px;
+}
+
+.presetBtn {
+  font-size: 10px;
+  padding: 4px 8px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-border);
+  background: transparent;
+  color: var(--color-text-muted);
+}
+
+.presetBtn:hover {
+  color: var(--color-text-secondary);
+}
+
+.presetBtn[data-active="true"] {
+  color: var(--color-accent);
+  border-color: var(--color-accent);
+}
+
+.canvasArea {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+}
+
+.hintBar {
+  position: absolute;
+  left: var(--space-3);
+  right: var(--space-3);
+  bottom: var(--space-2);
+  z-index: 2;
+  pointer-events: none;
+  font-size: 10px;
+  color: var(--color-text-muted);
+  text-align: center;
+}

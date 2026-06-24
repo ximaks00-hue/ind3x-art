@@ -1,0 +1,94 @@
+.cell {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  width: 100%;
+  min-width: 0;
+  padding: 6px 4px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  transition:
+    background var(--transition-fast),
+    border-color var(--transition-fast);
+}
+
+.cell:hover {
+  background: var(--color-bg-panel-hover);
+  color: var(--color-text-primary);
+}
+
+.selected {
+  background: var(--color-bg-accent-subtle);
+  border-color: color-mix(in srgb, var(--color-accent) 45%, transparent);
+  color: var(--color-accent);
+}
+
+.focused {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 1px;
+}
+
+.warned {
+  position: relative;
+}
+
+.dirty {
+  border-color: color-mix(in srgb, var(--color-warning) 40%, transparent);
+}
+
+.dirtyBadge {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  z-index: 1;
+  font-size: 10px;
+  color: var(--color-warning);
+  line-height: 1;
+  pointer-events: none;
+}
+
+.warnBadge {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  z-index: 1;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--color-warning);
+  color: var(--color-bg-panel);
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 14px;
+  text-align: center;
+  pointer-events: none;
+}
+
+.iconSlot {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+}
+
+.placeholder {
+  font-size: 16px;
+  font-weight: 650;
+  color: var(--color-text-muted);
+}
+
+.label {
+  width: 100%;
+  font-size: 9px;
+  line-height: 1.2;
+  text-align: center;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

@@ -10,7 +10,7 @@ import {
 } from "lucide-react";
 
 import { useWindowChrome } from "../../hooks/useWindowChrome";
-import type { Theme } from "../../state/settingsStore";
+import type { Theme, WorkspaceMode } from "../../state/settingsStore";
 import { useSettingsStore } from "../../state/settingsStore";
 import { Icon } from "../icons/Icon";
 import { Button } from "../primitives";
@@ -50,7 +50,8 @@ export function TitleBar({
 }: TitleBarProps) {
   useWindowChrome();
 
-  const { theme, cycleTheme, toggleFocusMode, focusMode } = useSettingsStore();
+  const { theme, cycleTheme, toggleFocusMode, focusMode, workspaceMode, setWorkspaceMode } =
+    useSettingsStore();
   const ThemeIcon = THEME_ICONS[theme];
 
   return (
@@ -64,6 +65,24 @@ export function TitleBar({
       </div>
 
       <div className={styles.actions} data-tour="tour-open">
+        <div
+          className={styles.modeToggle}
+          role="group"
+          aria-label="Workspace mode"
+          data-tour="tour-workspace-mode"
+        >
+          {(["classic", "studio"] as WorkspaceMode[]).map((mode) => (
+            <button
+              key={mode}
+              type="button"
+              className={workspaceMode === mode ? styles.modeActive : styles.modeBtn}
+              onClick={() => setWorkspaceMode(mode)}
+              aria-pressed={workspaceMode === mode}
+            >
+              {mode === "classic" ? "Classic" : "Studio"}
+            </button>
+          ))}
+        </div>
         <Button
           variant="ghost"
           className={styles.iconAction}

@@ -19,6 +19,7 @@ pub struct Project {
     pub fingerprint: String,
     pub pack_format: Option<u32>,
     pub entries: Vec<AssetEntry>,
+    pub catalog: Vec<crate::dto::CatalogEntry>,
     #[allow(dead_code)]
     pub source: Box<dyn AssetSource>,
     pub model_cache: std::sync::Mutex<HashMap<String, ResolvedModel>>,
@@ -50,7 +51,7 @@ impl Default for AppState {
             projects: HashMap::new(),
             cancel_flags: HashMap::new(),
             db,
-            watcher: std::sync::Arc::new(std::sync::Mutex::new(None)),
+            watcher: std::sync::Arc::new(std::sync::Mutex::new(HashMap::new())),
         }
     }
 }

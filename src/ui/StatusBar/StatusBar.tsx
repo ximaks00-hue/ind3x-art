@@ -4,7 +4,14 @@ import styles from "./StatusBar.module.css";
 interface StatusBarProps {
   ipcHealthy: boolean;
   assetCount?: number;
+  catalogTotal?: number;
+  catalogLoading?: boolean;
+  catalogQueryError?: string | null;
   indexStatus: string;
+  workspaceLabel?: string;
+  catalogEntryLabel?: string;
+  faceDirection?: string;
+  textureLabel?: string;
   toolLabel?: string;
   layerIndex?: number;
   layerTotal?: number;
@@ -20,7 +27,14 @@ interface StatusBarProps {
 export function StatusBar({
   ipcHealthy,
   assetCount,
+  catalogTotal,
+  catalogLoading,
+  catalogQueryError,
   indexStatus,
+  workspaceLabel,
+  catalogEntryLabel,
+  faceDirection,
+  textureLabel,
   toolLabel,
   layerIndex,
   layerTotal,
@@ -41,9 +55,24 @@ export function StatusBar({
         ? "indexing…"
         : indexStatus;
 
+  const catalogLabel =
+    catalogQueryError != null
+      ? "catalog error"
+      : catalogLoading
+        ? "catalog…"
+        : catalogTotal != null
+          ? `${catalogTotal.toLocaleString()} catalog`
+          : undefined;
+
   const segments: string[] = [];
   segments.push(`IPC ${ipcHealthy ? "●" : "○"}`);
   segments.push(`Index ${indexLabel}`);
+
+  if (workspaceLabel) segments.push(workspaceLabel);
+  if (catalogLabel) segments.push(catalogLabel);
+  if (catalogEntryLabel) segments.push(catalogEntryLabel);
+  if (faceDirection) segments.push(`Face: ${faceDirection}`);
+  if (textureLabel) segments.push(textureLabel);
 
   if (toolLabel) segments.push(`Tool: ${toolLabel}`);
   if (layerIndex != null && layerTotal != null) {
@@ -78,7 +107,17 @@ export function StatusBar({
               |
             </span>
           )}
-          <span className={segment.startsWith("Dirty:") ? styles.dirty : undefined}>
+          <span
+            className={
+              segment.startsWith("Dirty:")
+                ? styles.dirty
+                : segment === workspaceLabel
+                  ? styles.modeBadge
+                  : segment === "catalog error"
+                    ? styles.catalogError
+                    : undefined
+            }
+          >
             {segment}
           </span>
         </span>

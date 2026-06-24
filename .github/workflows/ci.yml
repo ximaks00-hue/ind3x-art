@@ -7,6 +7,38 @@ on:
     branches: [main, master]
 
 jobs:
+  cross-platform:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: ESLint
+        run: npm run lint
+
+      - name: Unit tests
+        run: npm run test:unit
+
   build:
     runs-on: windows-latest
 
@@ -102,7 +134,7 @@ jobs:
         run: npm run test:e2e:integration
 
   native-e2e:
-    if: ${{ vars.TAURI_WEBDRIVER_URL != '' }}
+    if: ${{ vars.TAURI_WEBDRIVER_URL != '' || secrets.TAURI_WEBDRIVER_URL != '' }}
     runs-on: windows-latest
     steps:
       - name: Checkout

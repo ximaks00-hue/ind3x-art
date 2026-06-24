@@ -7,6 +7,9 @@ import { useSelectionStore } from "../../state/selectionStore";
 import { useSettingsStore } from "../../state/settingsStore";
 import { useUiStore } from "../../state/uiStore";
 import { useViewerStore } from "../../state/viewerStore";
+import { syncViewerPreferencesFromSettings } from "../../state/viewerPreferencesSync";
+import { useCatalogStore } from "../catalog/catalogStore";
+import { BlockStudioViewport } from "../catalog/BlockStudioViewport";
 import { WelcomeScreen } from "../../ui/WelcomeScreen/WelcomeScreen";
 import { ViewerAssetLoader, type ViewerAssetState } from "./ViewerAssetLoader";
 import { Scene3D } from "./Scene3D";
@@ -67,22 +70,16 @@ function ViewerPanelBody({
   selected: ReturnType<typeof useProjectStore.getState>["selectedAsset"];
 }) {
   const recentProjects = useSettingsStore((s) => s.recentProjects);
+  const workspaceMode = useSettingsStore((s) => s.workspaceMode);
+  const setWorkspaceMode = useSettingsStore((s) => s.setWorkspaceMode);
+  const catalogSelectedEntry = useCatalogStore((s) => s.selectedEntry);
   const pushToast = useUiStore((s) => s.pushToast);
   const setInteractionMode = useSelectionStore((s) => s.setInteractionMode);
   const setComparatorMode = useInteractionStore((s) => s.setComparatorMode);
 
   const showGrid = useViewerStore((s) => s.showGrid);
-  const setShowGrid = useViewerStore((s) => s.setShowGrid);
-  const setShowVignette = useViewerStore((s) => s.setShowVignette);
-  const setLightingPreset = useViewerStore((s) => s.setLightingPreset);
-  const setShowDevOverlay = useViewerStore((s) => s.setShowDevOverlay);
   const resetCamera = useViewerStore((s) => s.resetCamera);
   const setCurrentRenderable = useViewerStore((s) => s.setCurrentRenderable);
-
-  const settingsLighting = useSettingsStore((s) => s.viewerLightingPreset);
-  const settingsGrid = useSettingsStore((s) => s.viewerShowGrid);
-  const settingsVignette = useSettingsStore((s) => s.viewerShowVignette);
-  const settingsDevOverlay = useSettingsStore((s) => s.viewerShowDevOverlay);
 
   const comparatorMode = useInteractionStore((s) => s.comparatorMode);
   const viewerBeforeModel = useInteractionStore((s) => s.viewerBeforeModel);
@@ -91,25 +88,13 @@ function ViewerPanelBody({
   const [assetState, setAssetState] = useState<ViewerAssetState>(EMPTY_ASSET_STATE);
 
   useEffect(() => {
+    syncViewerPreferencesFromSettings();
+  }, []);
+
+  useEffect(() => {
     resetCamera();
     setCurrentRenderable(null);
   }, [resetCamera, setCurrentRenderable]);
-
-  useEffect(() => {
-    setLightingPreset(settingsLighting);
-    setShowGrid(settingsGrid);
-    setShowVignette(settingsVignette);
-    setShowDevOverlay(settingsDevOverlay);
-  }, [
-    settingsLighting,
-    settingsGrid,
-    settingsVignette,
-    settingsDevOverlay,
-    setLightingPreset,
-    setShowGrid,
-    setShowVignette,
-    setShowDevOverlay,
-  ]);
 
   const [variantPick, setVariantPick] = useState<{
     assetId: string;
@@ -119,8 +104,16 @@ function ViewerPanelBody({
     assetId: string;
     path: string;
   } | null>(null);
+  const [loadRetryTick, setLoadRetryTick] = useState(0);
 
-  const variantOverride = variantPick?.key;
+  const variantOverride =
+    variantPick && variantPick.assetId === selected?.id
+      ? variantPick.key
+      : workspaceMode === "studio" &&
+          catalogSelectedEntry &&
+          selected?.path === catalogSelectedEntry.sourcePath
+        ? (catalogSelectedEntry.defaultVariantKey ?? undefined)
+        : undefined;
 
   const { renderable, linkedModels, variants, variantKey, loading, error } = assetState;
 
@@ -156,7 +149,7 @@ function ViewerPanelBody({
 
   const loaderKey =
     selected && handle
-      ? `${handle.id}:${selected.id}:${variantOverride ?? ""}:${linkedModelOverride ?? ""}`
+      ? `${handle.id}:${selected.id}:${variantOverride ?? ""}:${linkedModelOverride ?? ""}:${loadRetryTick}`
       : "idle";
 
   const linkedSelectValue = linkedModelPick?.path ?? linkedModels[0]?.path ?? "";
@@ -178,6 +171,16 @@ function ViewerPanelBody({
     void ipc.revealLogDir();
   }, []);
 
+  const handleStudioRetry = useCallback(() => {
+    setAssetState(EMPTY_ASSET_STATE);
+    setLoadRetryTick((t) => t + 1);
+  }, []);
+
+  const handleOpenClassic = useCallback(() => {
+    setWorkspaceMode("classic");
+    pushToast("Switched to Classic mode", "info");
+  }, [pushToast, setWorkspaceMode]);
+
   return (
     <div className={styles.panel} data-tour="tour-viewer hint-viewer">
       {selected && handle && (
@@ -191,12 +194,14 @@ function ViewerPanelBody({
         />
       )}
 
-      <div className={styles.header}>
-        <span className={styles.badge}>3D Viewer</span>
-        <span className={styles.hint}>
-          {selected ? selected.displayName : "No selection"}
-        </span>
-      </div>
+      {workspaceMode !== "studio" || !renderable ? (
+        <div className={styles.header}>
+          <span className={styles.badge}>3D Viewer</span>
+          <span className={styles.hint}>
+            {selected ? selected.displayName : "No selection"}
+          </span>
+        </div>
+      ) : null}
 
       <ViewerToolbar
         selected={selected}
@@ -213,6 +218,7 @@ function ViewerPanelBody({
           selected && setLinkedModelPick({ assetId: selected.id, path })
         }
         onBiomeChange={setBiome}
+        hidden={workspaceMode === "studio"}
       />
 
       <div className={styles.stage}>
@@ -239,6 +245,9 @@ function ViewerPanelBody({
             error={error}
             isTexture={selected.kind === "texture"}
             hasLinkedModels={linkedModels.length > 0}
+            studioMode={workspaceMode === "studio"}
+            onRetry={workspaceMode === "studio" ? handleStudioRetry : undefined}
+            onOpenClassic={workspaceMode === "studio" ? handleOpenClassic : undefined}
             onShowFlatPreview={
               selected.kind === "texture" || selected.kind === "blockModel"
                 ? handleShowFlatPreview
@@ -248,6 +257,25 @@ function ViewerPanelBody({
             onReportIssue={handleReportIssue}
           />
         ) : renderable && handle ? (
+          workspaceMode === "studio" ? (
+            <BlockStudioViewport
+              model={renderable}
+              handle={handle}
+              displayName={selected?.displayName ?? renderable.modelId}
+              variants={variants}
+              variantKey={variantKey}
+              onVariantChange={(key) =>
+                selected && setVariantPick({ assetId: selected.id, key })
+              }
+              biome={biome}
+              onBiomeChange={setBiome}
+              isItem={
+                selected?.kind === "itemModel" ||
+                renderable.kind === "itemGenerated" ||
+                renderable.kind === "itemModel"
+              }
+            />
+          ) : (
           <>
             {comparatorMode === "3d" && viewerBeforeModel ? (
               <div className={styles.comparator3d}>
@@ -283,6 +311,7 @@ function ViewerPanelBody({
               )}
             </div>
           </>
+          )
         ) : null}
       </div>
     </div>

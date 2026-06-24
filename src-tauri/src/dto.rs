@@ -343,3 +343,75 @@ pub struct SaveTexturesResult {
     pub original_paths: Vec<String>,
     pub backup_path: Option<String>,
 }
+
+// --- Block Studio catalog (Phase 0 API) ---
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum CatalogEntryKind {
+    Block,
+    Item,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum CatalogCategory {
+    Building,
+    Nature,
+    Redstone,
+    Decoration,
+    Tools,
+    Food,
+    Misc,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum CatalogResolveKind {
+    Blockstate,
+    Model,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct CatalogEntry {
+    /// Stable id, e.g. `minecraft:stone`
+    pub id: String,
+    pub namespace: String,
+    pub display_name: String,
+    pub kind: CatalogEntryKind,
+    /// blockstate path or item/block model path
+    pub source_path: String,
+    pub resolve_kind: CatalogResolveKind,
+    #[serde(default)]
+    pub default_variant_key: Option<String>,
+    pub category: CatalogCategory,
+    pub search_tokens: Vec<String>,
+    pub texture_paths: Vec<String>,
+    pub icon_key: String,
+    #[serde(default)]
+    pub aliases: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct CatalogFilter {
+    pub category: Option<CatalogCategory>,
+    pub namespace: Option<String>,
+    pub search: Option<String>,
+    #[serde(default)]
+    pub fuzzy: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct CatalogPage {
+    pub entries: Vec<CatalogEntry>,
+    pub total: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct CatalogFacets {
+    pub by_category: Vec<FacetCount>,
+}

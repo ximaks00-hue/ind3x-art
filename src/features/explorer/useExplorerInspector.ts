@@ -1,7 +1,7 @@
-import { useCallback, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 
-import { ipc } from "../../ipc/client";
 import type { AssetDetails, AssetEntry, ProjectHandle } from "../../ipc/types";
+import { getAssetDetails, getAssetEntry } from "../../app/services/explorerService";
 import { useProjectStore } from "../../state/projectStore";
 import { useSettingsStore } from "../../state/settingsStore";
 
@@ -13,21 +13,37 @@ export function useExplorerInspector(handle: ProjectHandle | null) {
 
   const [inspector, setInspector] = useState<AssetDetails | null>(null);
   const [inspectorLoading, setInspectorLoading] = useState(false);
+  const requestId = useRef(0);
 
   const pickAsset = useCallback(
     (entry: AssetEntry) => {
+      const currentHandle = handle;
       selectAsset(entry);
       pushRecentAsset(entry.id);
+      if (!currentHandle) {
+        setInspectorLoading(false);
+        return;
+      }
+      const id = ++requestId.current;
       setInspectorLoading(true);
-      if (!handle) return;
-      void ipc
-        .getAssetDetails(handle, entry.id)
+      void getAssetDetails(currentHandle, entry.id)
         .then((details) => {
+          if (id !== requestId.current) return;
+          const active = useProjectStore.getState().selectedAsset;
+          if (!active || active.id !== entry.id) return;
           setInspector(details);
           setValidationCount(entry.id, details.warnings.length);
         })
-        .catch(() => setInspector(null))
-        .finally(() => setInspectorLoading(false));
+        .catch(() => {
+          if (id === requestId.current) {
+            setInspector(null);
+          }
+        })
+        .finally(() => {
+          if (id === requestId.current) {
+            setInspectorLoading(false);
+          }
+        });
     },
     [handle, selectAsset, pushRecentAsset, setValidationCount],
   );
@@ -41,7 +57,7 @@ export function useExplorerInspector(handle: ProjectHandle | null) {
         return;
       }
       try {
-        const entry = await ipc.getAssetEntry(handle, assetId);
+        const entry = await getAssetEntry(handle, assetId);
         pickAsset(entry);
       } catch {
         // ignore

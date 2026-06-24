@@ -46,3 +46,7 @@ export function getThumbnailCache(limit: number): ThumbnailLruCache {
 export function resetThumbnailCache(): void {
   sharedCache?.clear();
 }
+
+export function thumbnailCacheKey(handleId: number, assetPath: string): string {
+  return `${handleId}:${assetPath}`;
+}

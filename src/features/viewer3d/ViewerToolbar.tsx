@@ -14,6 +14,10 @@ import {
   CAMERA_PRESET_LABELS,
   type LightingPreset,
 } from "../../state/viewerStore";
+import {
+  setViewerLightingPreset,
+  toggleViewerShowGrid,
+} from "../../state/viewerPreferencesSync";
 import { IconButton } from "../../ui/primitives/IconButton";
 import { Select } from "../../ui/primitives/Select";
 import { BIOME_TINT_PALETTES, clearTextureCache, setActiveBiome } from "./textureLoader";
@@ -32,6 +36,7 @@ interface ViewerToolbarProps {
   onVariantChange: (key: string) => void;
   onLinkedModelChange: (path: string) => void;
   onBiomeChange: (biome: string) => void;
+  hidden?: boolean;
 }
 
 export function ViewerToolbar({
@@ -45,6 +50,7 @@ export function ViewerToolbar({
   onVariantChange,
   onLinkedModelChange,
   onBiomeChange,
+  hidden = false,
 }: ViewerToolbarProps) {
   const interactionMode = useSelectionStore((s) => s.interactionMode);
   const cameraPreset = useViewerStore((s) => s.cameraPreset);
@@ -55,8 +61,6 @@ export function ViewerToolbar({
   const setCameraPreset = useViewerStore((s) => s.setCameraPreset);
   const resetCamera = useViewerStore((s) => s.resetCamera);
   const setStoreDisplaySlot = useViewerStore((s) => s.setDisplaySlot);
-  const setLightingPreset = useViewerStore((s) => s.setLightingPreset);
-  const setShowGrid = useViewerStore((s) => s.setShowGrid);
   const setUvDebugMode = useViewerStore((s) => s.setUvDebugMode);
 
   const comparatorMode = useInteractionStore((s) => s.comparatorMode);
@@ -67,7 +71,7 @@ export function ViewerToolbar({
     comparatorMode === "2d" ? "2D" : comparatorMode === "3d" ? "3D" : "Off";
 
   return (
-    <div className={styles.toolbar}>
+    <div className={styles.toolbar} hidden={hidden} aria-hidden={hidden}>
       <div className={styles.group}>
         <span className={styles.groupLabel}>Variant</span>
         {variants.length > 1 && selected ? (
@@ -181,7 +185,7 @@ export function ViewerToolbar({
           className={styles.select}
           value={lightingPreset}
           aria-label="Lighting preset"
-          onChange={(e) => setLightingPreset(e.target.value as LightingPreset)}
+          onChange={(e) => setViewerLightingPreset(e.target.value as LightingPreset)}
         >
           {LIGHTING_PRESETS.map((p) => (
             <option key={p.id} value={p.id}>
@@ -227,7 +231,7 @@ export function ViewerToolbar({
         <IconButton
           label="Toggle floor grid"
           className={showGrid ? styles.btnActive : styles.btn}
-          onClick={() => setShowGrid(!showGrid)}
+          onClick={() => toggleViewerShowGrid()}
         >
           ⊞
         </IconButton>

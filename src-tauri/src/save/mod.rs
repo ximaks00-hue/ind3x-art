@@ -5,14 +5,16 @@ use base64::{engine::general_purpose::STANDARD, Engine};
 
 use crate::dto::{SaveMode, SaveOptions, SourceKind, TextureSaveEntry};
 use crate::error::{CoreError, CoreResult};
-use crate::source::normalize_zip_path;
+use crate::source::{normalize_zip_path, safe_join_under_root};
 
 pub mod backup;
 pub mod folder;
 pub mod jar;
 pub mod modes;
 
-pub use backup::{create_backup, list_backups, restore_backup, restore_backup_by_id};
+pub use backup::{
+    create_backup, list_backups, restore_backup_by_id, restore_backup_from_known_path,
+};
 pub use jar::rebuild_jar_atomic;
 
 #[derive(Debug, Clone)]
@@ -57,7 +59,7 @@ pub fn backup_jar(jar_path: &Path) -> CoreResult<PathBuf> {
 
 pub fn backup_folder_file(root: &Path, entry_path: &str) -> CoreResult<Option<PathBuf>> {
     let rel = normalize_zip_path(entry_path);
-    let source = root.join(rel.replace('/', std::path::MAIN_SEPARATOR_STR));
+    let source = safe_join_under_root(root, &rel)?;
     if !source.is_file() {
         return Ok(None);
     }
@@ -69,7 +71,10 @@ pub fn backup_folder_file(root: &Path, entry_path: &str) -> CoreResult<Option<Pa
     let backup_dest = root
         .join(".ind3x-backups")
         .join(stamp.to_string())
-        .join(rel.replace('/', std::path::MAIN_SEPARATOR_STR));
+        .join(
+            crate::source::validate_relative_asset_path(&rel)?
+                .replace('/', std::path::MAIN_SEPARATOR_STR),
+        );
 
     if let Some(parent) = backup_dest.parent() {
         std::fs::create_dir_all(parent)?;
@@ -139,7 +144,20 @@ pub fn save_prepared_textures(
             .target_path
             .as_deref()
             .ok_or_else(|| CoreError::Internal("export requires target_path".to_string()))?;
-        let target_root = PathBuf::from(target);
+        let target_root = PathBuf::from(target)
+            .canonicalize()
+            .or_else(|_| {
+                let path = PathBuf::from(target);
+                if path.is_absolute() {
+                    Ok(path)
+                } else {
+                    Err(std::io::Error::new(
+                        std::io::ErrorKind::InvalidInput,
+                        "export target must be absolute",
+                    ))
+                }
+            })
+            .map_err(|e| CoreError::Internal(format!("invalid export target path: {e}")))?;
         std::fs::create_dir_all(&target_root)?;
 
         let decoded: Vec<DecodedTexture> = textures
@@ -211,7 +229,7 @@ pub fn save_textures_to_source(
                         }
                     }
                     let rel = normalize_zip_path(&texture.path);
-                    let staged = staging.join(rel.replace('/', std::path::MAIN_SEPARATOR_STR));
+                    let staged = safe_join_under_root(&staging, &rel)?;
                     if let Some(parent) = staged.parent() {
                         std::fs::create_dir_all(parent)?;
                     }
@@ -220,8 +238,8 @@ pub fn save_textures_to_source(
 
                 for texture in &textures {
                     let rel = normalize_zip_path(&texture.path);
-                    let staged = staging.join(rel.replace('/', std::path::MAIN_SEPARATOR_STR));
-                    let dest = source_path.join(rel.replace('/', std::path::MAIN_SEPARATOR_STR));
+                    let staged = safe_join_under_root(&staging, &rel)?;
+                    let dest = safe_join_under_root(source_path, &rel)?;
                     if let Some(parent) = dest.parent() {
                         std::fs::create_dir_all(parent)?;
                     }
@@ -335,6 +353,19 @@ mod tests {
 
         let exported = export_dir.join("assets/test/textures/block/a.png");
         assert!(exported.is_file());
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn folder_write_rejects_traversal_paths() {
+        let dir = std::env::temp_dir().join(format!("ind3x-folder-guard-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let png = sample_png();
+
+        let result = write_texture_to_folder(&dir, "../outside.png", &png);
+        assert!(result.is_err());
 
         let _ = std::fs::remove_dir_all(&dir);
     }

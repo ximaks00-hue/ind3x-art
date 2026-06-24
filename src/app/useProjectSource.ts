@@ -1,8 +1,11 @@
-import { useCallback, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { Channel } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
 
 import { clearTextureDocuments } from "../features/editor/textureDocument";
+import { resetCatalogIconCache } from "../features/catalog/catalogIconCache";
+import { resetCatalogIconPipeline } from "../features/catalog/catalogIconPipeline";
+import { useCatalogStore } from "../features/catalog/catalogStore";
 import { resetThumbnailCache } from "../features/explorer/thumbnailCache";
 import { clearTextureCache } from "../features/viewer3d/textureLoader";
 import { ipc } from "../ipc/client";
@@ -14,6 +17,7 @@ import { useUiStore } from "../state/uiStore";
 
 export function useProjectSource(onBeforeOpen?: () => void) {
   const [opening, setOpening] = useState(false);
+  const openRequestIdRef = useRef(0);
   const handle = useProjectStore((s) => s.handle);
   const addRecentProject = useSettingsStore((s) => s.addRecentProject);
   const setLastSessionPath = useSettingsStore((s) => s.setLastSessionPath);
@@ -29,16 +33,22 @@ export function useProjectSource(onBeforeOpen?: () => void) {
 
   const openSource = useCallback(
     async (path: string) => {
+      const requestId = openRequestIdRef.current + 1;
+      openRequestIdRef.current = requestId;
       if (handle) {
         try {
           await ipc.closeSource(handle);
         } catch {
           // ignore stale handle cleanup errors
         }
+        clearTextureCache(handle);
         clearProject();
         clearSelection();
         clearTextureDocuments();
         resetThumbnailCache();
+        resetCatalogIconCache();
+        resetCatalogIconPipeline();
+        useCatalogStore.getState().reset();
         onBeforeOpen?.();
       }
 
@@ -48,6 +58,9 @@ export function useProjectSource(onBeforeOpen?: () => void) {
 
       const onEvent = new Channel<IndexEvent>();
       onEvent.onmessage = (event) => {
+        if (openRequestIdRef.current !== requestId) {
+          return;
+        }
         switch (event.type) {
           case "started":
             setIndexProgress(0, event.total, "scanning");
@@ -69,14 +82,26 @@ export function useProjectSource(onBeforeOpen?: () => void) {
 
       try {
         const result = await ipc.openSource(path, onEvent);
+        if (openRequestIdRef.current !== requestId) {
+          try {
+            await ipc.closeSource(result.handle);
+          } catch {
+            // ignore stale handle cleanup errors
+          }
+          return false;
+        }
         setHandle(result);
         finishOpen(result);
         bumpQueryRevision();
+        useCatalogStore.getState().bumpQueryRevision();
         addRecentProject(result.sourcePath, result.sourceKind);
         setLastSessionPath(result.sourcePath);
         pushToast(`Opened ${result.entryCount.toLocaleString()} assets`, "success");
         return true;
       } catch {
+        if (openRequestIdRef.current !== requestId) {
+          return false;
+        }
         setIndexStatus("error");
         clearProject();
         clearSelection();
@@ -84,7 +109,9 @@ export function useProjectSource(onBeforeOpen?: () => void) {
         pushToast("Failed to open source", "error");
         return false;
       } finally {
-        setOpening(false);
+        if (openRequestIdRef.current === requestId) {
+          setOpening(false);
+        }
       }
     },
     [
@@ -147,15 +174,18 @@ export function useProjectSource(onBeforeOpen?: () => void) {
           packFormat: null,
         });
         bumpQueryRevision();
-        clearTextureCache();
+        useCatalogStore.getState().bumpQueryRevision();
+        clearTextureCache(currentHandle);
+        resetThumbnailCache();
+        resetCatalogIconCache();
+        resetCatalogIconPipeline();
+        setIndexStatus("done");
         pushToast(`Reindexed ${count.toLocaleString()} assets`, "success");
         return true;
       } catch {
         setIndexStatus("error");
         pushToast("Failed to reindex project", "error");
         return false;
-      } finally {
-        setIndexStatus("done");
       }
     };
 
@@ -179,6 +209,7 @@ export function useProjectSource(onBeforeOpen?: () => void) {
     void ipc
       .onCacheInvalidated(() => {
         clearTextureCache();
+        resetThumbnailCache();
         const currentHandle = useProjectStore.getState().handle;
         if (currentHandle) {
           void ipc.invalidateProjectIndex(currentHandle);

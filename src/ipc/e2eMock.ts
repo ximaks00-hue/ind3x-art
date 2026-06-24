@@ -21,8 +21,23 @@ import type {
   TexturePreviewBatch,
   TextureSaveEntry,
   VariantKey,
+  CatalogEntry,
+  CatalogFilter,
+  CatalogPage,
 } from "./types";
 import type { Channel } from "@tauri-apps/api/core";
+import {
+  buildSyntheticCatalog,
+  E2E_CATALOG_SIZE,
+} from "./e2eCatalogFixture";
+import type { WorkspaceMode } from "../state/settingsStore";
+import { catalogEntryToAssetEntry } from "../features/catalog/catalogUtils";
+
+interface E2EFaultConfig {
+  latencyMs: number;
+  jitterMs: number;
+  failRate: number;
+}
 
 function fixtureFace(direction: string) {
   return {
@@ -145,6 +160,10 @@ const FIXTURE_RENDERABLE: RenderableModel = {
 
 export interface E2EApi {
   openFixture: () => Promise<void>;
+  openStudioFixture: () => Promise<void>;
+  setWorkspaceMode: (mode: WorkspaceMode) => Promise<void>;
+  selectCatalogEntry: (entryId: string) => Promise<void>;
+  getCatalogTotal: () => Promise<number>;
   paintTestPixel: () => Promise<void>;
   paintTestFill: () => Promise<void>;
   setFaceShapeDraft: () => Promise<void>;
@@ -162,6 +181,57 @@ export interface E2EApi {
 declare global {
   interface Window {
     __E2E__?: E2EApi;
+    __E2E_FAULTS__?: Partial<E2EFaultConfig>;
+  }
+}
+
+function readFaultConfig(): E2EFaultConfig {
+  const defaults: E2EFaultConfig = {
+    latencyMs: Number(import.meta.env.VITE_E2E_MOCK_LATENCY_MS ?? 0) || 0,
+    jitterMs: Number(import.meta.env.VITE_E2E_MOCK_JITTER_MS ?? 0) || 0,
+    failRate: Number(import.meta.env.VITE_E2E_MOCK_FAIL_RATE ?? 0) || 0,
+  };
+  if (typeof window === "undefined") return defaults;
+  const fromWindow = window.__E2E_FAULTS__ ?? {};
+  const fromStorageRaw = window.localStorage?.getItem("ind3x:e2e-faults");
+  let fromStorage: Partial<E2EFaultConfig> = {};
+  if (fromStorageRaw) {
+    try {
+      fromStorage = JSON.parse(fromStorageRaw) as Partial<E2EFaultConfig>;
+    } catch {
+      fromStorage = {};
+    }
+  }
+  return {
+    latencyMs: Math.max(
+      0,
+      Number(fromWindow.latencyMs ?? fromStorage.latencyMs ?? defaults.latencyMs) || 0,
+    ),
+    jitterMs: Math.max(
+      0,
+      Number(fromWindow.jitterMs ?? fromStorage.jitterMs ?? defaults.jitterMs) || 0,
+    ),
+    failRate: Math.min(
+      1,
+      Math.max(
+        0,
+        Number(fromWindow.failRate ?? fromStorage.failRate ?? defaults.failRate) || 0,
+      ),
+    ),
+  };
+}
+
+async function applyFaultPoint(opName: string): Promise<void> {
+  const fault = readFaultConfig();
+  if (fault.latencyMs > 0 || fault.jitterMs > 0) {
+    const jitter = fault.jitterMs > 0 ? Math.floor(Math.random() * fault.jitterMs) : 0;
+    const wait = fault.latencyMs + jitter;
+    if (wait > 0) {
+      await new Promise((resolve) => setTimeout(resolve, wait));
+    }
+  }
+  if (fault.failRate > 0 && Math.random() < fault.failRate) {
+    throw new Error(`E2E mock injected failure at ${opName}`);
   }
 }
 
@@ -169,11 +239,13 @@ export function createE2eMockIpc() {
   let handleSeq = 1;
   let currentHandle: ProjectHandle | null = null;
   let savedTextures: TextureSaveEntry[] = [];
+  const mockCatalog = buildSyntheticCatalog(E2E_CATALOG_SIZE);
+  const catalogById = new Map(mockCatalog.map((entry) => [entry.id, entry]));
 
   const appInfo: AppInfo = {
     name: "inD3X Art",
-    version: "0.2.0-e2e",
-    identifier: "art.ind3x.app",
+    version: "0.3.0-e2e",
+    identifier: "com.ind3x.art",
     target: "e2e-mock",
     profile: "test",
     logDir: "/tmp/ind3x-art-e2e",
@@ -199,6 +271,57 @@ export function createE2eMockIpc() {
       .setQueryPage(FIXTURE_ASSETS, FIXTURE_ASSETS.length, false, 0);
     useProjectStore.getState().setIndexStatus("done");
     useProjectStore.getState().setIndexProgress(100, 100, "fixture");
+    const { useCatalogStore } = await import("../features/catalog/catalogStore");
+    useCatalogStore.getState().bumpQueryRevision();
+  }
+
+  async function setWorkspaceMode(mode: WorkspaceMode) {
+    const { useSettingsStore } = await import("../state/settingsStore");
+    useSettingsStore.getState().setWorkspaceMode(mode);
+  }
+
+  async function openStudioFixture() {
+    await openFixtureProject();
+    await setWorkspaceMode("studio");
+  }
+
+  async function selectCatalogEntry(entryId: string) {
+    const entry = catalogById.get(entryId);
+    if (!entry) throw new Error(`Catalog entry not found: ${entryId}`);
+    const { useCatalogStore } = await import("../features/catalog/catalogStore");
+    const { useProjectStore } = await import("../state/projectStore");
+    useCatalogStore.getState().selectEntry(entry);
+    useProjectStore.getState().selectAsset(catalogEntryToAssetEntry(entry));
+  }
+
+  async function getCatalogTotal() {
+    if (!currentHandle) return 0;
+    const page = await queryCatalogMock(
+      { category: null, namespace: null, search: null, fuzzy: false },
+      { offset: 0, limit: 1 },
+    );
+    return page.total;
+  }
+
+  function queryCatalogMock(filter: CatalogFilter, page: PageReq): CatalogPage {
+    let entries = mockCatalog;
+    if (filter.category) {
+      entries = entries.filter((e) => e.category === filter.category);
+    }
+    if (filter.namespace) {
+      entries = entries.filter((e) => e.namespace === filter.namespace);
+    }
+    if (filter.search) {
+      const q = filter.search.toLowerCase();
+      entries = entries.filter(
+        (e) =>
+          e.displayName.toLowerCase().includes(q) ||
+          e.id.toLowerCase().includes(q) ||
+          e.searchTokens.some((t) => t.toLowerCase().includes(q)),
+      );
+    }
+    const slice = entries.slice(page.offset, page.offset + page.limit);
+    return { entries: slice, total: entries.length };
   }
 
   async function paintTestPixel() {
@@ -255,6 +378,10 @@ export function createE2eMockIpc() {
   if (typeof window !== "undefined") {
     window.__E2E__ = {
       openFixture: openFixtureProject,
+      openStudioFixture,
+      setWorkspaceMode,
+      selectCatalogEntry,
+      getCatalogTotal,
       paintTestPixel,
       paintTestFill,
       setFaceShapeDraft,
@@ -281,6 +408,7 @@ export function createE2eMockIpc() {
     revealLogDir: async () => undefined,
     ping: async () => "pong" as const,
     openSource: async (path: string, onEvent: Channel<IndexEvent>) => {
+      await applyFaultPoint("openSource");
       const handle: ProjectHandle = { id: handleSeq++ };
       currentHandle = handle;
       emitIndexEvent(onEvent, { type: "started", total: FIXTURE_ASSETS.length });
@@ -306,6 +434,7 @@ export function createE2eMockIpc() {
       filter: AssetFilter,
       page: PageReq,
     ): Promise<AssetPage> => {
+      await applyFaultPoint("queryAssets");
       let entries = FIXTURE_ASSETS;
       if (filter.kind) entries = entries.filter((e) => e.kind === filter.kind);
       if (filter.namespace) {
@@ -322,6 +451,37 @@ export function createE2eMockIpc() {
         { key: "blockstate", count: 1 },
       ],
     }),
+    queryCatalog: async (
+      _handle: ProjectHandle,
+      filter: CatalogFilter,
+      page: PageReq,
+    ): Promise<CatalogPage> => {
+      await applyFaultPoint("queryCatalog");
+      return queryCatalogMock(filter, page);
+    },
+    getCatalogEntry: async (
+      _handle: ProjectHandle,
+      entryId: string,
+    ): Promise<CatalogEntry> => {
+      const entry = catalogById.get(entryId);
+      if (!entry) throw new Error(`Catalog entry not found: ${entryId}`);
+      return entry;
+    },
+    getCatalogFacets: async (): Promise<{ byCategory: { key: string; count: number }[] }> => {
+      const counts = new Map<string, number>();
+      for (const entry of mockCatalog) {
+        counts.set(entry.category, (counts.get(entry.category) ?? 0) + 1);
+      }
+      return {
+        byCategory: [...counts.entries()].map(([key, count]) => ({ key, count })),
+      };
+    },
+    resolveCatalogEntry: async (_handle: ProjectHandle, entryId: string) => {
+      if (entryId === "minecraft:broken_block") {
+        throw new Error("Missing parent model: minecraft:block/missing_parent");
+      }
+      return FIXTURE_RENDERABLE;
+    },
     getAssetEntry: async (
       _handle: ProjectHandle,
       assetId: string,
@@ -343,14 +503,17 @@ export function createE2eMockIpc() {
       _handle: ProjectHandle,
       assetPaths: string[],
     ): Promise<TexturePreviewBatch[]> =>
-      assetPaths.map((path) => ({
-        path,
-        preview: {
-          pngBase64: RED_PNG_BASE64,
-          width: 16,
-          height: 16,
-        },
-      })),
+      {
+        await applyFaultPoint("getTexturePreviewsBatch");
+        return assetPaths.map((path) => ({
+          path,
+          preview: {
+            pngBase64: RED_PNG_BASE64,
+            width: 16,
+            height: 16,
+          },
+        }));
+      },
     getTexturePreview: async (): Promise<TexturePreview> => ({
       pngBase64: RED_PNG_BASE64,
       width: 16,
@@ -376,6 +539,7 @@ export function createE2eMockIpc() {
       textures: TextureSaveEntry[],
       _options?: SaveOptions,
     ): Promise<SaveTexturesResult> => {
+      await applyFaultPoint("saveTextures");
       savedTextures = textures;
       const paths = textures.map((t) => t.path);
       return {
@@ -390,6 +554,7 @@ export function createE2eMockIpc() {
       textures: TextureSaveEntry[],
       _options?: SaveOptions,
     ): Promise<SaveTexturesResult> => {
+      await applyFaultPoint("saveBatch");
       savedTextures = textures;
       const paths = textures.map((t) => t.path);
       return {
@@ -413,7 +578,10 @@ export function createE2eMockIpc() {
       createdAt: Math.floor(Date.now() / 1000),
       kind: "folder",
     }),
-    reindexProject: async () => 0,
+    reindexProject: async () => {
+      await applyFaultPoint("reindexProject");
+      return 0;
+    },
     invalidateProjectIndex: async () => undefined,
     rollbackLastSave: async () => undefined,
     onSourceChanged: async () => () => undefined,

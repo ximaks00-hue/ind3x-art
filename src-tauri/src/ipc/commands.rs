@@ -14,6 +14,10 @@ pub fn builder() -> Builder<tauri::Wry> {
         cancel_index,
         query_assets,
         get_asset_facets,
+        query_catalog,
+        get_catalog_entry,
+        get_catalog_facets,
+        resolve_catalog_entry,
         get_asset_entry,
         get_asset_details,
         get_texture_previews_batch,
@@ -50,7 +54,7 @@ pub fn export_typescript(path: &str) {
         .expect("failed to export tauri-specta bindings");
 }
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Mutex;
 
 use tauri::{Manager, State};
@@ -58,7 +62,8 @@ use tauri_plugin_opener::OpenerExt;
 
 use crate::compile::{compile_multipart_renderable, compile_renderable, compile_texture_preview, list_variant_keys};
 use crate::dto::{
-    AppInfo, AssetDetails, AssetFacets, AssetFilter, AssetPage, AssetKind, BackupInfo, IndexEvent,
+    AppInfo, AssetDetails, AssetFacets, AssetFilter, AssetPage, AssetKind, BackupInfo, CatalogFacets,
+    IndexEvent,
     ModelRefInfo, OpenSourceResult, PageReq, ProjectHandle, RenderableModel, SaveJournalEntry,
     SaveMode, SaveOptions, SaveTexturesResult, TexturePreview, TexturePreviewBatch,
     TextureSaveEntry, VariantKey,
@@ -74,8 +79,11 @@ use crate::model::types::{
     texture_stem_from_entry_path,
 };
 use crate::resolve::{collect_variant_models, find_models_for_texture, ModelRegistry};
-use crate::save::{create_backup, list_backups, prepare_textures, restore_backup, save_prepared_textures};
+use crate::save::{
+    create_backup, list_backups, prepare_textures, restore_backup_from_known_path, save_prepared_textures,
+};
 use crate::source::open_source as load_source;
+use crate::source::safe_join_under_root;
 use crate::state::SharedState;
 
 fn pack_for_project(project: &crate::state::Project) -> PackInfo {
@@ -106,6 +114,24 @@ fn apply_texture_link_counts(project: &mut crate::state::Project) {
     }
 }
 
+fn project_for_handle(
+    app: &crate::state::AppState,
+    handle: ProjectHandle,
+) -> CoreResult<&crate::state::Project> {
+    app.projects
+        .get(&handle.id)
+        .ok_or(CoreError::ProjectNotFound)
+}
+
+fn project_for_handle_mut(
+    app: &mut crate::state::AppState,
+    handle: ProjectHandle,
+) -> CoreResult<&mut crate::state::Project> {
+    app.projects
+        .get_mut(&handle.id)
+        .ok_or(CoreError::ProjectNotFound)
+}
+
 fn refresh_index_cache(
     db: &sled::Db,
     old_fingerprint: &str,
@@ -114,6 +140,7 @@ fn refresh_index_cache(
 ) -> CoreResult<()> {
     if old_fingerprint != new_fingerprint {
         let _ = invalidate_index(db, old_fingerprint);
+        let _ = crate::catalog::invalidate_project_catalog_cache(db, old_fingerprint);
     }
     let encoded = serde_json::to_vec(entries)
         .map_err(|e| CoreError::Internal(format!("cache encode failed: {e}")))?;
@@ -122,6 +149,53 @@ fn refresh_index_cache(
         encoded,
     )?;
     Ok(())
+}
+
+fn indexed_texture_paths(project: &crate::state::Project) -> HashSet<&str> {
+    project
+        .entries
+        .iter()
+        .filter(|entry| entry.kind == AssetKind::Texture)
+        .map(|entry| entry.path.as_str())
+        .collect()
+}
+
+fn invalidate_jar_cache_if_needed(source_kind: crate::dto::SourceKind, source_path: &std::path::Path) {
+    if source_kind == crate::dto::SourceKind::Jar {
+        if let Ok(jar) = crate::source::JarSource::new(source_path) {
+            jar.invalidate_cache();
+        }
+    }
+}
+
+fn refresh_project_for_paths(
+    app: &mut crate::state::AppState,
+    db: &sled::Db,
+    handle: ProjectHandle,
+    changed_paths: &[String],
+) -> CoreResult<(crate::dto::SourceKind, std::path::PathBuf)> {
+    let project = project_for_handle_mut(app, handle)?;
+    let source_path = project.source_path.clone();
+    let source_kind = project.source_kind;
+    project.source = load_source(&source_path)?;
+    let old_fp = project.fingerprint.clone();
+    let new_fp = source_fingerprint(&project.source_path)?;
+    let _ = patch_entries_for_paths(
+        &mut project.entries,
+        project.source.as_ref(),
+        changed_paths,
+        None,
+    );
+    project.fingerprint = new_fp.clone();
+    let entries_snapshot = project.entries.clone();
+    if let Ok(mut cache) = project.model_cache.lock() {
+        cache.clear();
+    }
+    rebuild_texture_model_index(project);
+    let _ = refresh_index_cache(db, &old_fp, &new_fp, &entries_snapshot);
+    let _ = crate::catalog::invalidate_project_catalog_cache(db, &new_fp);
+    let _ = crate::catalog::build_project_catalog(project, db);
+    Ok((source_kind, source_path))
 }
 
 #[tauri::command]
@@ -185,6 +259,7 @@ pub async fn open_source(
                 fingerprint,
                 pack_format: pack_info.pack_format,
                 entries: entries.clone(),
+                catalog: Vec::new(),
                 source,
                 model_cache: Mutex::new(HashMap::new()),
                 texture_model_index: HashMap::new(),
@@ -193,6 +268,7 @@ pub async fn open_source(
         );
         if let Some(project) = app.projects.get_mut(&handle_id) {
             rebuild_texture_model_index(project);
+            let _ = crate::catalog::build_project_catalog(project, &db);
         }
         let res = OpenSourceResult {
             handle: ProjectHandle { id: handle_id },
@@ -206,7 +282,7 @@ pub async fn open_source(
     };
 
     // Install file-system watcher for external change detection
-    crate::watcher::install_watcher(app_handle, source_path, &watcher_shared);
+    crate::watcher::install_watcher(app_handle, handle_id, source_path, &watcher_shared);
 
     Ok(result)
 }
@@ -250,10 +326,13 @@ pub async fn reindex_project(
         project.source = source;
         refresh_index_cache(&db, &old_fingerprint, &new_fingerprint, &project.entries)?;
         rebuild_texture_model_index(project);
+        let _ = crate::catalog::invalidate_project_catalog_cache(&db, &new_fingerprint);
+        let _ = crate::catalog::build_project_catalog(project, &db);
         project.entries.len() as u64
     } else {
         if old_fingerprint != new_fingerprint {
             let _ = invalidate_index(&db, &old_fingerprint);
+            let _ = crate::catalog::invalidate_project_catalog_cache(&db, &old_fingerprint);
         }
         let (entries, _) =
             run_index(source.as_ref(), &db, &new_fingerprint, &cancel, &on_event)?;
@@ -267,6 +346,7 @@ pub async fn reindex_project(
             cache.clear();
         }
         rebuild_texture_model_index(project);
+        let _ = crate::catalog::build_project_catalog(project, &db);
         entries.len() as u64
     };
 
@@ -284,7 +364,8 @@ pub async fn reindex_project(
 pub fn invalidate_project_index(handle: ProjectHandle, state: State<'_, SharedState>) -> CoreResult<()> {
     let app = state.read();
     let project = app.projects.get(&handle.id).ok_or(CoreError::ProjectNotFound)?;
-    invalidate_index(&app.db, &project.fingerprint)
+    invalidate_index(&app.db, &project.fingerprint)?;
+    crate::catalog::invalidate_project_catalog_cache(&app.db, &project.fingerprint)
 }
 
 #[tauri::command]
@@ -294,7 +375,7 @@ pub fn close_source(handle: ProjectHandle, state: State<'_, SharedState>) -> Cor
     app.cancel_index(handle.id);
     app.projects.remove(&handle.id);
     app.clear_cancel(handle.id);
-    crate::watcher::stop_watcher(&std::sync::Arc::clone(&app.watcher));
+    crate::watcher::stop_watcher(handle.id, &std::sync::Arc::clone(&app.watcher));
     Ok(())
 }
 
@@ -333,6 +414,61 @@ pub fn get_asset_facets(
 
 #[tauri::command]
 #[specta::specta]
+pub fn query_catalog(
+    handle: ProjectHandle,
+    filter: crate::dto::CatalogFilter,
+    page: PageReq,
+    state: State<'_, SharedState>,
+) -> CoreResult<crate::dto::CatalogPage> {
+    let app = state.read();
+    let project = app.projects.get(&handle.id).ok_or(CoreError::ProjectNotFound)?;
+    Ok(crate::catalog::query_catalog(&project.catalog, filter, page))
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn get_catalog_entry(
+    handle: ProjectHandle,
+    entry_id: String,
+    state: State<'_, SharedState>,
+) -> CoreResult<crate::dto::CatalogEntry> {
+    let app = state.read();
+    let project = app.projects.get(&handle.id).ok_or(CoreError::ProjectNotFound)?;
+    crate::catalog::get_catalog_entry(&project.catalog, &entry_id)
+        .cloned()
+        .ok_or_else(|| CoreError::AssetNotFound(entry_id))
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn get_catalog_facets(
+    handle: ProjectHandle,
+    state: State<'_, SharedState>,
+) -> CoreResult<CatalogFacets> {
+    let app = state.read();
+    let project = app.projects.get(&handle.id).ok_or(CoreError::ProjectNotFound)?;
+    Ok(crate::catalog::catalog_facets(&project.catalog))
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn resolve_catalog_entry(
+    handle: ProjectHandle,
+    entry_id: String,
+    state: State<'_, SharedState>,
+) -> CoreResult<RenderableModel> {
+    let (source_path, variant_key) = {
+        let app = state.read();
+        let project = app.projects.get(&handle.id).ok_or(CoreError::ProjectNotFound)?;
+        let entry = crate::catalog::get_catalog_entry(&project.catalog, &entry_id)
+            .ok_or_else(|| CoreError::AssetNotFound(entry_id.clone()))?;
+        (entry.source_path.clone(), entry.default_variant_key.clone())
+    };
+    resolve_renderable(handle, source_path, variant_key, None, state)
+}
+
+#[tauri::command]
+#[specta::specta]
 pub fn get_asset_entry(
     handle: ProjectHandle,
     asset_id: String,
@@ -366,19 +502,16 @@ pub fn get_texture_previews_batch(
 ) -> CoreResult<Vec<TexturePreviewBatch>> {
     let app = state.read();
     let project = app.projects.get(&handle.id).ok_or(CoreError::ProjectNotFound)?;
+    let valid_textures = indexed_texture_paths(project);
     let size = max_size.unwrap_or(32);
     let mut out = Vec::with_capacity(asset_paths.len());
     for path in asset_paths {
-        let preview = if let Some(entry) = project.entries.iter().find(|e| e.path == path) {
-            if entry.kind == AssetKind::Texture {
-                project
-                    .source
-                    .read(&path)
-                    .ok()
-                    .and_then(|bytes| decode_texture_preview(&bytes, size).ok())
-            } else {
-                None
-            }
+        let preview = if valid_textures.contains(path.as_str()) {
+            project
+                .source
+                .read(&path)
+                .ok()
+                .and_then(|bytes| decode_texture_preview(&bytes, size).ok())
         } else {
             None
         };
@@ -403,8 +536,7 @@ pub fn reveal_asset_in_folder(
 
     match project.source_kind {
         crate::dto::SourceKind::Folder => {
-            let rel = asset_path.replace('/', std::path::MAIN_SEPARATOR_STR);
-            let abs = project.source_path.join(rel);
+            let abs = safe_join_under_root(&project.source_path, &asset_path)?;
             let reveal = if abs.is_file() {
                 abs
             } else {
@@ -440,19 +572,16 @@ pub fn get_texture_preview(
     state: State<'_, SharedState>,
 ) -> CoreResult<TexturePreview> {
     let app = state.read();
-    let project = app
-        .projects
-        .get(&handle.id)
-        .ok_or(CoreError::ProjectNotFound)?;
+    let project = project_for_handle(&app, handle)?;
 
     let entry = project
         .entries
         .iter()
         .find(|e| e.path == asset_path)
-        .ok_or_else(|| CoreError::Internal("asset not found".to_string()))?;
+        .ok_or_else(|| CoreError::AssetNotFound(asset_path.clone()))?;
 
     if entry.kind != AssetKind::Texture {
-        return Err(CoreError::Internal("not a texture asset".to_string()));
+        return Err(CoreError::InvalidInput("not a texture asset".to_string()));
     }
 
     let bytes = project.source.read(&asset_path)?;
@@ -467,10 +596,7 @@ pub fn get_texture(
     state: State<'_, SharedState>,
 ) -> CoreResult<TexturePreview> {
     let app = state.read();
-    let project = app
-        .projects
-        .get(&handle.id)
-        .ok_or(CoreError::ProjectNotFound)?;
+    let project = project_for_handle(&app, handle)?;
 
     let bytes = project.source.read(&texture_path)?;
     encode_texture_full(&bytes)
@@ -485,14 +611,11 @@ pub fn get_texture_binary(
     state: State<'_, SharedState>,
 ) -> CoreResult<Vec<u8>> {
     let app = state.read();
-    let project = app
-        .projects
-        .get(&handle.id)
-        .ok_or(CoreError::ProjectNotFound)?;
+    let project = project_for_handle(&app, handle)?;
 
     let bytes = project.source.read(&texture_path)?;
     if !bytes.starts_with(b"\x89PNG") {
-        return Err(CoreError::Internal("not a valid PNG".to_string()));
+        return Err(CoreError::InvalidInput("not a valid PNG".to_string()));
     }
     Ok(bytes)
 }
@@ -507,10 +630,7 @@ pub fn save_texture_mcmeta(
     state: State<'_, SharedState>,
 ) -> CoreResult<()> {
     let app = state.read();
-    let project = app
-        .projects
-        .get(&handle.id)
-        .ok_or(CoreError::ProjectNotFound)?;
+    let project = project_for_handle(&app, handle)?;
 
     // Validate JSON
     let _parsed: serde_json::Value = serde_json::from_str(&mcmeta_json)
@@ -527,7 +647,7 @@ pub fn save_texture_mcmeta(
             crate::save::rebuild_jar_atomic(&project.source_path, &replacements)
         }
         SourceKind::Folder => {
-            let abs = project.source_path.join(mcmeta_path);
+            let abs = safe_join_under_root(&project.source_path, &mcmeta_path)?;
             if let Some(parent) = abs.parent() {
                 std::fs::create_dir_all(parent)?;
             }
@@ -551,17 +671,16 @@ pub fn save_textures(
         namespace: None,
     });
 
-    let mut app = state.write();
-    let db = app.db.clone();
-    let project = app
-        .projects
-        .get_mut(&handle.id)
-        .ok_or(CoreError::ProjectNotFound)?;
+    let (source_path, source_kind, db) = {
+        let app = state.read();
+        let project = project_for_handle(&app, handle.clone())?;
+        (project.source_path.clone(), project.source_kind, app.db.clone())
+    };
 
     let prepared = prepare_textures(textures, &options)?;
     let (original_paths, saved_paths, backup_path) = save_prepared_textures(
-        &project.source_path,
-        project.source_kind,
+        &source_path,
+        source_kind,
         prepared,
         &options,
     )?;
@@ -571,32 +690,19 @@ pub fn save_textures(
         .map(|d| d.as_secs())
         .unwrap_or(0);
 
-    project.save_journal.push(SaveJournalEntry {
-        timestamp,
-        mode: options.mode,
-        original_paths: original_paths.clone(),
-        saved_paths: saved_paths.clone(),
-        backup_path: backup_path.clone(),
-    });
-
-    // Refresh index metadata for saved texture paths.
-    let source_path = project.source_path.clone();
-    project.source = load_source(&source_path)?;
-    let old_fp = project.fingerprint.clone();
-    let new_fp = source_fingerprint(&project.source_path)?;
-    let _ = patch_entries_for_paths(&mut project.entries, project.source.as_ref(), &saved_paths, None);
-    project.fingerprint = new_fp.clone();
-    let entries_snapshot = project.entries.clone();
-    let source_kind = project.source_kind;
-    let source_path = project.source_path.clone();
-    rebuild_texture_model_index(project);
-    let _ = refresh_index_cache(&db, &old_fp, &new_fp, &entries_snapshot);
-
-    if source_kind == crate::dto::SourceKind::Jar {
-        if let Ok(jar) = crate::source::JarSource::new(&source_path) {
-            jar.invalidate_cache();
-        }
-    }
+    let (updated_kind, updated_source_path) = {
+        let mut app = state.write();
+        let project = project_for_handle_mut(&mut app, handle.clone())?;
+        project.save_journal.push(SaveJournalEntry {
+            timestamp,
+            mode: options.mode,
+            original_paths: original_paths.clone(),
+            saved_paths: saved_paths.clone(),
+            backup_path: backup_path.clone(),
+        });
+        refresh_project_for_paths(&mut app, &db, handle, &saved_paths)?
+    };
+    invalidate_jar_cache_if_needed(updated_kind, &updated_source_path);
 
     Ok(SaveTexturesResult {
         saved_count: saved_paths.len() as u64,
@@ -637,46 +743,29 @@ pub fn get_save_journal(
 #[tauri::command]
 #[specta::specta]
 pub fn rollback_last_save(handle: ProjectHandle, state: State<'_, SharedState>) -> CoreResult<()> {
-    let mut app = state.write();
-    let db = app.db.clone();
-    let project = app.projects.get_mut(&handle.id).ok_or(CoreError::ProjectNotFound)?;
-    let entry = project
-        .save_journal
-        .pop()
-        .ok_or_else(|| CoreError::Internal("no save to roll back".to_string()))?;
+    let (entry, source_path, source_kind, db) = {
+        let mut app = state.write();
+        let db = app.db.clone();
+        let project = app.projects.get_mut(&handle.id).ok_or(CoreError::ProjectNotFound)?;
+        let entry = project
+            .save_journal
+            .pop()
+            .ok_or_else(|| CoreError::Internal("no save to roll back".to_string()))?;
+        (entry, project.source_path.clone(), project.source_kind, db)
+    };
 
     let backup = entry
         .backup_path
         .as_deref()
         .ok_or_else(|| CoreError::Internal("save journal entry has no backup".to_string()))?;
 
-    restore_backup(
-        &project.source_path,
-        project.source_kind,
-        std::path::Path::new(backup),
-    )?;
+    restore_backup_from_known_path(&source_path, source_kind, backup)?;
 
-    project.source = load_source(&project.source_path)?;
-    let old_fp = project.fingerprint.clone();
-    let new_fp = source_fingerprint(&project.source_path)?;
-    let _ = patch_entries_for_paths(
-        &mut project.entries,
-        project.source.as_ref(),
-        &entry.saved_paths,
-        None,
-    );
-    project.fingerprint = new_fp.clone();
-    let entries_snapshot = project.entries.clone();
-    let source_path = project.source_path.clone();
-    let source_kind = project.source_kind;
-    rebuild_texture_model_index(project);
-    let _ = refresh_index_cache(&db, &old_fp, &new_fp, &entries_snapshot);
-
-    if source_kind == crate::dto::SourceKind::Jar {
-        if let Ok(jar) = crate::source::JarSource::new(&source_path) {
-            jar.invalidate_cache();
-        }
-    }
+    let (updated_kind, updated_source_path) = {
+        let mut app = state.write();
+        refresh_project_for_paths(&mut app, &db, handle, &entry.saved_paths)?
+    };
+    invalidate_jar_cache_if_needed(updated_kind, &updated_source_path);
 
     Ok(())
 }
@@ -703,17 +792,24 @@ pub fn restore_project_backup(
     backup_path: String,
     state: State<'_, SharedState>,
 ) -> CoreResult<()> {
-    let app = state.read();
-    let project = app
-        .projects
-        .get(&handle.id)
-        .ok_or(CoreError::ProjectNotFound)?;
+    let (source_path, source_kind, db) = {
+        let app = state.read();
+        let project = app
+            .projects
+            .get(&handle.id)
+            .ok_or(CoreError::ProjectNotFound)?;
+        (project.source_path.clone(), project.source_kind, app.db.clone())
+    };
 
-    restore_backup(
-        &project.source_path,
-        project.source_kind,
-        std::path::Path::new(&backup_path),
-    )
+    restore_backup_from_known_path(&source_path, source_kind, &backup_path)?;
+    let source = load_source(&source_path)?;
+    let changed_paths = source.list_entries()?;
+    let (updated_kind, updated_source_path) = {
+        let mut app = state.write();
+        refresh_project_for_paths(&mut app, &db, handle, &changed_paths)?
+    };
+    invalidate_jar_cache_if_needed(updated_kind, &updated_source_path);
+    Ok(())
 }
 
 #[tauri::command]
@@ -738,13 +834,24 @@ pub fn restore_project_backup_by_id(
     backup_id: String,
     state: State<'_, SharedState>,
 ) -> CoreResult<()> {
-    let app = state.read();
-    let project = app
-        .projects
-        .get(&handle.id)
-        .ok_or(CoreError::ProjectNotFound)?;
+    let (source_path, source_kind, db) = {
+        let app = state.read();
+        let project = app
+            .projects
+            .get(&handle.id)
+            .ok_or(CoreError::ProjectNotFound)?;
+        (project.source_path.clone(), project.source_kind, app.db.clone())
+    };
 
-    restore_backup_by_id(&project.source_path, project.source_kind, &backup_id)
+    restore_backup_by_id(&source_path, source_kind, &backup_id)?;
+    let source = load_source(&source_path)?;
+    let changed_paths = source.list_entries()?;
+    let (updated_kind, updated_source_path) = {
+        let mut app = state.write();
+        refresh_project_for_paths(&mut app, &db, handle, &changed_paths)?
+    };
+    invalidate_jar_cache_if_needed(updated_kind, &updated_source_path);
+    Ok(())
 }
 
 #[tauri::command]
@@ -761,7 +868,7 @@ pub fn list_variants(
         .ok_or(CoreError::ProjectNotFound)?;
 
     let (namespace, block_name) = blockstate_id_from_asset_path(&asset_path)
-        .ok_or_else(|| CoreError::Internal("not a blockstate path".to_string()))?;
+        .ok_or_else(|| CoreError::InvalidInput("not a blockstate path".to_string()))?;
 
     let source = project.source.as_ref();
     let pack = pack_for_project(project);
@@ -845,13 +952,13 @@ pub fn resolve_renderable(
         }
         AssetKind::BlockModel | AssetKind::ItemModel => {
             let (ns, model_path) = model_id_from_asset_path(&asset_path)
-                .ok_or_else(|| CoreError::Internal("invalid model path".to_string()))?;
+                .ok_or_else(|| CoreError::InvalidInput("invalid model path".to_string()))?;
             let resolved = registry.resolve_model(&ns, &model_path)?;
             compile_renderable(&resolved, &ns, None, &pack, &registry)
         }
         AssetKind::Blockstate => {
             let (ns, block_name) = blockstate_id_from_asset_path(&asset_path)
-                .ok_or_else(|| CoreError::Internal("invalid blockstate path".to_string()))?;
+                .ok_or_else(|| CoreError::InvalidInput("invalid blockstate path".to_string()))?;
             let blockstate = registry.load_blockstate(&ns, &block_name)?;
 
             if blockstate.multipart.is_some() && blockstate.variants.is_empty() {
@@ -861,7 +968,7 @@ pub fn resolve_renderable(
                     .unwrap_or_default();
                 let variants = resolve_multipart_models(&blockstate, &state);
                 if variants.is_empty() {
-                    return Err(CoreError::Internal(
+                    return Err(CoreError::InvalidInput(
                         "no multipart models matched".to_string(),
                     ));
                 }
@@ -872,12 +979,12 @@ pub fn resolve_renderable(
             let (variant, _) = variants
                 .into_iter()
                 .find(|(_, key)| variant_key.as_ref().is_none_or(|vk| vk == key))
-                .ok_or_else(|| CoreError::Internal("no variants in blockstate".to_string()))?;
+                .ok_or_else(|| CoreError::InvalidInput("no variants in blockstate".to_string()))?;
             let (m_ns, m_path) = normalize_model_ref(&variant.model, &ns);
             let resolved = registry.resolve_model(&m_ns, &m_path)?;
             compile_renderable(&resolved, &m_ns, Some(&variant), &pack, &registry)
         }
-        _ => Err(CoreError::Internal(
+        _ => Err(CoreError::InvalidInput(
             "asset kind cannot be rendered".to_string(),
         )),
     }
@@ -904,16 +1011,7 @@ pub fn read_recent_logs(max_lines: Option<u32>) -> Result<crate::dto::LogTailRes
 
     let file_path = entries.first().map(|e| e.path());
     let lines = if let Some(ref path) = file_path {
-        let content = std::fs::read_to_string(path).unwrap_or_default();
-        content
-            .lines()
-            .rev()
-            .take(limit)
-            .map(|l| l.to_string())
-            .collect::<Vec<_>>()
-            .into_iter()
-            .rev()
-            .collect()
+        read_tail_lines(path, limit).unwrap_or_default()
     } else {
         vec![]
     };
@@ -925,12 +1023,78 @@ pub fn read_recent_logs(max_lines: Option<u32>) -> Result<crate::dto::LogTailRes
     })
 }
 
+fn read_tail_lines(path: &std::path::Path, limit: usize) -> std::io::Result<Vec<String>> {
+    use std::fs::File;
+    use std::io::{Read, Seek, SeekFrom};
+
+    let mut file = File::open(path)?;
+    let file_len = file.metadata()?.len();
+    if file_len == 0 {
+        return Ok(vec![]);
+    }
+
+    const CHUNK: u64 = 16 * 1024;
+    let mut pos = file_len;
+    let mut buf = Vec::new();
+
+    while pos > 0 {
+        let read_size = CHUNK.min(pos);
+        pos -= read_size;
+        file.seek(SeekFrom::Start(pos))?;
+        let mut chunk = vec![0u8; read_size as usize];
+        file.read_exact(&mut chunk)?;
+
+        if pos > 0 {
+            if let Some(idx) = chunk.iter().position(|&b| b == b'\n') {
+                chunk = chunk[idx + 1..].to_vec();
+            } else {
+                chunk.clear();
+            }
+        }
+
+        buf.splice(0..0, chunk);
+
+        let complete_lines = buf.iter().filter(|&&b| b == b'\n').count();
+        let partial = usize::from(!buf.is_empty() && !buf.ends_with(&[b'\n']));
+        if complete_lines + partial >= limit || pos == 0 {
+            break;
+        }
+    }
+
+    let text = String::from_utf8_lossy(&buf);
+    let mut lines: Vec<String> = text.lines().map(str::to_string).collect();
+    if lines.len() > limit {
+        lines = lines.split_off(lines.len() - limit);
+    }
+    Ok(lines)
+}
+
+#[cfg(test)]
+mod log_tail_tests {
+    use super::read_tail_lines;
+    use std::io::Write;
+
+    #[test]
+    fn read_tail_lines_returns_last_lines_without_loading_entire_file() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("ind3x-art.log");
+        let mut file = std::fs::File::create(&path).expect("create");
+        for i in 0..500 {
+            writeln!(file, "line-{i}").expect("write");
+        }
+        drop(file);
+
+        let lines = read_tail_lines(&path, 3).expect("tail");
+        assert_eq!(lines, vec!["line-497", "line-498", "line-499"]);
+    }
+}
+
 #[tauri::command]
 #[specta::specta]
 pub fn reveal_log_dir(app: tauri::AppHandle) -> CoreResult<()> {
     let dir = crate::logging::log_directory()
         .or_else(|| app.path().app_log_dir().ok())
-        .ok_or_else(|| CoreError::Internal("log directory unavailable".to_string()))?;
+        .ok_or_else(|| CoreError::Unavailable("log directory unavailable".to_string()))?;
 
     std::fs::create_dir_all(&dir)?;
 

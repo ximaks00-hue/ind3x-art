@@ -63,10 +63,20 @@ export function ViewerAssetLoader({
 
         if (selected.kind === "blockstate") {
           variants = await ipc.listVariants(handle, selected.path);
-          if (!resolvedVariantKey) {
+          if (resolvedVariantKey == null) {
             resolvedVariantKey = variants[0]?.key;
           }
-          if (variants.length > 0 && !resolvedVariantKey) {
+          if (variants.length > 0 && resolvedVariantKey == null) {
+            if (!cancelled) {
+              onLoaded({
+                renderable: null,
+                linkedModels: [],
+                variants,
+                variantKey: undefined,
+                loading: false,
+                error: "No variant key resolved for blockstate",
+              });
+            }
             return;
           }
         }

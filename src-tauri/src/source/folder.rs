@@ -5,7 +5,7 @@ use walkdir::WalkDir;
 
 use crate::dto::SourceKind;
 use crate::error::{CoreError, CoreResult};
-use crate::source::{normalize_zip_path, AssetSource};
+use crate::source::{normalize_zip_path, safe_join_under_root, AssetSource};
 
 pub struct FolderSource {
     root: PathBuf,
@@ -51,8 +51,7 @@ impl AssetSource for FolderSource {
     }
 
     fn read(&self, path: &str) -> CoreResult<Vec<u8>> {
-        let rel = normalize_zip_path(path);
-        let full = self.root.join(rel.replace('/', std::path::MAIN_SEPARATOR_STR));
+        let full = safe_join_under_root(&self.root, path)?;
         fs::read(full).map_err(CoreError::from)
     }
 }

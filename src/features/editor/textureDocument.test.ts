@@ -18,6 +18,8 @@ import {
   clearTextureDocuments,
   commitChanges,
   ensureTextureDocument,
+  getDoc,
+  markTexturesSaved,
   getDirtyTexturePaths,
   getPixel,
   isTextureDirty,
@@ -86,5 +88,106 @@ describe("textureDocument", () => {
     expect(canUndo(path)).toBe(true);
     undoTexture(handle, path);
     expect(getPixel(path, 0, 0)).toEqual(before);
+  });
+
+  it("undo back to baseline clears dirty state", async () => {
+    const { undoTexture } = await import("./textureDocument");
+    const doc = await ensureTextureDocument(handle, path);
+    const before = getPixel(path, 0, 0)!;
+    commitChanges(handle, path, [
+      {
+        x: 0,
+        y: 0,
+        before,
+        after: [0, 255, 0, 255],
+        layerId: doc.layers[0].id,
+      },
+    ]);
+    expect(isTextureDirty(path)).toBe(true);
+
+    undoTexture(handle, path);
+    expect(isTextureDirty(path)).toBe(false);
+    expect(getDirtyTexturePaths()).toEqual([]);
+  });
+
+  it("deduplicates concurrent ensureTextureDocument calls", async () => {
+    clearTextureDocuments();
+    vi.mocked(ipc.getTexture).mockClear();
+    let resolvePreview!: (value: {
+      pngBase64: string;
+      width: number;
+      height: number;
+    }) => void;
+    const deferred = new Promise<{ pngBase64: string; width: number; height: number }>(
+      (resolve) => {
+        resolvePreview = resolve;
+      },
+    );
+    vi.mocked(ipc.getTexture).mockImplementation(() => deferred);
+
+    const first = ensureTextureDocument(handle, path);
+    const second = ensureTextureDocument(handle, path);
+
+    resolvePreview({
+      pngBase64: make1x1PngBase64(120, 10, 50),
+      width: 1,
+      height: 1,
+    });
+
+    const [docA, docB] = await Promise.all([first, second]);
+    expect(docA).toBe(docB);
+    expect(vi.mocked(ipc.getTexture)).toHaveBeenCalledTimes(1);
+  });
+
+  it("drops stale in-flight load after clearTextureDocuments", async () => {
+    let resolvePreview!: (value: { pngBase64: string; width: number; height: number }) => void;
+    const deferred = new Promise<{ pngBase64: string; width: number; height: number }>(
+      (resolve) => {
+        resolvePreview = resolve;
+      },
+    );
+    vi.mocked(ipc.getTexture).mockImplementation(() => deferred);
+
+    const first = ensureTextureDocument(handle, path).catch(() => null);
+    clearTextureDocuments();
+
+    resolvePreview({
+      pngBase64: make1x1PngBase64(30, 40, 50),
+      width: 1,
+      height: 1,
+    });
+    const result = await first;
+    expect(result).toBeNull();
+    expect(getDoc(path)).toBeUndefined();
+  });
+
+  it("keeps dirty when document changed after save snapshot", async () => {
+    const doc = await ensureTextureDocument(handle, path);
+    const before = getPixel(path, 0, 0)!;
+    commitChanges(handle, path, [
+      {
+        x: 0,
+        y: 0,
+        before,
+        after: [0, 255, 0, 255],
+        layerId: doc.layers[0].id,
+      },
+    ]);
+
+    const snapshot = [{ path, revision: getDoc(path)!.revision }];
+
+    commitChanges(handle, path, [
+      {
+        x: 0,
+        y: 0,
+        before: [0, 255, 0, 255],
+        after: [0, 0, 255, 255],
+        layerId: doc.layers[0].id,
+      },
+    ]);
+
+    markTexturesSaved([path], [path], snapshot);
+    expect(isTextureDirty(path)).toBe(true);
+    expect(getPixel(path, 0, 0)).toEqual([0, 0, 255, 255]);
   });
 });
