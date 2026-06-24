@@ -3,7 +3,11 @@ import { useEffect, useState } from "react";
 import { useFocusTrap } from "../../hooks/useFocusTrap";
 import { ipc } from "../../ipc/client";
 import { downloadShortcutsExport } from "../../lib/shortcuts";
-import { useSettingsStore, type CatalogIconMode, type Theme } from "../../state/settingsStore";
+import {
+  useSettingsStore,
+  type CatalogIconMode,
+  type Theme,
+} from "../../state/settingsStore";
 import { Button } from "../../ui/primitives";
 import styles from "./SettingsPanel.module.css";
 

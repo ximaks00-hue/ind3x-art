@@ -276,41 +276,41 @@ function ViewerPanelBody({
               }
             />
           ) : (
-          <>
-            {comparatorMode === "3d" && viewerBeforeModel ? (
-              <div className={styles.comparator3d}>
-                <div className={styles.comparatorPane}>
-                  <span className={styles.comparatorLabel}>Before</span>
-                  <Scene3D model={viewerBeforeModel} handle={handle} />
+            <>
+              {comparatorMode === "3d" && viewerBeforeModel ? (
+                <div className={styles.comparator3d}>
+                  <div className={styles.comparatorPane}>
+                    <span className={styles.comparatorLabel}>Before</span>
+                    <Scene3D model={viewerBeforeModel} handle={handle} />
+                  </div>
+                  <div className={styles.comparatorDivider} />
+                  <div className={styles.comparatorPane}>
+                    <span className={styles.comparatorLabel}>After</span>
+                    <Scene3D model={renderable} handle={handle} />
+                  </div>
                 </div>
-                <div className={styles.comparatorDivider} />
-                <div className={styles.comparatorPane}>
-                  <span className={styles.comparatorLabel}>After</span>
-                  <Scene3D model={renderable} handle={handle} />
-                </div>
-              </div>
-            ) : (
-              <Scene3D model={renderable} handle={handle} />
-            )}
-            <div className={styles.overlay}>
-              <p className={styles.overlayTitle}>
-                {renderable.modelId} · {renderable.kind}
-              </p>
-              <div className={styles.stats}>
-                <span>{renderable.cuboids.length} cuboids</span>
-                <span>{faceCount} faces</span>
-                <span>{Object.keys(renderable.textureRefs).length} texture refs</span>
-                {animatedCount > 0 && <span>{animatedCount} animated</span>}
-              </div>
-              {linkedModels.length > 0 && (
-                <p className={styles.linkedHint}>
-                  {linkedModels.length} linked model
-                  {linkedModels.length === 1 ? "" : "s"}
-                  {linkedModels.length >= 3 ? " · use Model picker" : ""}
-                </p>
+              ) : (
+                <Scene3D model={renderable} handle={handle} />
               )}
-            </div>
-          </>
+              <div className={styles.overlay}>
+                <p className={styles.overlayTitle}>
+                  {renderable.modelId} · {renderable.kind}
+                </p>
+                <div className={styles.stats}>
+                  <span>{renderable.cuboids.length} cuboids</span>
+                  <span>{faceCount} faces</span>
+                  <span>{Object.keys(renderable.textureRefs).length} texture refs</span>
+                  {animatedCount > 0 && <span>{animatedCount} animated</span>}
+                </div>
+                {linkedModels.length > 0 && (
+                  <p className={styles.linkedHint}>
+                    {linkedModels.length} linked model
+                    {linkedModels.length === 1 ? "" : "s"}
+                    {linkedModels.length >= 3 ? " · use Model picker" : ""}
+                  </p>
+                )}
+              </div>
+            </>
           )
         ) : null}
       </div>

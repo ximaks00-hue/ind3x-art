@@ -68,7 +68,9 @@ export function BlockStudioViewport({
   );
 
   const cameraPresets = isItem
-    ? CAMERA_PRESETS.filter((p) => p.id === "inventory" || p.id === "iso" || p.id === "front")
+    ? CAMERA_PRESETS.filter(
+        (p) => p.id === "inventory" || p.id === "iso" || p.id === "front",
+      )
     : CAMERA_PRESETS;
 
   return (

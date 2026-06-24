@@ -1,6 +1,10 @@
 import type { CatalogEntry } from "../../ipc/types";
 import { useProjectStore } from "../../state/projectStore";
-import { catalogEntryHasWarnings, catalogEntryIsDirty, getCatalogEntryWarnings } from "./catalogUtils";
+import {
+  catalogEntryHasWarnings,
+  catalogEntryIsDirty,
+  getCatalogEntryWarnings,
+} from "./catalogUtils";
 import { useEditorStore } from "../../state/editorStore";
 import { CatalogIcon } from "./CatalogIcon";
 import { useCatalogIconStatus } from "./useCatalogIconPipeline";
@@ -21,7 +25,9 @@ export function CatalogCell({ entry, selected, focused, onClick }: CatalogCellPr
   const initial = entry.displayName.trim().charAt(0).toUpperCase() || "?";
   const warnings = getCatalogEntryWarnings(entry, iconBakeError);
   const title =
-    warnings.length > 0 ? `${entry.displayName}\n${warnings.join("\n")}` : entry.displayName;
+    warnings.length > 0
+      ? `${entry.displayName}\n${warnings.join("\n")}`
+      : entry.displayName;
 
   return (
     <button
@@ -41,7 +47,11 @@ export function CatalogCell({ entry, selected, focused, onClick }: CatalogCellPr
       aria-pressed={selected}
     >
       {isDirty ? (
-        <span className={styles.dirtyBadge} title="Unsaved texture changes" aria-label="Dirty">
+        <span
+          className={styles.dirtyBadge}
+          title="Unsaved texture changes"
+          aria-label="Dirty"
+        >
           ●
         </span>
       ) : null}

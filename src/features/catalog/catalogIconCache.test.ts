@@ -17,7 +17,9 @@ describe("catalogIconCache", () => {
   it("stores and reads icon urls by handle + iconKey", () => {
     const key = catalogIconCacheKey(1, "minecraft:stone:");
     getCatalogIconCache(64).set(key, { url: "data:image/png;base64,abc", tier: 1 });
-    expect(readCatalogIconUrl(1, "minecraft:stone:", 64)).toBe("data:image/png;base64,abc");
+    expect(readCatalogIconUrl(1, "minecraft:stone:", 64)).toBe(
+      "data:image/png;base64,abc",
+    );
   });
 
   it("evicts oldest entries when over limit", () => {

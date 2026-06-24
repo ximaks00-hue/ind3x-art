@@ -42,7 +42,10 @@ describe("catalogService", () => {
   it("delegates resolveCatalogEntry to ipc", async () => {
     ipcMock.resolveCatalogEntry.mockResolvedValue({ elements: [], textureMeta: {} });
     await resolveCatalogEntry(handle, "minecraft:test_stone");
-    expect(ipcMock.resolveCatalogEntry).toHaveBeenCalledWith(handle, "minecraft:test_stone");
+    expect(ipcMock.resolveCatalogEntry).toHaveBeenCalledWith(
+      handle,
+      "minecraft:test_stone",
+    );
   });
 
   it("delegates getCatalogEntry to ipc", async () => {

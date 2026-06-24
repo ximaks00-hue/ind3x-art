@@ -19,7 +19,9 @@ interface ContextMenuProps {
 }
 
 function menuButtons(menu: HTMLDivElement): HTMLButtonElement[] {
-  return Array.from(menu.querySelectorAll<HTMLButtonElement>('button[role="menuitem"]:not([disabled])'));
+  return Array.from(
+    menu.querySelectorAll<HTMLButtonElement>('button[role="menuitem"]:not([disabled])'),
+  );
 }
 
 export function ContextMenu({ items, x, y, onSelect, onClose }: ContextMenuProps) {
@@ -57,7 +59,8 @@ export function ContextMenu({ items, x, y, onSelect, onClose }: ContextMenuProps
         enabled[next].focus();
       } else if (e.key === "ArrowUp") {
         e.preventDefault();
-        const next = index < 0 ? enabled.length - 1 : (index - 1 + enabled.length) % enabled.length;
+        const next =
+          index < 0 ? enabled.length - 1 : (index - 1 + enabled.length) % enabled.length;
         enabled[next].focus();
       } else if (e.key === "Home") {
         e.preventDefault();
@@ -65,7 +68,11 @@ export function ContextMenu({ items, x, y, onSelect, onClose }: ContextMenuProps
       } else if (e.key === "End") {
         e.preventDefault();
         enabled[enabled.length - 1].focus();
-      } else if (e.key === "Enter" && active instanceof HTMLButtonElement && menu.contains(active)) {
+      } else if (
+        e.key === "Enter" &&
+        active instanceof HTMLButtonElement &&
+        menu.contains(active)
+      ) {
         e.preventDefault();
         active.click();
       }

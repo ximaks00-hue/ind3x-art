@@ -140,7 +140,11 @@ describe("textureDocument", () => {
   });
 
   it("drops stale in-flight load after clearTextureDocuments", async () => {
-    let resolvePreview!: (value: { pngBase64: string; width: number; height: number }) => void;
+    let resolvePreview!: (value: {
+      pngBase64: string;
+      width: number;
+      height: number;
+    }) => void;
     const deferred = new Promise<{ pngBase64: string; width: number; height: number }>(
       (resolve) => {
         resolvePreview = resolve;

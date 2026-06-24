@@ -26,10 +26,7 @@ import type {
   CatalogPage,
 } from "./types";
 import type { Channel } from "@tauri-apps/api/core";
-import {
-  buildSyntheticCatalog,
-  E2E_CATALOG_SIZE,
-} from "./e2eCatalogFixture";
+import { buildSyntheticCatalog, E2E_CATALOG_SIZE } from "./e2eCatalogFixture";
 import type { WorkspaceMode } from "../state/settingsStore";
 import { catalogEntryToAssetEntry } from "../features/catalog/catalogUtils";
 
@@ -467,7 +464,9 @@ export function createE2eMockIpc() {
       if (!entry) throw new Error(`Catalog entry not found: ${entryId}`);
       return entry;
     },
-    getCatalogFacets: async (): Promise<{ byCategory: { key: string; count: number }[] }> => {
+    getCatalogFacets: async (): Promise<{
+      byCategory: { key: string; count: number }[];
+    }> => {
       const counts = new Map<string, number>();
       for (const entry of mockCatalog) {
         counts.set(entry.category, (counts.get(entry.category) ?? 0) + 1);
@@ -502,18 +501,17 @@ export function createE2eMockIpc() {
     getTexturePreviewsBatch: async (
       _handle: ProjectHandle,
       assetPaths: string[],
-    ): Promise<TexturePreviewBatch[]> =>
-      {
-        await applyFaultPoint("getTexturePreviewsBatch");
-        return assetPaths.map((path) => ({
-          path,
-          preview: {
-            pngBase64: RED_PNG_BASE64,
-            width: 16,
-            height: 16,
-          },
-        }));
-      },
+    ): Promise<TexturePreviewBatch[]> => {
+      await applyFaultPoint("getTexturePreviewsBatch");
+      return assetPaths.map((path) => ({
+        path,
+        preview: {
+          pngBase64: RED_PNG_BASE64,
+          width: 16,
+          height: 16,
+        },
+      }));
+    },
     getTexturePreview: async (): Promise<TexturePreview> => ({
       pngBase64: RED_PNG_BASE64,
       width: 16,

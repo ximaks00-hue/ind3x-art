@@ -58,19 +58,20 @@ export function useCatalogQuery() {
         const project = useProjectStore.getState();
         if (!project.handle || project.handle.id !== handleId) return;
         const current = useCatalogStore.getState();
-        if (catalogFilterKey({
-          category: current.category ?? null,
-          namespace: null,
-          search: current.debouncedSearch.trim() || null,
-          fuzzy: project.fuzzySearch,
-        }) !== filterKey) {
+        if (
+          catalogFilterKey({
+            category: current.category ?? null,
+            namespace: null,
+            search: current.debouncedSearch.trim() || null,
+            fuzzy: project.fuzzySearch,
+          }) !== filterKey
+        ) {
           return;
         }
         setQueryPage(page.entries, page.total, append, offset);
       } catch (error) {
         if (id !== requestId.current) return;
-        const message =
-          error instanceof Error ? error.message : "Failed to load catalog";
+        const message = error instanceof Error ? error.message : "Failed to load catalog";
         setQueryError(message);
         pushToast(`Catalog query failed: ${message}`, "error");
       } finally {
@@ -87,7 +88,15 @@ export function useCatalogQuery() {
     }
     resetQuery();
     void fetchPage(0, false);
-  }, [handle, indexStatus, category, debouncedSearch, queryRevision, fetchPage, resetQuery]);
+  }, [
+    handle,
+    indexStatus,
+    category,
+    debouncedSearch,
+    queryRevision,
+    fetchPage,
+    resetQuery,
+  ]);
 
   useEffect(() => {
     if (!handle || indexStatus !== "done") {
@@ -121,5 +130,11 @@ export function useCatalogQuery() {
 
   const searchPending = search.trim() !== debouncedSearch.trim();
 
-  return { loadMore, loading, hasMore, searchPending, retry: () => void fetchPage(0, false) };
+  return {
+    loadMore,
+    loading,
+    hasMore,
+    searchPending,
+    retry: () => void fetchPage(0, false),
+  };
 }

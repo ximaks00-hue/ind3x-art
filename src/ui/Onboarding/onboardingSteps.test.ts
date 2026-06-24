@@ -1,9 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import {
-  CLASSIC_ONBOARDING_STEPS,
-  STUDIO_ONBOARDING_STEPS,
-} from "./onboardingSteps";
+import { CLASSIC_ONBOARDING_STEPS, STUDIO_ONBOARDING_STEPS } from "./onboardingSteps";
 
 describe("onboardingSteps", () => {
   it("defines classic tour with explorer flow", () => {

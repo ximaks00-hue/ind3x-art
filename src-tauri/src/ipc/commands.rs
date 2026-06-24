@@ -1055,7 +1055,7 @@ fn read_tail_lines(path: &std::path::Path, limit: usize) -> std::io::Result<Vec<
         buf.splice(0..0, chunk);
 
         let complete_lines = buf.iter().filter(|&&b| b == b'\n').count();
-        let partial = usize::from(!buf.is_empty() && !buf.ends_with(&[b'\n']));
+        let partial = usize::from(!buf.is_empty() && !buf.ends_with(b"\n"));
         if complete_lines + partial >= limit || pos == 0 {
             break;
         }

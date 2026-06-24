@@ -20,8 +20,12 @@ describe("moveSelection", () => {
       ]),
     };
 
-    const changes = buildMoveSelectionChanges("layer-1", buffer, 1, 0, (x, y) =>
-      layer.get(`${x},${y}`) ?? null,
+    const changes = buildMoveSelectionChanges(
+      "layer-1",
+      buffer,
+      1,
+      0,
+      (x, y) => layer.get(`${x},${y}`) ?? null,
     );
 
     // Overlap move by +1 should produce three effective mutations:

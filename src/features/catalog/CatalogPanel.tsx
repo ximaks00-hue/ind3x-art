@@ -11,7 +11,10 @@ import { CatalogSearch } from "./CatalogSearch";
 import styles from "./CatalogPanel.module.css";
 import { useCatalogStore } from "./catalogStore";
 import { CATALOG_GRID_COLS, catalogRowCount } from "./catalogUtils";
-import { useCatalogIconPipeline, useCatalogIconPendingCount } from "./useCatalogIconPipeline";
+import {
+  useCatalogIconPipeline,
+  useCatalogIconPendingCount,
+} from "./useCatalogIconPipeline";
 import { useCatalogQuery } from "./useCatalogQuery";
 import { useCatalogSelection } from "./useCatalogSelection";
 
@@ -155,7 +158,9 @@ export function CatalogPanel() {
     if (!recentAssetIds.length || !entries.length) return [];
     return recentAssetIds
       .map((assetId) =>
-        entries.find((e) => `${e.namespace}:${e.sourcePath}` === assetId || e.id === assetId),
+        entries.find(
+          (e) => `${e.namespace}:${e.sourcePath}` === assetId || e.id === assetId,
+        ),
       )
       .filter((e): e is CatalogEntry => Boolean(e))
       .slice(0, 8);
@@ -294,7 +299,11 @@ export function CatalogPanel() {
           <div className={styles.empty}>
             <p className={styles.emptyTitle}>Catalog failed to load</p>
             <p className={styles.emptyBody}>{queryError}</p>
-            <button type="button" className={styles.retryBtn} onClick={() => bumpQueryRevision()}>
+            <button
+              type="button"
+              className={styles.retryBtn}
+              onClick={() => bumpQueryRevision()}
+            >
               Retry
             </button>
           </div>

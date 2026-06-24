@@ -1,10 +1,5 @@
 import { ipc } from "../../ipc/client";
-import type {
-  AssetFilter,
-  AssetPage,
-  PageReq,
-  ProjectHandle,
-} from "../../ipc/types";
+import type { AssetFilter, AssetPage, PageReq, ProjectHandle } from "../../ipc/types";
 
 export async function queryAssets(
   handle: ProjectHandle,

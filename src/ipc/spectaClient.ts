@@ -131,7 +131,10 @@ export const spectaCommands = {
     handle: Parameters<typeof commands.queryCatalog>[0],
     filter: CatalogFilter,
     page: Parameters<typeof commands.queryCatalog>[2],
-  ) => unwrap<CatalogPage>(commands.queryCatalog(handle, toBindingCatalogFilter(filter), page)),
+  ) =>
+    unwrap<CatalogPage>(
+      commands.queryCatalog(handle, toBindingCatalogFilter(filter), page),
+    ),
   getCatalogEntry: (
     handle: Parameters<typeof commands.getCatalogEntry>[0],
     entryId: string,

@@ -154,7 +154,9 @@ export const useSettingsStore = create<SettingsState>()(
         set({ workspaceMode: get().workspaceMode === "classic" ? "studio" : "classic" }),
       setCatalogIconMode: (catalogIconMode) => set({ catalogIconMode }),
       setCatalogIconCacheLimit: (catalogIconCacheLimit) =>
-        set({ catalogIconCacheLimit: Math.max(64, Math.min(2048, catalogIconCacheLimit)) }),
+        set({
+          catalogIconCacheLimit: Math.max(64, Math.min(2048, catalogIconCacheLimit)),
+        }),
       setExplorerPanelWidth: (explorerPanelWidth) =>
         set({ explorerPanelWidth: Math.max(220, Math.min(520, explorerPanelWidth)) }),
       setEditorPanelWidth: (editorPanelWidth) =>

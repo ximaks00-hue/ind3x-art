@@ -86,7 +86,11 @@ export function OnboardingTour() {
   const completeStudio = useSettingsStore((s) => s.completeStudioOnboarding);
 
   if (workspaceMode === "studio") {
-    if (studioCompleted || studioStep < 0 || studioStep >= STUDIO_ONBOARDING_STEPS.length) {
+    if (
+      studioCompleted ||
+      studioStep < 0 ||
+      studioStep >= STUDIO_ONBOARDING_STEPS.length
+    ) {
       return null;
     }
     return (
@@ -101,7 +105,11 @@ export function OnboardingTour() {
     );
   }
 
-  if (classicCompleted || classicStep < 0 || classicStep >= CLASSIC_ONBOARDING_STEPS.length) {
+  if (
+    classicCompleted ||
+    classicStep < 0 ||
+    classicStep >= CLASSIC_ONBOARDING_STEPS.length
+  ) {
     return null;
   }
 

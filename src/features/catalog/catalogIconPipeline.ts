@@ -3,11 +3,6 @@ import { resolveCatalogEntry } from "../../app/services/catalogService";
 import { ipc } from "../../ipc/client";
 import { getThumbnailCache, thumbnailCacheKey } from "../explorer/thumbnailCache";
 import {
-  bakeCatalogIcon3d,
-  bakeCatalogIconFromPreviewAsync,
-  disposeCatalogIconRenderer,
-} from "./CatalogIconRenderer";
-import {
   catalogIconCacheKey,
   clearCatalogIconFailure,
   clearCatalogIconInflight,
@@ -16,8 +11,18 @@ import {
   setCatalogIconFailure,
   type CatalogIconTier,
 } from "./catalogIconCache";
+import {
+  type CatalogIconMode,
+  shouldBakeTier1,
+  shouldUpgradeTo3d,
+} from "./catalogIconRules";
 
-export type CatalogIconMode = "auto" | "preview" | "3d";
+export type { CatalogIconMode } from "./catalogIconRules";
+export {
+  shouldAttemptIconBake,
+  shouldBakeTier1,
+  shouldUpgradeTo3d,
+} from "./catalogIconRules";
 
 const THUMB_PIXEL_SIZE = 48;
 const ICON_PIXEL_SIZE = 48;
@@ -27,20 +32,15 @@ const inflight = new Set<string>();
 const queue: Array<() => Promise<void>> = [];
 let activeWorkers = 0;
 
-/** Items and texture-less entries get tier-2 GUI bake in auto mode. */
-export function shouldUpgradeTo3d(entry: CatalogEntry, mode: CatalogIconMode): boolean {
-  if (mode === "preview") return false;
-  if (mode === "3d") return true;
-  return entry.kind === "item" || entry.texturePaths.length === 0;
-}
+type IconRendererModule = typeof import("./CatalogIconRenderer");
 
-export function shouldBakeTier1(entry: CatalogEntry, mode: CatalogIconMode): boolean {
-  if (mode === "3d") return false;
-  return Boolean(entry.texturePaths[0]);
-}
+let iconRendererModule: IconRendererModule | null = null;
 
-export function shouldAttemptIconBake(entry: CatalogEntry, mode: CatalogIconMode): boolean {
-  return shouldBakeTier1(entry, mode) || shouldUpgradeTo3d(entry, mode);
+async function loadIconRenderer(): Promise<IconRendererModule> {
+  if (!iconRendererModule) {
+    iconRendererModule = await import("./CatalogIconRenderer");
+  }
+  return iconRendererModule;
 }
 
 export async function bakeTier1Preview(
@@ -66,6 +66,7 @@ export async function bakeTier1Preview(
   const base64 = dataUrl.split(",")[1];
   if (!base64) return { url: dataUrl };
   try {
+    const { bakeCatalogIconFromPreviewAsync } = await loadIconRenderer();
     const url = await bakeCatalogIconFromPreviewAsync(base64, ICON_PIXEL_SIZE);
     return { url };
   } catch (error) {
@@ -173,6 +174,7 @@ async function bakeTier2Gui(
 ): Promise<{ url: string | null; error?: string }> {
   try {
     const model = await resolveCatalogEntry(handle, entryId);
+    const { bakeCatalogIcon3d } = await loadIconRenderer();
     const url = await bakeCatalogIcon3d(model, handle, ICON_PIXEL_SIZE);
     if (!url) return { url: null, error: "3D icon bake returned empty" };
     return { url };
@@ -202,7 +204,7 @@ async function pumpQueue(): Promise<void> {
 export function resetCatalogIconPipeline(): void {
   queue.length = 0;
   inflight.clear();
-  disposeCatalogIconRenderer();
+  void loadIconRenderer().then((renderer) => renderer.disposeCatalogIconRenderer());
 }
 
 export function getCatalogIconQueueDepth(): number {

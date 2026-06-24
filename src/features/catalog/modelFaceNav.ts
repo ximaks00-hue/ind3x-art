@@ -1,6 +1,9 @@
 import type { RenderableModel } from "../../ipc/types";
 import type { SelectedFace } from "../../state/selectionStore";
+import { formatFaceDirection, textureBasename } from "../../app/studioStatusLabels";
 import { faceThreeUvs } from "../viewer3d/uvMapping";
+
+export { formatFaceDirection, textureBasename } from "../../app/studioStatusLabels";
 
 export interface ModelFaceNavItem {
   id: string;
@@ -18,32 +21,6 @@ export interface ModelFaceNavGroup {
   items: ModelFaceNavItem[];
 }
 
-const DIRECTION_LABELS: Record<string, string> = {
-  up: "Top",
-  down: "Bottom",
-  north: "North",
-  south: "South",
-  east: "East",
-  west: "West",
-};
-
-function directionLabel(direction: string): string {
-  return DIRECTION_LABELS[direction] ?? direction;
-}
-
-export function formatFaceDirection(direction: string): string {
-  return directionLabel(direction);
-}
-
-function textureStem(path: string): string {
-  const file = path.split("/").pop() ?? path;
-  return file.replace(/\.(png|tga)$/i, "");
-}
-
-export function textureBasename(path: string): string {
-  return textureStem(path);
-}
-
 export function buildModelFaceNav(model: RenderableModel): ModelFaceNavItem[] {
   const multipart = model.cuboids.length > 1 || model.kind === "multipart";
   const items: ModelFaceNavItem[] = [];
@@ -54,14 +31,14 @@ export function buildModelFaceNav(model: RenderableModel): ModelFaceNavItem[] {
 
     for (let faceIndex = 0; faceIndex < cuboid.faces.length; faceIndex += 1) {
       const face = cuboid.faces[faceIndex]!;
-      const stem = textureStem(face.texture);
+      const stem = textureBasename(face.texture);
       items.push({
         id: `${cuboidIndex}:${faceIndex}`,
         cuboidIndex,
         faceIndex,
         direction: face.direction,
         texturePath: face.texture,
-        label: `${directionLabel(face.direction)} · ${stem}`,
+        label: `${formatFaceDirection(face.direction)} · ${stem}`,
         cuboidLabel,
       });
     }
@@ -139,8 +116,5 @@ export function isSameModelFace(
   cuboidIndex: number,
   faceIndex: number,
 ): boolean {
-  return (
-    selected?.cuboidIndex === cuboidIndex &&
-    selected?.faceIndex === faceIndex
-  );
+  return selected?.cuboidIndex === cuboidIndex && selected?.faceIndex === faceIndex;
 }

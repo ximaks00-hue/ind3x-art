@@ -8,12 +8,9 @@ import { useProjectSource } from "./app/useProjectSource";
 import { useSaveWorkflow } from "./app/useSaveWorkflow";
 import type { ScreenshotExportOptions } from "./lib/exportScreenshot";
 import { EditorPanel } from "./features/editor/EditorPanel";
-import { CatalogPanel } from "./features/catalog/CatalogPanel";
+import { CatalogPanelLazy } from "./features/catalog/CatalogPanelLazy";
 import { useCatalogStore } from "./features/catalog/catalogStore";
-import {
-  formatFaceDirection,
-  textureBasename,
-} from "./features/catalog/modelFaceNav";
+import { formatFaceDirection, textureBasename } from "./app/studioStatusLabels";
 import { ExplorerPanel } from "./features/explorer/ExplorerPanel";
 import { ViewerPanelLazy } from "./features/viewer3d/ViewerPanelLazy";
 import { getActiveLayerIndex } from "./features/editor/documentStore";
@@ -81,7 +78,9 @@ function App() {
       catalogLoading,
       catalogQueryError,
       catalogEntryLabel: catalogSelectedEntry?.displayName ?? catalogSelectedEntry?.id,
-      faceDirection: selectedFace ? formatFaceDirection(selectedFace.direction) : undefined,
+      faceDirection: selectedFace
+        ? formatFaceDirection(selectedFace.direction)
+        : undefined,
       textureLabel: selectedFace ? textureBasename(selectedFace.texturePath) : undefined,
     };
   }, [
@@ -161,7 +160,7 @@ function App() {
         }
         leftPanel={
           workspaceMode === "studio" ? (
-            <CatalogPanel />
+            <CatalogPanelLazy />
           ) : (
             <ExplorerPanel
               onOpenJar={() => void openJar()}

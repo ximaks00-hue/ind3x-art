@@ -63,11 +63,7 @@ describe("TextureNavigator", () => {
   it("renders multipart groups and selects face on click (UC-2)", () => {
     const onSelectFace = vi.fn();
     render(
-      <TextureNavigator
-        model={model}
-        selectedFace={null}
-        onSelectFace={onSelectFace}
-      />,
+      <TextureNavigator model={model} selectedFace={null} onSelectFace={onSelectFace} />,
     );
 
     expect(screen.getByText("Part 1")).toBeTruthy();

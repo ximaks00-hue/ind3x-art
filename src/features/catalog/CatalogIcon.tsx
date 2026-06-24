@@ -1,6 +1,6 @@
 import type { CatalogEntry } from "../../ipc/types";
 import { useProjectStore } from "../../state/projectStore";
-import { shouldAttemptIconBake } from "./catalogIconPipeline";
+import { shouldAttemptIconBake } from "./catalogIconRules";
 import { useCatalogIconStatus } from "./useCatalogIconPipeline";
 import { useSettingsStore } from "../../state/settingsStore";
 import styles from "./CatalogIcon.module.css";

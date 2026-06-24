@@ -48,9 +48,7 @@ export function buildSyntheticCatalogEntry(index: number): CatalogEntry {
     defaultVariantKey: "",
     category,
     searchTokens: [stem, `block ${index}`, `minecraft:${stem}`],
-    texturePaths: hasTexture
-      ? [`assets/minecraft/textures/block/${stem}.png`]
-      : [],
+    texturePaths: hasTexture ? [`assets/minecraft/textures/block/${stem}.png`] : [],
     iconKey: `minecraft:${stem}:`,
     aliases: [],
   };

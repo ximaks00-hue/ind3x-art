@@ -50,8 +50,14 @@ export function TitleBar({
 }: TitleBarProps) {
   useWindowChrome();
 
-  const { theme, cycleTheme, toggleFocusMode, focusMode, workspaceMode, setWorkspaceMode } =
-    useSettingsStore();
+  const {
+    theme,
+    cycleTheme,
+    toggleFocusMode,
+    focusMode,
+    workspaceMode,
+    setWorkspaceMode,
+  } = useSettingsStore();
   const ThemeIcon = THEME_ICONS[theme];
 
   return (

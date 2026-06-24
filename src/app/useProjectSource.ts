@@ -4,7 +4,6 @@ import { open } from "@tauri-apps/plugin-dialog";
 
 import { clearTextureDocuments } from "../features/editor/textureDocument";
 import { resetCatalogIconCache } from "../features/catalog/catalogIconCache";
-import { resetCatalogIconPipeline } from "../features/catalog/catalogIconPipeline";
 import { useCatalogStore } from "../features/catalog/catalogStore";
 import { resetThumbnailCache } from "../features/explorer/thumbnailCache";
 import { clearTextureCache } from "../features/viewer3d/textureLoader";
@@ -14,6 +13,12 @@ import { useProjectStore } from "../state/projectStore";
 import { useSelectionStore } from "../state/selectionStore";
 import { useSettingsStore } from "../state/settingsStore";
 import { useUiStore } from "../state/uiStore";
+
+function resetCatalogIconPipelineAsync(): void {
+  void import("../features/catalog/catalogIconPipeline").then((m) =>
+    m.resetCatalogIconPipeline(),
+  );
+}
 
 export function useProjectSource(onBeforeOpen?: () => void) {
   const [opening, setOpening] = useState(false);
@@ -47,7 +52,7 @@ export function useProjectSource(onBeforeOpen?: () => void) {
         clearTextureDocuments();
         resetThumbnailCache();
         resetCatalogIconCache();
-        resetCatalogIconPipeline();
+        resetCatalogIconPipelineAsync();
         useCatalogStore.getState().reset();
         onBeforeOpen?.();
       }
@@ -178,7 +183,7 @@ export function useProjectSource(onBeforeOpen?: () => void) {
         clearTextureCache(currentHandle);
         resetThumbnailCache();
         resetCatalogIconCache();
-        resetCatalogIconPipeline();
+        resetCatalogIconPipelineAsync();
         setIndexStatus("done");
         pushToast(`Reindexed ${count.toLocaleString()} assets`, "success");
         return true;

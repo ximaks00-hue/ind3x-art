@@ -35,7 +35,9 @@ export function CatalogCategoryTabs({
         onClick={() => onSelect(null)}
       >
         All
-        {total > 0 ? <span className={styles.count}>{total.toLocaleString()}</span> : null}
+        {total > 0 ? (
+          <span className={styles.count}>{total.toLocaleString()}</span>
+        ) : null}
       </button>
       {CATALOG_CATEGORIES.map((category) => {
         const count = countFor(category);
@@ -50,7 +52,9 @@ export function CatalogCategoryTabs({
             onClick={() => onSelect(active === category ? null : category)}
           >
             {CATALOG_CATEGORY_LABELS[category]}
-            {count > 0 ? <span className={styles.count}>{count.toLocaleString()}</span> : null}
+            {count > 0 ? (
+              <span className={styles.count}>{count.toLocaleString()}</span>
+            ) : null}
           </button>
         );
       })}

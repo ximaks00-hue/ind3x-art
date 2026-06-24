@@ -22,6 +22,12 @@ export default defineConfig(async () => ({
           ) {
             return "vendor-three";
           }
+          if (id.includes("/features/catalog/CatalogIconRenderer")) {
+            return "catalog-icons";
+          }
+          if (id.includes("/features/catalog/")) {
+            return "catalog";
+          }
         },
       },
     },

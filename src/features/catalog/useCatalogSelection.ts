@@ -9,7 +9,9 @@ import { catalogEntryToAssetEntry } from "./catalogUtils";
 export function useCatalogSelection() {
   const selectAsset = useProjectStore((s) => s.selectAsset);
   const pushRecentAsset = useSettingsStore((s) => s.pushRecentAsset);
-  const setStudioSelectedCatalogId = useSettingsStore((s) => s.setStudioSelectedCatalogId);
+  const setStudioSelectedCatalogId = useSettingsStore(
+    (s) => s.setStudioSelectedCatalogId,
+  );
   const selectCatalogEntry = useCatalogStore((s) => s.selectEntry);
 
   const selectEntry = useCallback(

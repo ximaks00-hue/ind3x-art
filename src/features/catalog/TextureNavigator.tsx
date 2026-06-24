@@ -4,11 +4,7 @@ import type { RenderableModel } from "../../ipc/types";
 import type { SelectedFace } from "../../state/selectionStore";
 import { isTextureDirty } from "../editor/textureDocument";
 import { TextureThumbnail } from "../explorer/TextureThumbnail";
-import {
-  buildModelFaceNav,
-  groupModelFaceNav,
-  isSameModelFace,
-} from "./modelFaceNav";
+import { buildModelFaceNav, groupModelFaceNav, isSameModelFace } from "./modelFaceNav";
 import styles from "./TextureNavigator.module.css";
 
 interface TextureNavigatorProps {
@@ -31,7 +27,11 @@ export function TextureNavigator({
   if (faceCount === 0) return null;
 
   return (
-    <nav className={styles.nav} aria-label="Model textures and faces" data-tour="tour-texture-nav">
+    <nav
+      className={styles.nav}
+      aria-label="Model textures and faces"
+      data-tour="tour-texture-nav"
+    >
       <div className={styles.header}>
         <h3 className={styles.title}>Textures</h3>
         <span className={styles.hint}>

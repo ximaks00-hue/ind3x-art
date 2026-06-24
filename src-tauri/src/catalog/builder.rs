@@ -32,15 +32,17 @@ pub fn build_from_entries(
         let default_variant_key = source
             .and_then(|s| default_variant_key_for_blockstate(s, &entry.path));
         out.push(make_entry(
-            id,
-            namespace,
-            block_name.to_string(),
             &lang,
-            CatalogEntryKind::Block,
-            entry.path.clone(),
-            CatalogResolveKind::Blockstate,
-            default_variant_key,
-            vec![],
+            MakeEntryInput {
+                id,
+                namespace,
+                stem: block_name.to_string(),
+                kind: CatalogEntryKind::Block,
+                source_path: entry.path.clone(),
+                resolve_kind: CatalogResolveKind::Blockstate,
+                default_variant_key,
+                texture_paths: vec![],
+            },
         ));
     }
 
@@ -60,15 +62,17 @@ pub fn build_from_entries(
             continue;
         }
         out.push(make_entry(
-            id,
-            namespace,
-            item_name.to_string(),
             &lang,
-            CatalogEntryKind::Item,
-            entry.path.clone(),
-            CatalogResolveKind::Model,
-            None,
-            vec![],
+            MakeEntryInput {
+                id,
+                namespace,
+                stem: item_name.to_string(),
+                kind: CatalogEntryKind::Item,
+                source_path: entry.path.clone(),
+                resolve_kind: CatalogResolveKind::Model,
+                default_variant_key: None,
+                texture_paths: vec![],
+            },
         ));
     }
 
@@ -88,15 +92,17 @@ pub fn build_from_entries(
         }
         let id = format!("{namespace}:{block_name}");
         out.push(make_entry(
-            id,
-            namespace,
-            block_name.to_string(),
             &lang,
-            CatalogEntryKind::Block,
-            entry.path.clone(),
-            CatalogResolveKind::Model,
-            None,
-            vec![],
+            MakeEntryInput {
+                id,
+                namespace,
+                stem: block_name.to_string(),
+                kind: CatalogEntryKind::Block,
+                source_path: entry.path.clone(),
+                resolve_kind: CatalogResolveKind::Model,
+                default_variant_key: None,
+                texture_paths: vec![],
+            },
         ));
     }
 
@@ -121,48 +127,49 @@ fn blockstate_names_set(entries: &[AssetEntry]) -> HashSet<(String, String)> {
         .collect()
 }
 
-fn make_entry(
+struct MakeEntryInput {
     id: String,
     namespace: String,
     stem: String,
-    lang: &LangIndex,
     kind: CatalogEntryKind,
     source_path: String,
     resolve_kind: CatalogResolveKind,
     default_variant_key: Option<String>,
     texture_paths: Vec<String>,
-) -> CatalogEntry {
-    let display_name = match kind {
+}
+
+fn make_entry(lang: &LangIndex, input: MakeEntryInput) -> CatalogEntry {
+    let display_name = match input.kind {
         CatalogEntryKind::Block => lang
-            .resolve_block(&namespace, &stem)
-            .unwrap_or_else(|| humanize_id(&stem)),
+            .resolve_block(&input.namespace, &input.stem)
+            .unwrap_or_else(|| humanize_id(&input.stem)),
         CatalogEntryKind::Item => lang
-            .resolve_item(&namespace, &stem)
-            .unwrap_or_else(|| humanize_id(&stem)),
+            .resolve_item(&input.namespace, &input.stem)
+            .unwrap_or_else(|| humanize_id(&input.stem)),
     };
 
-    let category = categorize(&id, &source_path, kind);
-    let variant_suffix = default_variant_key.as_deref().unwrap_or("");
-    let icon_key = format!("{id}:{variant_suffix}");
+    let category = categorize(&input.id, &input.source_path, input.kind);
+    let variant_suffix = input.default_variant_key.as_deref().unwrap_or("");
+    let icon_key = format!("{}:{variant_suffix}", input.id);
     let mut search_tokens = vec![
         display_name.to_ascii_lowercase(),
-        id.to_ascii_lowercase(),
-        stem.to_ascii_lowercase(),
+        input.id.to_ascii_lowercase(),
+        input.stem.to_ascii_lowercase(),
     ];
     search_tokens.sort();
     search_tokens.dedup();
 
     CatalogEntry {
-        id: id.clone(),
-        namespace,
+        id: input.id.clone(),
+        namespace: input.namespace,
         display_name,
-        kind,
-        source_path,
-        resolve_kind,
-        default_variant_key,
+        kind: input.kind,
+        source_path: input.source_path,
+        resolve_kind: input.resolve_kind,
+        default_variant_key: input.default_variant_key,
         category,
         search_tokens,
-        texture_paths,
+        texture_paths: input.texture_paths,
         icon_key,
         aliases: vec![],
     }

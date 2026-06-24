@@ -49,10 +49,13 @@ describe("catalogIconPipeline failures", () => {
 
   it("records icon bake failure when preview fails", async () => {
     scheduleCatalogIconBakes([entry], { id: 1 }, "preview", 256, 256);
-    await vi.waitFor(() => {
-      const key = catalogIconCacheKey(1, entry.iconKey);
-      expect(getCatalogIconCache(256).get(key)).toBeUndefined();
-    }, { timeout: 3000 });
+    await vi.waitFor(
+      () => {
+        const key = catalogIconCacheKey(1, entry.iconKey);
+        expect(getCatalogIconCache(256).get(key)).toBeUndefined();
+      },
+      { timeout: 3000 },
+    );
   });
 
   it("shouldBakeTier1 respects texture path presence", async () => {

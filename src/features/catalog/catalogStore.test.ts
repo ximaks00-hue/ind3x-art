@@ -1,7 +1,13 @@
 import { beforeEach, describe, expect, it } from "vitest";
 
 import { useCatalogStore } from "./catalogStore";
-import { catalogCellIndex, catalogEntryHasWarnings, catalogEntryToAssetEntry, catalogRowCount, getCatalogEntryWarnings } from "./catalogUtils";
+import {
+  catalogCellIndex,
+  catalogEntryHasWarnings,
+  catalogEntryToAssetEntry,
+  catalogRowCount,
+  getCatalogEntryWarnings,
+} from "./catalogUtils";
 
 describe("catalogUtils", () => {
   it("maps blockstate catalog entry to asset entry", () => {

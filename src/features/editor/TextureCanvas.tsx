@@ -419,29 +419,29 @@ function TextureCanvasInner({ handle, selectedFace }: TextureCanvasProps) {
           : null;
         if (activeLayer) {
           const ctx = activeLayer.ctx;
-            const [sx0, sy0, sx1, sy1] = [
-              Math.min(selection[0], selection[2]),
-              Math.min(selection[1], selection[3]),
-              Math.max(selection[0], selection[2]),
-              Math.max(selection[1], selection[3]),
-            ];
-            const w = sx1 - sx0 + 1;
-            const h = sy1 - sy0 + 1;
-            const data = ctx.getImageData(sx0, sy0, w, h);
-            const pixels = new Map<string, Rgba>();
-            for (let y = 0; y < h; y++) {
-              for (let x = 0; x < w; x++) {
-                const i = (y * w + x) * 4;
-                const [r, g, b, a] = [
-                  data.data[i],
-                  data.data[i + 1],
-                  data.data[i + 2],
-                  data.data[i + 3],
-                ];
-                pixels.set(`${x},${y}`, [r, g, b, a]);
-              }
+          const [sx0, sy0, sx1, sy1] = [
+            Math.min(selection[0], selection[2]),
+            Math.min(selection[1], selection[3]),
+            Math.max(selection[0], selection[2]),
+            Math.max(selection[1], selection[3]),
+          ];
+          const w = sx1 - sx0 + 1;
+          const h = sy1 - sy0 + 1;
+          const data = ctx.getImageData(sx0, sy0, w, h);
+          const pixels = new Map<string, Rgba>();
+          for (let y = 0; y < h; y++) {
+            for (let x = 0; x < w; x++) {
+              const i = (y * w + x) * 4;
+              const [r, g, b, a] = [
+                data.data[i],
+                data.data[i + 1],
+                data.data[i + 2],
+                data.data[i + 3],
+              ];
+              pixels.set(`${x},${y}`, [r, g, b, a]);
             }
-            moveBufferRef.current = { pixels, x0: sx0, y0: sy0, w, h };
+          }
+          moveBufferRef.current = { pixels, x0: sx0, y0: sy0, w, h };
         }
       } else {
         // Begin new selection rect
