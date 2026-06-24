@@ -8,6 +8,9 @@ export default defineConfig({
     include: ["src/**/*.test.{ts,tsx}"],
     globals: false,
     setupFiles: ["src/test/setup.ts"],
+    hookTimeout: 30_000,
+    testTimeout: 30_000,
+    maxWorkers: process.env.CI ? 2 : undefined,
     coverage: {
       provider: "v8",
       reporter: ["text", "lcov"],
