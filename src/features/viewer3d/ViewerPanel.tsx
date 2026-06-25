@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Channel } from "@tauri-apps/api/core";
 
 import { rebuildProjectCatalog } from "../../app/services/catalogService";
@@ -25,11 +25,15 @@ import { catalogTotalCount } from "../catalog/catalogUtils";
 import { useStudioAssetLoader } from "../catalog/useStudioAssetLoader";
 import { WelcomeScreen } from "../../ui/WelcomeScreen/WelcomeScreen";
 import { ViewerAssetLoader, type ViewerAssetState } from "./ViewerAssetLoader";
+import { Compare3DViewport } from "./Compare3DViewport";
 import { Scene3D } from "./Scene3D";
 import { ViewerEmptyState } from "./ViewerEmptyState";
 import { ViewerErrorState } from "./ViewerErrorState";
 import { ViewerLoadingState } from "./ViewerLoadingState";
 import { ViewerToolbar } from "./ViewerToolbar";
+import { ModelFaceChrome } from "./ModelFaceChrome";
+import { buildCubeAllPreviewModel } from "./cubeWrapPreview";
+import { useClassicModelFaceBootstrap } from "./useClassicModelFaceBootstrap";
 import { clearTextureCache, setActiveBiome } from "./textureLoader";
 import { PanelErrorBoundary } from "../../ui/PanelErrorBoundary/PanelErrorBoundary";
 import styles from "./ViewerPanel.module.css";
@@ -104,10 +108,13 @@ function ViewerPanelBody({
   const pushToast = useUiStore((s) => s.pushToast);
   const setInteractionMode = useSelectionStore((s) => s.setInteractionMode);
   const setComparatorMode = useInteractionStore((s) => s.setComparatorMode);
+  const miniSceneEnabled = useSettingsStore((s) => s.miniSceneEnabled);
+  const miniSceneSize = useSettingsStore((s) => s.miniSceneSize);
 
   const showGrid = useViewerShowGrid();
   const resetCamera = useViewerStore((s) => s.resetCamera);
   const setCurrentRenderable = useViewerStore((s) => s.setCurrentRenderable);
+  const activeTextureMeta = useViewerStore((s) => s.activeTextureMeta);
 
   const comparatorMode = useInteractionStore((s) => s.comparatorMode);
   const viewerBeforeModel = useInteractionStore((s) => s.viewerBeforeModel);
@@ -127,6 +134,7 @@ function ViewerPanelBody({
     path: string;
   } | null>(null);
   const [loadRetryTick, setLoadRetryTick] = useState(0);
+  const [classicCubeWrap, setClassicCubeWrap] = useState(false);
 
   const studioVariantKey =
     studioVariantPick?.entryId === catalogSelectedEntry?.id && studioVariantPick
@@ -199,10 +207,30 @@ function ViewerPanelBody({
     if (!handle) clearTextureCache();
   }, [handle]);
 
-  const faceCount = renderable?.cuboids.reduce((n, c) => n + c.faces.length, 0) ?? 0;
-  const animatedCount = renderable
-    ? Object.values(renderable.textureMeta).filter((m) => m.animation).length
+  useEffect(() => {
+    setClassicCubeWrap(false);
+  }, [selected?.id]);
+
+  const cubeWrapModel = useMemo(() => {
+    if (!classicCubeWrap || isStudio || !selected || selected.kind !== "texture") return null;
+    return buildCubeAllPreviewModel(selected.path, activeTextureMeta[selected.path]);
+  }, [classicCubeWrap, isStudio, selected, activeTextureMeta]);
+
+  const displayRenderable =
+    classicCubeWrap && cubeWrapModel ? cubeWrapModel : renderable;
+
+  useEffect(() => {
+    if (!isStudio) {
+      setCurrentRenderable(displayRenderable);
+    }
+  }, [isStudio, displayRenderable, setCurrentRenderable]);
+
+  const faceCount = displayRenderable?.cuboids.reduce((n, c) => n + c.faces.length, 0) ?? 0;
+  const animatedCount = displayRenderable
+    ? Object.values(displayRenderable.textureMeta).filter((m) => m.animation).length
     : 0;
+
+  const canCubeWrap = !isStudio && selected?.kind === "texture";
 
   const classicLoaderKey =
     selected && handle && !isStudio
@@ -223,6 +251,12 @@ function ViewerPanelBody({
       pushToast("Try another linked model from the toolbar picker", "info");
     }
   }, [linkedModels, pushToast, selected]);
+
+  const handleWrapInCube = useCallback(() => {
+    setClassicCubeWrap(true);
+    setInteractionMode("paint");
+    pushToast("Wrapped texture in a cube — pick faces to paint", "info");
+  }, [pushToast, setInteractionMode]);
 
   const handleReportIssue = useCallback(() => {
     void revealLogDir();
@@ -266,6 +300,8 @@ function ViewerPanelBody({
     ? `${indexStage}… ${indexProgress}%`
     : `Indexing… ${indexProgress}%`;
 
+  useClassicModelFaceBootstrap(!isStudio ? displayRenderable : null, selected?.id);
+
   return (
     <div className={styles.panelHost}>
     <div className={styles.panel} data-tour="tour-viewer hint-viewer">
@@ -299,7 +335,7 @@ function ViewerPanelBody({
         <ViewerToolbar
           handle={handle}
           selected={selected}
-          renderable={renderable}
+          renderable={displayRenderable}
           variants={variants}
           variantKey={variantKey}
           linkedModels={linkedModels}
@@ -312,6 +348,9 @@ function ViewerPanelBody({
             selected && setLinkedModelPick({ assetId: selected.id, path })
           }
           onBiomeChange={setBiome}
+          canCubeWrap={canCubeWrap}
+          cubeWrap={classicCubeWrap}
+          onCubeWrapChange={setClassicCubeWrap}
           hidden={false}
         />
       ) : null}
@@ -366,7 +405,7 @@ function ViewerPanelBody({
           </PanelErrorBoundary>
         ) : loading ? (
           <ViewerLoadingState />
-        ) : error ? (
+        ) : error && !displayRenderable ? (
           <ViewerErrorState
             title={displayName}
             error={error}
@@ -381,37 +420,41 @@ function ViewerPanelBody({
                 ? handleShowFlatPreview
                 : undefined
             }
+            onWrapInCube={canCubeWrap ? handleWrapInCube : undefined}
             onPickModel={linkedModels.length > 0 ? handlePickModel : undefined}
             onReportIssue={handleReportIssue}
           />
-        ) : renderable && handle ? (
-          <>
+        ) : displayRenderable && handle ? (
+          <div className={styles.modelStage}>
+            <div className={styles.modelCanvas}>
               {comparatorMode === "3d" && viewerBeforeModel ? (
-                <div className={styles.comparator3d}>
-                  <div className={styles.comparatorPane}>
-                    <span className={styles.comparatorLabel}>Before</span>
-                    <Scene3D model={viewerBeforeModel} handle={handle} />
-                  </div>
-                  <div className={styles.comparatorDivider} />
-                  <div className={styles.comparatorPane}>
-                    <span className={styles.comparatorLabel}>After</span>
-                    <Scene3D model={renderable} handle={handle} />
-                  </div>
-                </div>
+                <Compare3DViewport
+                  className={styles.comparator3d}
+                  beforeModel={viewerBeforeModel}
+                  afterModel={displayRenderable}
+                  handle={handle}
+                  sceneProps={{ miniSceneEnabled, miniSceneSize }}
+                />
               ) : (
-                <Scene3D model={renderable} handle={handle} />
+                <Scene3D
+                  model={displayRenderable}
+                  handle={handle}
+                  miniSceneEnabled={miniSceneEnabled}
+                  miniSceneSize={miniSceneSize}
+                />
               )}
               <div className={styles.overlay}>
                 <p className={styles.overlayTitle}>
-                  {renderable.modelId} · {renderable.kind}
+                  {displayRenderable.modelId} · {displayRenderable.kind}
+                  {classicCubeWrap ? " · cube wrap" : ""}
                 </p>
                 <div className={styles.stats}>
-                  <span>{renderable.cuboids.length} cuboids</span>
+                  <span>{displayRenderable.cuboids.length} cuboids</span>
                   <span>{faceCount} faces</span>
-                  <span>{Object.keys(renderable.textureRefs).length} texture refs</span>
+                  <span>{Object.keys(displayRenderable.textureRefs).length} texture refs</span>
                   {animatedCount > 0 && <span>{animatedCount} animated</span>}
                 </div>
-                {linkedModels.length > 0 && (
+                {linkedModels.length > 0 && !classicCubeWrap && (
                   <p className={styles.linkedHint}>
                     {linkedModels.length} linked model
                     {linkedModels.length === 1 ? "" : "s"}
@@ -419,7 +462,9 @@ function ViewerPanelBody({
                   </p>
                 )}
               </div>
-            </>
+            </div>
+            <ModelFaceChrome model={displayRenderable} />
+          </div>
         ) : hasSelection && handle ? (
           <ViewerLoadingState label="Preparing preview…" />
         ) : null}

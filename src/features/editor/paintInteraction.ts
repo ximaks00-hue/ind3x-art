@@ -42,6 +42,7 @@ export function buildPaintStrokeContext(
     symmetryY: s.symmetryY,
     brushSize: s.brushSize,
     brushOpacity: s.brushOpacity,
+    brushMode: s.brushMode,
     fillTolerance: s.fillTolerance,
     pixelPerfectLine: s.pixelPerfectLine,
     rectFilled: s.rectFilled,

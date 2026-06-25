@@ -11,183 +11,183 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  cross-platform:
+  frontend-check:
+    name: Frontend lint & types
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run lint
+      - run: npm run format:check
+
+  frontend-unit:
+    name: Frontend unit tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm run test:unit
+
+  bindings-drift:
+    name: IPC bindings drift
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+      - run: npm ci
+      - run: npm run gen:types
+      - run: git diff --exit-code src/ipc/bindings.ts
+
+  rust-check:
+    name: Rust (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 30
+    timeout-minutes: 25
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest]
-
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          cache: npm
-
-      - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy
-
-      - name: Rust cache
-        uses: swatinem/rust-cache@v2
+      - uses: swatinem/rust-cache@v2
         with:
           workspaces: src-tauri
-
-      - name: Install Linux dependencies
-        if: runner.os == 'Linux'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            libwebkit2gtk-4.1-dev \
-            libappindicator3-dev \
-            librsvg2-dev \
-            patchelf \
-            libgtk-3-dev
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Typecheck
-        run: npm run typecheck
-
-      - name: ESLint
-        run: npm run lint
-
-      - name: Unit tests
-        run: npm run test:unit
-
-      - name: Rust lint (clippy)
+      - name: Clippy
         run: cargo clippy -- -D warnings
         working-directory: src-tauri
-
-      - name: Rust tests
+      - name: Unit & regression tests
         run: cargo test
         working-directory: src-tauri
 
-  build:
+  build-e2e:
+    name: Build & E2E (Windows)
     runs-on: windows-latest
     timeout-minutes: 60
-
+    needs:
+      - frontend-check
+      - frontend-unit
+      - rust-check
+      - bindings-drift
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
         with:
           node-version: 20
           cache: npm
-
-      - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@stable
         with:
           components: llvm-tools-preview
-
-      - name: Rust cache
-        uses: swatinem/rust-cache@v2
+      - uses: swatinem/rust-cache@v2
         with:
           workspaces: src-tauri
-
-      - name: Install cargo-llvm-cov
-        uses: taiki-e/install-action@cargo-llvm-cov
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Typecheck
-        run: npm run typecheck
-
-      - name: Generate Rust→TS types (verify no drift)
-        run: npm run gen:types
-
-      - name: Verify generated types match committed export
-        run: git diff --exit-code src/ipc/bindings.ts
-
-      - name: ESLint
-        run: npm run lint
-
-      - name: Unit tests with coverage (Vitest)
-        run: npm run test:unit:coverage
-
-      - name: Upload frontend coverage (Codecov)
-        uses: codecov/codecov-action@v4
+      - uses: taiki-e/install-action@cargo-llvm-cov
+      - run: npm ci
+      - run: npm run test:unit:coverage
+      - uses: codecov/codecov-action@v4
+        continue-on-error: true
         env:
           CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
         with:
           files: coverage/lcov.info
           flags: frontend
           fail_ci_if_error: false
-
-      - name: Prettier check
-        run: npm run format:check
-
-      - name: Rust lint (clippy)
-        run: cargo clippy -- -D warnings
+      - run: cargo test --release bench_ -- --ignored --nocapture
         working-directory: src-tauri
-
-      - name: Rust tests
-        run: cargo test
+      - run: cargo llvm-cov --lcov --output-path lcov-rust.info
         working-directory: src-tauri
-
-      - name: Rust performance benchmarks
-        run: cargo test --release bench_ -- --ignored --nocapture
-        working-directory: src-tauri
-
-      - name: Rust coverage (llvm-cov)
-        run: cargo llvm-cov --lcov --output-path lcov-rust.info
-        working-directory: src-tauri
-
-      - name: Upload Rust coverage (Codecov)
-        uses: codecov/codecov-action@v4
+      - uses: codecov/codecov-action@v4
+        continue-on-error: true
         env:
           CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
         with:
           files: src-tauri/lcov-rust.info
           flags: rust
           fail_ci_if_error: false
-
-      - name: Frontend build
-        run: npm run build
-
-      - name: Bundle size budget (main chunk gzip)
-        run: npm run check:bundle-size
-
-      - name: Install Playwright browsers
-        run: npx playwright install chromium
-
-      - name: E2E tests (smoke + visual)
-        run: npm run test:e2e
-
-      - name: E2E integration (fixture + mock IPC)
-        run: npm run test:e2e:integration
+      - run: npm run build
+      - run: npm run check:bundle-size
+      - run: npx playwright install chromium
+      - run: npm run test:e2e
+      - run: npm run test:e2e:integration
 
   native-e2e:
+    name: Native WebDriver E2E
     if: ${{ vars.TAURI_WEBDRIVER_URL != '' }}
     runs-on: windows-latest
     timeout-minutes: 30
+    needs:
+      - build-e2e
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
         with:
           node-version: 20
           cache: npm
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Install Playwright browsers
-        run: npx playwright install chromium
-
+      - run: npm ci
+      - run: npx playwright install chromium
       - name: Native WebDriver E2E
         env:
           TAURI_WEBDRIVER_URL: ${{ vars.TAURI_WEBDRIVER_URL || secrets.TAURI_WEBDRIVER_URL }}
         run: npm run test:e2e:native
+
+  ci-summary:
+    name: CI summary
+    runs-on: ubuntu-latest
+    if: always()
+    needs:
+      - frontend-check
+      - frontend-unit
+      - bindings-drift
+      - rust-check
+      - build-e2e
+      - native-e2e
+    steps:
+      - name: Aggregate job results
+        env:
+          NEEDS_JSON: ${{ toJSON(needs) }}
+        run: |
+          node <<'NODE'
+          const needs = JSON.parse(process.env.NEEDS_JSON || '{}');
+          const required = [
+            'frontend-check',
+            'frontend-unit',
+            'bindings-drift',
+            'rust-check',
+            'build-e2e',
+          ];
+          const rows = Object.entries(needs).map(([name, job]) => ({
+            name,
+            result: job.result ?? 'skipped',
+          }));
+          const failed = required.filter((name) => needs[name]?.result === 'failure');
+          const cancelled = required.filter((name) => needs[name]?.result === 'cancelled');
+          console.log('CI job results:');
+          for (const row of rows) {
+            console.log(`  ${row.result.padEnd(9)} ${row.name}`);
+          }
+          if (failed.length || cancelled.length) {
+            console.error(`\n${failed.length} failed, ${cancelled.length} cancelled`);
+            process.exit(1);
+          }
+          console.log('\nAll required jobs passed.');
+          NODE

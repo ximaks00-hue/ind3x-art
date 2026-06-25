@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 
 import { ipc } from "../../ipc/client";
 import type {
@@ -39,16 +39,18 @@ export function ViewerAssetLoader({
 }: ViewerAssetLoaderProps) {
   const clearSelection = useSelectionStore((s) => s.clearSelection);
   const setActiveTextureMeta = useViewerStore((s) => s.setActiveTextureMeta);
+  const onLoadedRef = useRef(onLoaded);
+  onLoadedRef.current = onLoaded;
 
   useEffect(() => {
     clearSelection();
-  }, [clearSelection]);
+  }, [clearSelection, handle.id, selected.path]);
 
   useEffect(() => {
     let cancelled = false;
 
     async function load() {
-      onLoaded({
+      onLoadedRef.current({
         renderable: null,
         linkedModels: [],
         variants: [],
@@ -68,7 +70,7 @@ export function ViewerAssetLoader({
           }
           if (variants.length > 0 && resolvedVariantKey == null) {
             if (!cancelled) {
-              onLoaded({
+              onLoadedRef.current({
                 renderable: null,
                 linkedModels: [],
                 variants,
@@ -95,7 +97,7 @@ export function ViewerAssetLoader({
 
         if (cancelled) return;
         setActiveTextureMeta(model.textureMeta);
-        onLoaded({
+        onLoadedRef.current({
           renderable: model,
           linkedModels: linked,
           variants,
@@ -105,7 +107,7 @@ export function ViewerAssetLoader({
         });
       } catch (e) {
         if (cancelled) return;
-        onLoaded({
+        onLoadedRef.current({
           renderable: null,
           linkedModels: [],
           variants: [],
@@ -120,7 +122,7 @@ export function ViewerAssetLoader({
     return () => {
       cancelled = true;
     };
-  }, [handle, selected, variantKey, linkedModelPath, onLoaded, setActiveTextureMeta]);
+  }, [handle, selected, variantKey, linkedModelPath, setActiveTextureMeta]);
 
   return null;
 }

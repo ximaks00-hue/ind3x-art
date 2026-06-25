@@ -6,7 +6,7 @@ import { CAMERA_PRESET_TRANSFORMS, type CameraPreset } from "../../lib/cameraPre
 import { easeOutCubic } from "../../lib/elementRotation";
 import { useViewerStore } from "../../state/viewerStore";
 import { setViewerFps } from "../../state/viewerFps";
-import { tickAnimatedTextures } from "./textureLoader";
+import { subscribeTextureAnimation } from "./textureAnimationLoop";
 
 const TRANSITION_MS = 200;
 
@@ -62,12 +62,13 @@ export function SceneRig() {
       new THREE.Vector3(...faceZoomRequest.position),
       new THREE.Vector3(...faceZoomRequest.target),
     );
+    useViewerStore.getState().consumeFaceZoomRequest();
     // eslint-disable-next-line react-hooks/exhaustive-deps -- keyed by faceZoomRequest.tick
   }, [camera, faceZoomRequest?.tick]);
 
-  useFrame((_, delta) => {
-    tickAnimatedTextures(delta);
+  useEffect(() => subscribeTextureAnimation(), []);
 
+  useFrame((_, delta) => {
     if (animRef.current && camera instanceof THREE.PerspectiveCamera) {
       const t = Math.min(1, (performance.now() - animRef.current.start) / TRANSITION_MS);
       const eased = easeOutCubic(t);

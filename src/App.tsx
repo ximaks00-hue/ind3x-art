@@ -72,7 +72,7 @@ function App() {
     subscribeSourceEvents,
   } = useProjectSource();
 
-  useCatalogBootstrap();
+  useCatalogBootstrap(workspaceMode === "studio");
 
   const showOnboardingTour = shouldShowOnboardingTour({
     workspaceMode,

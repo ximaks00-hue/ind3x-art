@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::fs::{self, File};
 use std::io::Write;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use zip::write::SimpleFileOptions;
 use zip::ZipWriter;
@@ -26,9 +26,10 @@ pub fn rebuild_jar_atomic(
         .map_err(|e| CoreError::Internal(format!("invalid zip/jar: {e}")))?;
 
     let temp_path = jar_path.with_extension("jar.tmp");
+    let mut temp_guard = TempJarCleanup::new(temp_path.clone());
+
     let dest = File::create(&temp_path)?;
     let mut writer = ZipWriter::new(dest);
-    let options = SimpleFileOptions::default();
 
     let mut replace_set = HashSet::new();
     for path in replacements.keys() {
@@ -36,20 +37,26 @@ pub fn rebuild_jar_atomic(
         replace_set.insert(normalize_zip_path(&validated));
     }
 
+    let mut copied_names = HashSet::new();
     for i in 0..archive.len() {
         let mut file = archive.by_index(i)?;
         let name = normalize_zip_path(file.name());
-        if file.is_dir() || replace_set.contains(&name) {
+        if file.is_dir() || replace_set.contains(&name) || !copied_names.insert(name.clone()) {
             continue;
         }
-        writer.start_file(name.clone(), options)?;
+        let mut options = SimpleFileOptions::default().compression_method(file.compression());
+        if let Some(modified) = file.last_modified() {
+            options = options.last_modified_time(modified);
+        }
+        writer.start_file(name, options)?;
         copy(&mut file, &mut writer)?;
     }
 
+    let default_options = SimpleFileOptions::default();
     for (path, data) in replacements {
         let validated = validate_relative_asset_path(path)?;
         let needle = normalize_zip_path(&validated);
-        writer.start_file(needle, options)?;
+        writer.start_file(needle, default_options)?;
         writer.write_all(data)?;
     }
 
@@ -58,7 +65,35 @@ pub fn rebuild_jar_atomic(
         .map_err(|e| CoreError::Internal(format!("zip finalize failed: {e}")))?;
 
     fs::rename(&temp_path, jar_path)?;
+    temp_guard.disarm();
     Ok(())
+}
+
+/// Remove a failed jar rebuild temp file on drop.
+struct TempJarCleanup {
+    path: PathBuf,
+    active: bool,
+}
+
+impl TempJarCleanup {
+    fn new(path: PathBuf) -> Self {
+        Self {
+            path,
+            active: true,
+        }
+    }
+
+    fn disarm(&mut self) {
+        self.active = false;
+    }
+}
+
+impl Drop for TempJarCleanup {
+    fn drop(&mut self) {
+        if self.active && self.path.is_file() {
+            let _ = fs::remove_file(&self.path);
+        }
+    }
 }
 
 #[cfg(test)]

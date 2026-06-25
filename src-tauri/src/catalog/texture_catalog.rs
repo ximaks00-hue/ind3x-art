@@ -47,6 +47,7 @@ pub fn build_texture_catalog_fallback(
                 icon_model_path: None,
                 studio_model_path: studio_path,
             },
+            options.tab_order,
         ));
     }
 
@@ -94,6 +95,7 @@ fn build_from_orphan_textures(
                 icon_model_path: None,
                 studio_model_path: entry.path.clone(),
             },
+            options.tab_order,
         ));
     }
 

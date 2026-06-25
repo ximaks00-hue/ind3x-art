@@ -1,11 +1,11 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
-import { resolveCatalogEntry } from "../../app/services/catalogService";
-import { listVariants } from "../../app/services/catalogService";
+import { resolveCatalogEntry, listVariants } from "../../app/services/catalogService";
 import type { CatalogEntry, ProjectHandle, RenderableModel, VariantKey } from "../../ipc/types";
 import { useSettingsStore } from "../../state/settingsStore";
 import { useSelectionStore } from "../../state/selectionStore";
 import { useViewerStore } from "../../state/viewerStore";
+import { buildCubeAllPreviewModel } from "../viewer3d/cubeWrapPreview";
 import { catalogVariantKeysToPicker } from "./catalogUtils";
 import { useCatalogStore } from "./catalogStore";
 import {
@@ -22,6 +22,7 @@ export interface StudioAssetState {
   variantKey: string | undefined;
   loading: boolean;
   error: string | null;
+  variantLoadError: string | null;
 }
 
 const EMPTY: StudioAssetState = {
@@ -30,6 +31,7 @@ const EMPTY: StudioAssetState = {
   variantKey: undefined,
   loading: false,
   error: null,
+  variantLoadError: null,
 };
 
 /**
@@ -44,6 +46,9 @@ export function useStudioAssetLoader(
 ): StudioAssetState {
   const [state, setState] = useState<StudioAssetState>(EMPTY);
   const [resolvedVariants, setResolvedVariants] = useState<VariantKey[]>([]);
+  const [variantLoadError, setVariantLoadError] = useState<string | null>(null);
+  const variantsAbortRef = useRef<AbortController | null>(null);
+  const resolveAbortRef = useRef<AbortController | null>(null);
   const queryRevision = useCatalogStore((s) => s.queryRevision);
   const modelCacheLimit = useSettingsStore((s) => s.modelCacheLimit);
   const clearSelection = useSelectionStore((s) => s.clearSelection);
@@ -65,20 +70,31 @@ export function useStudioAssetLoader(
   }, [modelCacheLimit]);
 
   useEffect(() => {
+    variantsAbortRef.current?.abort();
     if (!handle || !entry || entry.resolveKind !== "blockstate") {
       setResolvedVariants([]);
+      setVariantLoadError(null);
       return;
     }
-    let cancelled = false;
-    void listVariants(handle, entry.studioModelPath)
+    const abort = new AbortController();
+    variantsAbortRef.current = abort;
+    setVariantLoadError(null);
+    void listVariants(handle, entry.studioModelPath, { signal: abort.signal })
       .then((rows) => {
-        if (!cancelled) setResolvedVariants(rows);
+        if (abort.signal.aborted) return;
+        setResolvedVariants(rows);
+        setVariantLoadError(null);
       })
-      .catch(() => {
-        if (!cancelled) setResolvedVariants([]);
+      .catch((error) => {
+        if (abort.signal.aborted) return;
+        const message =
+          error instanceof Error ? error.message : "Failed to load block variants";
+        console.warn("[studio] listVariants failed", entry.id, error);
+        setResolvedVariants([]);
+        setVariantLoadError(message);
       });
     return () => {
-      cancelled = true;
+      abort.abort();
     };
   }, [handle, entry?.id, entry?.resolveKind, entry?.studioModelPath, queryRevision]);
 
@@ -88,40 +104,59 @@ export function useStudioAssetLoader(
     setHoveredFace(null);
   }, [entryId, resolvedVariantKey, clearSelection, setHoveredFace]);
 
-  const variantKeysSig = (entry?.variantKeys ?? []).join("\0");
-  const resolvedVariantSig = resolvedVariants
-    .map((v) => `${v.key}:${v.model}:${v.weight ?? ""}`)
-    .join("\0");
+  useEffect(() => {
+    if (!entryId) return;
+    const nextVariants = resolvedVariants.length > 0 ? resolvedVariants : fallbackVariants;
+    setState((prev) => ({
+      ...prev,
+      variants: nextVariants,
+      variantLoadError,
+    }));
+  }, [entryId, resolvedVariants, fallbackVariants, variantLoadError]);
 
   useEffect(() => {
+    resolveAbortRef.current?.abort();
     if (!handle || !entryId) {
       setState(EMPTY);
       return;
     }
 
-    const activeVariants =
-      resolvedVariants.length > 0 ? resolvedVariants : fallbackVariants;
+    const activeVariants = fallbackVariants;
 
     if (entry?.resolveKind === "texture") {
+      const texturePath = entry.texturePaths[0] ?? entry.studioModelPath ?? entry.sourcePath ?? null;
+      const textureMeta = useViewerStore.getState().activeTextureMeta;
+      const syntheticModel = texturePath
+        ? buildCubeAllPreviewModel(texturePath, textureMeta[texturePath])
+        : null;
+      if (syntheticModel && texturePath && !textureMeta[texturePath]) {
+        setActiveTextureMeta({
+          ...textureMeta,
+          ...syntheticModel.textureMeta,
+        });
+      }
       setState({
-        renderable: null,
+        renderable: syntheticModel,
         variants: activeVariants,
         variantKey: resolvedVariantKey,
         loading: false,
         error: null,
+        variantLoadError: null,
       });
       return;
     }
 
-    let cancelled = false;
+    const abort = new AbortController();
+    resolveAbortRef.current = abort;
 
-    setState({
+    setState((prev) => ({
+      ...prev,
       renderable: null,
       variants: activeVariants,
       variantKey: resolvedVariantKey,
       loading: true,
       error: null,
-    });
+    }));
 
     const cacheKey =
       handle && entryId
@@ -131,14 +166,17 @@ export function useStudioAssetLoader(
     if (cached) {
       refreshDirtyTexturesForViewer(handle, modelTexturePaths(cached));
       setActiveTextureMeta(cached.textureMeta);
-      setState({
+      setState((prev) => ({
+        ...prev,
         renderable: cached,
         variants: activeVariants,
         variantKey: resolvedVariantKey,
         loading: false,
         error: null,
-      });
-      return;
+      }));
+      return () => {
+        abort.abort();
+      };
     }
 
     void (async () => {
@@ -148,32 +186,35 @@ export function useStudioAssetLoader(
           entryId,
           "placed",
           resolvedVariantKey ?? null,
+          { signal: abort.signal },
         );
-        if (cancelled) return;
+        if (abort.signal.aborted) return;
         if (cacheKey) setStudioResolveCache(cacheKey, model);
         refreshDirtyTexturesForViewer(handle, modelTexturePaths(model));
         setActiveTextureMeta(model.textureMeta);
-        setState({
+        setState((prev) => ({
+          ...prev,
           renderable: model,
           variants: activeVariants,
           variantKey: resolvedVariantKey,
           loading: false,
           error: null,
-        });
+        }));
       } catch (e) {
-        if (cancelled) return;
-        setState({
+        if (abort.signal.aborted) return;
+        setState((prev) => ({
+          ...prev,
           renderable: null,
           variants: activeVariants,
           variantKey: resolvedVariantKey,
           loading: false,
           error: e instanceof Error ? e.message : "Failed to resolve catalog entry",
-        });
+        }));
       }
     })();
 
     return () => {
-      cancelled = true;
+      abort.abort();
     };
   }, [
     handle,
@@ -183,9 +224,8 @@ export function useStudioAssetLoader(
     queryRevision,
     setActiveTextureMeta,
     entry?.resolveKind,
-    variantKeysSig,
-    resolvedVariantSig,
+    fallbackVariants,
   ]);
 
-  return { ...state, variants, variantKey: resolvedVariantKey };
+  return { ...state, variants, variantKey: resolvedVariantKey, variantLoadError };
 }

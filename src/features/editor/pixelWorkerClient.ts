@@ -33,13 +33,18 @@ function scheduleTerminate(): void {
 
 function ensureWorker(): Comlink.Remote<PixelWorkerApi> {
   cancelScheduledTerminate();
-  if (!worker) {
+  if (!worker || !proxy) {
     worker = new Worker(new URL("./pixelWorker.ts", import.meta.url), {
       type: "module",
     });
     proxy = Comlink.wrap<PixelWorkerApi>(worker);
   }
-  return proxy!;
+  return proxy;
+}
+
+/** Always returns a live Comlink proxy (recreates worker after idle terminate). */
+export function getPixelWorkerProxy(): Comlink.Remote<PixelWorkerApi> {
+  return ensureWorker();
 }
 
 export function acquirePixelWorker(): Comlink.Remote<PixelWorkerApi> {
@@ -49,8 +54,7 @@ export function acquirePixelWorker(): Comlink.Remote<PixelWorkerApi> {
 
 export function releasePixelWorker(): void {
   refCount = Math.max(0, refCount - 1);
-  if (refCount > 0) return;
-  if (inFlightTasks > 0) return;
+  if (refCount > 0 || inFlightTasks > 0) return;
   scheduleTerminate();
 }
 

@@ -1,4 +1,5 @@
 import { ipc } from "../../ipc/client";
+import { withAbortableIpc } from "../../ipc/abortable";
 import type {
   CatalogFacets,
   CatalogFilter,
@@ -15,16 +16,33 @@ import {
   validateCatalogIconBase64,
 } from "./serviceValidation";
 
+export type CatalogServiceOptions = {
+  signal?: AbortSignal;
+};
+
 export async function queryCatalog(
   handle: ProjectHandle,
   filter: CatalogFilter,
   page: PageReq,
+  options?: CatalogServiceOptions,
 ): Promise<CatalogPage> {
-  return ipc.queryCatalog(requireProjectHandle(handle), filter, clampPageReq(page));
+  return withAbortableIpc(options?.signal, (ipcRequestId) =>
+    ipc.queryCatalog(requireProjectHandle(handle), filter, clampPageReq(page), ipcRequestId),
+  );
 }
 
-export async function getCatalogEntry(handle: ProjectHandle, entryId: string) {
-  return ipc.getCatalogEntry(requireProjectHandle(handle), requireNonEmptyId(entryId, "entry id"));
+export async function getCatalogEntry(
+  handle: ProjectHandle,
+  entryId: string,
+  options?: CatalogServiceOptions,
+) {
+  return withAbortableIpc(options?.signal, (ipcRequestId) =>
+    ipc.getCatalogEntry(
+      requireProjectHandle(handle),
+      requireNonEmptyId(entryId, "entry id"),
+      ipcRequestId,
+    ),
+  );
 }
 
 export async function getCatalogFacets(handle: ProjectHandle): Promise<CatalogFacets> {
@@ -36,12 +54,16 @@ export async function resolveCatalogEntry(
   entryId: string,
   context: "icon" | "studio" | "placed" = "icon",
   variantKey?: string | null,
+  options?: CatalogServiceOptions,
 ): Promise<RenderableModel> {
-  return ipc.resolveCatalogEntry(
-    requireProjectHandle(handle),
-    requireNonEmptyId(entryId, "entry id"),
-    context,
-    variantKey ?? null,
+  return withAbortableIpc(options?.signal, (ipcRequestId) =>
+    ipc.resolveCatalogEntry(
+      requireProjectHandle(handle),
+      requireNonEmptyId(entryId, "entry id"),
+      context,
+      variantKey ?? null,
+      ipcRequestId,
+    ),
   );
 }
 
@@ -55,8 +77,15 @@ export async function rebuildProjectCatalog(
 export async function listVariants(
   handle: ProjectHandle,
   assetPath: string,
+  options?: CatalogServiceOptions,
 ): Promise<VariantKey[]> {
-  return ipc.listVariants(requireProjectHandle(handle), requireNonEmptyId(assetPath, "asset path"));
+  return withAbortableIpc(options?.signal, (ipcRequestId) =>
+    ipc.listVariants(
+      requireProjectHandle(handle),
+      requireNonEmptyId(assetPath, "asset path"),
+      ipcRequestId,
+    ),
+  );
 }
 
 export async function getCatalogIconCache(

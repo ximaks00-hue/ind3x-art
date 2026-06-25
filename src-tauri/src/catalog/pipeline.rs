@@ -9,6 +9,7 @@ pub struct CatalogBuildCtx<'a> {
     pub assets: &'a [AssetEntry],
     pub source: Option<&'a dyn AssetSource>,
     pub language: &'a str,
+    pub tab_order: Option<&'a super::creative_tabs::CreativeTabOrder>,
 }
 
 impl<'a> CatalogBuildCtx<'a> {
@@ -16,11 +17,13 @@ impl<'a> CatalogBuildCtx<'a> {
         assets: &'a [AssetEntry],
         source: Option<&'a dyn AssetSource>,
         language: &'a str,
+        tab_order: Option<&'a super::creative_tabs::CreativeTabOrder>,
     ) -> Self {
         Self {
             assets,
             source,
             language,
+            tab_order,
         }
     }
 }
@@ -39,6 +42,7 @@ impl CatalogPipeline for DefaultCatalogPipeline {
             ctx.source,
             CatalogBuildOptions {
                 language: ctx.language,
+                tab_order: ctx.tab_order,
                 ..Default::default()
             },
         );

@@ -217,12 +217,12 @@ pub fn collect_indexed_entries(
     entries.par_sort_unstable_by(|a, b| a.path.cmp(&b.path));
     entries.dedup_by(|a, b| a.path == b.path);
 
-    let classified_set: HashSet<String> = entries.iter().map(|e| e.path.clone()).collect();
+    let classified_set: HashSet<&str> = entries.iter().map(|e| e.path.as_str()).collect();
     const MAX_WARNING_SAMPLES: usize = 8;
     let mut unclassified_count = 0u64;
     let mut samples: Vec<String> = Vec::new();
     for path in &paths {
-        if path.starts_with("assets/") && !classified_set.contains(path) {
+        if path.starts_with("assets/") && !classified_set.contains(path.as_str()) {
             unclassified_count += 1;
             if samples.len() < MAX_WARNING_SAMPLES {
                 samples.push(path.clone());

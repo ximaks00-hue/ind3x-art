@@ -1,15 +1,22 @@
 import type { CSSProperties } from "react";
-import type { TextureAnimationMeta } from "../../ipc/types";
+import { useMemo } from "react";
+import type { ProjectHandle, TextureAnimationMeta } from "../../ipc/types";
 import { useEditorStore } from "../../state/editorStore";
+import { useDocumentRevision } from "./textureDocument";
 import { getTextureCanvas } from "./textureDocument";
 import styles from "./AnimationTimeline.module.css";
 
 interface AnimationTimelineProps {
+  handle: ProjectHandle;
   texturePath: string;
   animation: TextureAnimationMeta;
 }
 
-export function AnimationTimeline({ texturePath, animation }: AnimationTimelineProps) {
+export function AnimationTimeline({
+  handle,
+  texturePath,
+  animation,
+}: AnimationTimelineProps) {
   const activeFrame = useEditorStore((s) => s.activeFrame);
   const onionSkin = useEditorStore((s) => s.onionSkin);
   const setActiveFrame = useEditorStore((s) => s.setActiveFrame);
@@ -20,7 +27,15 @@ export function AnimationTimeline({ texturePath, animation }: AnimationTimelineP
 
   const total = animation.frames.length;
   const canvas = getTextureCanvas(texturePath);
+  const docRevision = useDocumentRevision();
   const frameH = animation.frameHeight || (canvas ? canvas.height / total : 16);
+
+  const stripDataUrl = useMemo(() => {
+    if (!canvas) return null;
+    return canvas.toDataURL();
+  }, [canvas, docRevision, canvas?.width, canvas?.height]);
+
+  const thumbScale = 24 / Math.max(frameH, 1);
 
   return (
     <div className={styles.timeline}>
@@ -55,7 +70,7 @@ export function AnimationTimeline({ texturePath, animation }: AnimationTimelineP
         <button
           type="button"
           className={styles.btn}
-          onClick={() => duplicateAnimationFrame(texturePath, activeFrame, animation)}
+          onClick={() => duplicateAnimationFrame(texturePath, activeFrame, animation, handle)}
           title="Duplicate frame"
         >
           Dup
@@ -64,7 +79,7 @@ export function AnimationTimeline({ texturePath, animation }: AnimationTimelineP
           type="button"
           className={styles.btn}
           disabled={total <= 1}
-          onClick={() => deleteAnimationFrame(texturePath, activeFrame, animation)}
+          onClick={() => deleteAnimationFrame(texturePath, activeFrame, animation, handle)}
           title="Delete frame"
         >
           Del
@@ -73,11 +88,10 @@ export function AnimationTimeline({ texturePath, animation }: AnimationTimelineP
       <div className={styles.strip}>
         {animation.frames.map((frameRow, index) => {
           const thumbStyle: CSSProperties = {};
-          if (canvas) {
-            const scale = 24 / Math.max(frameH, 1);
-            thumbStyle.backgroundImage = `url(${canvas.toDataURL()})`;
-            thumbStyle.backgroundPosition = `0 ${-frameRow * frameH * scale}px`;
-            thumbStyle.backgroundSize = `${canvas.width * scale}px auto`;
+          if (stripDataUrl && canvas) {
+            thumbStyle.backgroundImage = `url(${stripDataUrl})`;
+            thumbStyle.backgroundPosition = `0 ${-frameRow * frameH * thumbScale}px`;
+            thumbStyle.backgroundSize = `${canvas.width * thumbScale}px auto`;
           }
           return (
             <button
@@ -85,7 +99,7 @@ export function AnimationTimeline({ texturePath, animation }: AnimationTimelineP
               type="button"
               className={index === activeFrame ? styles.thumbActive : styles.thumb}
               style={thumbStyle}
-              onClick={() => setActiveFrame(index)}
+              onClick={() => setActiveFrame(index, total)}
               title={`Frame ${index + 1}`}
             />
           );

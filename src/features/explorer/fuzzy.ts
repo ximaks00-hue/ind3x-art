@@ -1,8 +1,8 @@
-/** Fuzzy subsequence search — keep in sync with src-tauri/src/search/mod.rs */
+/** Fuzzy subsequence search — keep in sync with src-tauri/src/search/mod.rs; golden vectors: tests/fixtures/fuzzy_golden.json */
 
 export function fuzzyScore(query: string, text: string): number | null {
   const q = query.trim().toLowerCase();
-  if (!q) return 0;
+  if (!q) return null;
   const t = text.toLowerCase();
   if (t.includes(q)) return 1000 - q.length;
 

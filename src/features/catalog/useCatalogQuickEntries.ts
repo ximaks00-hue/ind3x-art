@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 
 import { getCatalogEntry } from "../../app/services/catalogService";
 import type { CatalogEntry, ProjectHandle } from "../../ipc/types";
+import { useCatalogStore } from "./catalogStore";
 
 /** Resolve pinned/recent catalog ids via IPC (not limited to loaded grid page). */
 export function useCatalogQuickEntries(
@@ -17,10 +18,23 @@ export function useCatalogQuickEntries(
       return;
     }
 
+    const gridById = new Map(
+      useCatalogStore
+        .getState()
+        .entries.filter((entry) => catalogIds.includes(entry.id))
+        .map((entry) => [entry.id, entry] as const),
+    );
+    const missingIds = catalogIds.filter((id) => !gridById.has(id));
+
+    if (missingIds.length === 0) {
+      setEntries(gridById);
+      return;
+    }
+
     let cancelled = false;
     void (async () => {
       const pairs = await Promise.all(
-        catalogIds.map(async (id) => {
+        missingIds.map(async (id) => {
           try {
             const entry = await getCatalogEntry(handle, id);
             return [id, entry] as const;
@@ -30,7 +44,7 @@ export function useCatalogQuickEntries(
         }),
       );
       if (cancelled) return;
-      const next = new Map<string, CatalogEntry>();
+      const next = new Map(gridById);
       for (const pair of pairs) {
         if (pair) next.set(pair[0], pair[1]);
       }

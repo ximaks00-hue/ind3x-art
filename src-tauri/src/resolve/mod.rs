@@ -189,6 +189,10 @@ pub fn collect_variant_models(blockstate: &RawBlockstate) -> Vec<(RawVariantMode
             match value {
                 VariantValue::Single(model) => out.push((model.clone(), key.clone())),
                 VariantValue::Multiple(models) => {
+                    if models.is_empty() {
+                        tracing::warn!(variant_key = %key, "skipping blockstate variant with empty model list");
+                        continue;
+                    }
                     let total_weight: u32 = models.iter().map(|m| m.weight.max(1)).sum();
                     let hash_seed = key
                         .bytes()
@@ -485,5 +489,33 @@ mod tests {
         .expect("compile");
         assert_eq!(compiled.kind, RenderableKind::Multipart);
         assert!(compiled.cuboids.len() >= 2);
+    }
+
+    #[test]
+    fn collect_variant_models_skips_empty_weighted_list() {
+        use std::collections::HashMap;
+
+        use crate::model::types::{RawBlockstate, RawVariantModel, VariantValue};
+
+        let mut variants = HashMap::new();
+        variants.insert("x".to_string(), VariantValue::Multiple(vec![]));
+        variants.insert(
+            "y".to_string(),
+            VariantValue::Single(RawVariantModel {
+                model: "minecraft:block/stone".to_string(),
+                x: 0,
+                y: 0,
+                z: 0,
+                uvlock: false,
+                weight: 1,
+            }),
+        );
+        let blockstate = RawBlockstate {
+            variants,
+            multipart: None,
+        };
+        let collected = super::collect_variant_models(&blockstate);
+        assert_eq!(collected.len(), 1);
+        assert_eq!(collected[0].1, "y");
     }
 }

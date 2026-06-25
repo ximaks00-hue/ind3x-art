@@ -120,6 +120,7 @@ export class CatalogIconLruCache {
       }
       this.map.delete(oldest);
       evicted.push(oldest);
+      pruneCatalogIconKeyMetadata(oldest);
     }
     return evicted;
   }
@@ -132,6 +133,30 @@ const globalListeners = new Set<Listener>();
 const inflightKeys = new Set<string>();
 const failureMessages = new Map<string, string>();
 const progressByKey = new Map<string, CatalogIconProgress>();
+const MAX_ICON_METADATA_KEYS = 1024;
+
+function pruneCatalogIconKeyMetadata(key: string): void {
+  progressByKey.delete(key);
+  failureMessages.delete(key);
+  inflightKeys.delete(key);
+  const subs = keyListeners.get(key);
+  if (subs && subs.size === 0) {
+    keyListeners.delete(key);
+  }
+}
+
+function trimIconMetadataMaps(): void {
+  while (progressByKey.size > MAX_ICON_METADATA_KEYS) {
+    const oldest = progressByKey.keys().next().value;
+    if (oldest === undefined) break;
+    pruneCatalogIconKeyMetadata(oldest);
+  }
+  while (failureMessages.size > MAX_ICON_METADATA_KEYS) {
+    const oldest = failureMessages.keys().next().value;
+    if (oldest === undefined) break;
+    pruneCatalogIconKeyMetadata(oldest);
+  }
+}
 
 export function catalogIconCacheKey(handleId: number, iconKey: string): string {
   return `${handleId}:${iconKey}`;
@@ -189,6 +214,7 @@ export function resetCatalogIconCache(): void {
   inflightKeys.clear();
   failureMessages.clear();
   progressByKey.clear();
+  keyListeners.clear();
 }
 
 export function invalidateCatalogIconCacheForHandle(handleId: number): void {
@@ -204,6 +230,17 @@ export function invalidateCatalogIconCacheForHandle(handleId: number): void {
     if (key.startsWith(prefix)) {
       failureMessages.delete(key);
       touched.push(key);
+    }
+  }
+  for (const key of [...progressByKey.keys()]) {
+    if (key.startsWith(prefix)) {
+      progressByKey.delete(key);
+      touched.push(key);
+    }
+  }
+  for (const key of [...keyListeners.keys()]) {
+    if (key.startsWith(prefix)) {
+      keyListeners.delete(key);
     }
   }
   getCatalogIconCache(sharedLimit).deleteKeysWithPrefix(prefix);
@@ -223,6 +260,7 @@ export function clearCatalogIconInflight(key: string): void {
 
 export function setCatalogIconProgress(key: string, phase: CatalogIconProgress): void {
   progressByKey.set(key, phase);
+  trimIconMetadataMaps();
   notifyCatalogIconKeys([key]);
 }
 
@@ -230,6 +268,7 @@ export function setCatalogIconFailure(key: string, message: string): void {
   inflightKeys.delete(key);
   progressByKey.delete(key);
   failureMessages.set(key, message);
+  trimIconMetadataMaps();
   notifyCatalogIconKeys([key]);
 }
 

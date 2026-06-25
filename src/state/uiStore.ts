@@ -100,3 +100,12 @@ export const useUiStore = create<UiState>((set, get) => ({
     set((s) => ({ toasts: s.toasts.filter((t) => t.id !== id) }));
   },
 }));
+
+if (import.meta.hot) {
+  import.meta.hot.dispose(() => {
+    for (const timer of toastTimers.values()) {
+      clearTimeout(timer);
+    }
+    toastTimers.clear();
+  });
+}

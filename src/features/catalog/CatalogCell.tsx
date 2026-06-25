@@ -40,6 +40,7 @@ export function CatalogCell({
   const { error: iconBakeError } = useCatalogIconStatus(handle?.id, entry.iconKey);
   useDocumentRevision();
   const [compareHover, setCompareHover] = useState(false);
+  const [tooltipOpen, setTooltipOpen] = useState(false);
   const isDirty = catalogEntryIsDirty(entry);
   const initial = entry.displayName.trim().charAt(0).toUpperCase() || "?";
   const warnings = getCatalogEntryWarnings(entry, iconBakeError);
@@ -90,9 +91,19 @@ export function CatalogCell({
         onClick={onClick}
         onKeyDown={onCellKeyDown}
         onMouseEnter={() => setCompareHover(true)}
-        onMouseLeave={() => setCompareHover(false)}
-        onFocus={() => setCompareHover(true)}
-        onBlur={() => setCompareHover(false)}
+        onMouseLeave={() => {
+          setCompareHover(false);
+          setTooltipOpen(false);
+        }}
+        onFocus={() => {
+          setCompareHover(true);
+          setTooltipOpen(true);
+        }}
+        onBlur={() => {
+          setCompareHover(false);
+          setTooltipOpen(false);
+        }}
+        onPointerEnter={() => setTooltipOpen(true)}
         onContextMenu={
           onTogglePin
             ? (event) => {
@@ -128,6 +139,18 @@ export function CatalogCell({
         <CatalogIcon entry={entry} fallbackInitial={initial} />
         {showLabels ? <span className={styles.label}>{entry.displayName}</span> : null}
       </div>
+      {tooltipOpen ? (
+        <div className={styles.tooltip} role="tooltip">
+          <div className={styles.tooltipTitle}>{entry.displayName}</div>
+          <div className={styles.tooltipMeta}>{entry.id}</div>
+          <div className={styles.tooltipMeta}>{entry.namespace}</div>
+          {warnings.map((warning) => (
+            <div key={warning} className={styles.tooltipWarn}>
+              {warning}
+            </div>
+          ))}
+        </div>
+      ) : null}
       {iconBakeError ? (
         <button
           type="button"

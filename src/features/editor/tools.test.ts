@@ -10,6 +10,10 @@ describe("hexToRgba", () => {
   it("expands 3-digit hex", () => {
     expect(hexToRgba("#f80")).toEqual([255, 136, 0, 255]);
   });
+
+  it("returns opaque black for invalid hex", () => {
+    expect(hexToRgba("not-a-color")).toEqual([0, 0, 0, 255]);
+  });
 });
 
 describe("rgbaToHex", () => {

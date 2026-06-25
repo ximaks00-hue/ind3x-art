@@ -9,6 +9,7 @@ export interface ViewerPreferences {
   showDevOverlay: boolean;
 }
 
+/** Persisted settings are the source of truth; viewerStore mirrors runtime state for 3D. */
 export function readViewerPreferencesFromSettings(): ViewerPreferences {
   const settings = useSettingsStore.getState();
   return {
@@ -51,49 +52,64 @@ export function useViewerShowDevOverlay() {
   return useSettingsStore((s) => s.viewerShowDevOverlay);
 }
 
-function commitViewerPreferences(prefs: ViewerPreferences): void {
-  const settings = useSettingsStore.getState();
-  settings.setViewerLightingPreset(prefs.lightingPreset);
-  settings.setViewerShowGrid(prefs.showGrid);
-  settings.setViewerShowVignette(prefs.showVignette);
-  settings.setViewerShowDevOverlay(prefs.showDevOverlay);
-  applyViewerPreferencesToViewerStore(prefs);
+function commitViewerPreferences(patch: Partial<ViewerPreferences>): void {
+  useSettingsStore.setState((state) => {
+    const next: ViewerPreferences = {
+      lightingPreset: patch.lightingPreset ?? state.viewerLightingPreset,
+      showGrid: patch.showGrid ?? state.viewerShowGrid,
+      showVignette: patch.showVignette ?? state.viewerShowVignette,
+      showDevOverlay: patch.showDevOverlay ?? state.viewerShowDevOverlay,
+    };
+    applyViewerPreferencesToViewerStore(next);
+    return {
+      viewerLightingPreset: next.lightingPreset,
+      viewerShowGrid: next.showGrid,
+      viewerShowVignette: next.showVignette,
+      viewerShowDevOverlay: next.showDevOverlay,
+    };
+  });
 }
 
 export function setViewerLightingPreset(preset: LightingPreset): void {
-  commitViewerPreferences({
-    ...readViewerPreferencesFromSettings(),
-    lightingPreset: preset,
-  });
+  commitViewerPreferences({ lightingPreset: preset });
 }
 
 export function setViewerShowGrid(show: boolean): void {
-  commitViewerPreferences({
-    ...readViewerPreferencesFromSettings(),
-    showGrid: show,
-  });
+  commitViewerPreferences({ showGrid: show });
 }
 
 export function setViewerShowVignette(show: boolean): void {
-  commitViewerPreferences({
-    ...readViewerPreferencesFromSettings(),
-    showVignette: show,
-  });
+  commitViewerPreferences({ showVignette: show });
 }
 
 export function setViewerShowDevOverlay(show: boolean): void {
-  commitViewerPreferences({
-    ...readViewerPreferencesFromSettings(),
-    showDevOverlay: show,
-  });
+  commitViewerPreferences({ showDevOverlay: show });
 }
 
 export function toggleViewerShowGrid(): void {
-  const { showGrid } = readViewerPreferencesFromSettings();
-  setViewerShowGrid(!showGrid);
+  useSettingsStore.setState((state) => {
+    const showGrid = !state.viewerShowGrid;
+    const next: ViewerPreferences = {
+      lightingPreset: state.viewerLightingPreset,
+      showGrid,
+      showVignette: state.viewerShowVignette,
+      showDevOverlay: state.viewerShowDevOverlay,
+    };
+    applyViewerPreferencesToViewerStore(next);
+    return { viewerShowGrid: showGrid };
+  });
 }
 
 export function toggleViewerShowVignette(): void {
-  const { showVignette } = readViewerPreferencesFromSettings();
-  setViewerShowVignette(!showVignette);
+  useSettingsStore.setState((state) => {
+    const showVignette = !state.viewerShowVignette;
+    const next: ViewerPreferences = {
+      lightingPreset: state.viewerLightingPreset,
+      showGrid: state.viewerShowGrid,
+      showVignette,
+      showDevOverlay: state.viewerShowDevOverlay,
+    };
+    applyViewerPreferencesToViewerStore(next);
+    return { viewerShowVignette: showVignette };
+  });
 }

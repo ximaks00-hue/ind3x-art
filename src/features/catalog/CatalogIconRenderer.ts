@@ -71,7 +71,7 @@ function getSharedRenderer(size: number): WebGLRenderer {
       canvas,
       alpha: true,
       antialias: false,
-      preserveDrawingBuffer: true,
+      preserveDrawingBuffer: false,
     });
   }
   sharedRenderer.setSize(size, size, false);
@@ -207,6 +207,8 @@ export async function bakeCatalogIconsBatch(
   items: { pngBase64: string }[],
   size = ICON_SIZE,
 ): Promise<string[]> {
+  // CAT-011/012: tier-1 preview bakes share one canvas path; 3D uses a single WebGLRenderer
+  // (iconRenderQueue maxInflight=1) — intentional sequential batch, not parallel.
   const results: string[] = [];
   for (const item of items) {
     results.push(await bakeCatalogIconFromPreviewAsync(item.pngBase64, size));

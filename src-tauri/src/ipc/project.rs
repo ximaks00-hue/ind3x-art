@@ -1,3 +1,5 @@
+use std::sync::{Arc, RwLock};
+
 use tauri::State;
 
 use crate::dto::{AppInfo, IndexEvent, OpenSourceResult, ProjectHandle};
@@ -7,7 +9,7 @@ use crate::index::{
     run_index, source_fingerprint,
 };
 use crate::source::open_source as load_source;
-use crate::state::SharedState;
+use crate::state::{read_project, write_project, SharedState};
 
 use super::helpers::{
     apply_texture_link_counts, patch_texture_model_index_for_paths, prepare_opened_project,
@@ -84,7 +86,7 @@ pub async fn open_source(
         let entry_count = prepared.index.entries.len() as u64;
         app.projects.insert(
             handle_id,
-            crate::state::Project {
+            Arc::new(RwLock::new(crate::state::Project {
                 source_path: source_path.clone(),
                 source_kind,
                 pack_format: prepared.pack_format,
@@ -103,11 +105,12 @@ pub async fn open_source(
                 save: crate::state::SaveState {
                     journal: Vec::new(),
                 },
-            },
+            })),
         );
-        if let Some(project) = app.projects.get_mut(&handle_id) {
-            apply_texture_link_counts(project);
-            refresh_entry_id_index(project);
+        if let Some(arc) = app.projects.get(&handle_id) {
+            let mut project = write_project(arc)?;
+            apply_texture_link_counts(&mut project);
+            refresh_entry_id_index(&mut project);
             catalog_cache_hit = prepared.catalog_from_cache;
         }
         let res = OpenSourceResult {
@@ -146,7 +149,11 @@ pub async fn reindex_project(
             return Err(CoreError::ProjectNotFound);
         }
         let cancel = app.register_cancel(handle_id);
-        let project = app.projects.get(&handle_id).ok_or(CoreError::ProjectNotFound)?;
+        let project = read_project(
+            app.projects
+                .get(&handle_id)
+                .ok_or(CoreError::ProjectNotFound)?,
+        )?;
         (
             project.index.fingerprint.clone(),
             cancel,
@@ -195,10 +202,11 @@ fn reindex_project_blocking(
     };
 
     let entries = if let Some(paths) = changed.cloned() {
-        let mut project = {
-            let mut app = state.write()?;
-            app.projects.remove(&handle_id).ok_or(CoreError::ProjectNotFound)?
+        let project_arc = {
+            let app = state.read()?;
+            super::helpers::project_for_handle(&app, ProjectHandle { id: handle_id })?
         };
+        let mut project = write_project(&project_arc)?;
         let before = project.index.entries.len();
         patch_entries_for_paths(
             &mut project.index.entries,
@@ -235,10 +243,7 @@ fn reindex_project_blocking(
                 &new_fingerprint,
                 &project.index.entries,
             )?;
-            let count = project.index.entries.len() as u64;
-            let mut app = state.write()?;
-            app.projects.insert(handle_id, project);
-            count
+            project.index.entries.len() as u64
         } else {
             project.index.fingerprint = new_fingerprint.clone();
             project.source = source;
@@ -250,10 +255,7 @@ fn reindex_project_blocking(
             )?;
             patch_texture_model_index_for_paths(&mut project, &paths)?;
             crate::catalog::patch_project_catalog(&mut project, &db, &paths)?;
-            let count = project.index.entries.len() as u64;
-            let mut app = state.write()?;
-            app.projects.insert(handle_id, project);
-            count
+            project.index.entries.len() as u64
         }
     } else {
         log_if_err(
@@ -274,16 +276,19 @@ fn reindex_project_blocking(
             true,
         )?;
 
-        let mut app = state.write()?;
-        let project = app.projects.get_mut(&handle_id).ok_or(CoreError::ProjectNotFound)?;
+        let project_arc = {
+            let app = state.read()?;
+            super::helpers::project_for_handle(&app, ProjectHandle { id: handle_id })?
+        };
+        let mut project = write_project(&project_arc)?;
         project.source = load_source(&source_path)?;
         project.index.entries = entries;
         project.index.fingerprint = new_fingerprint.clone();
         if let Ok(mut cache) = project.index.model_cache.lock() {
             cache.clear();
         }
-        rebuild_texture_model_index(project)?;
-        crate::catalog::build_project_catalog(project, &db)?;
+        rebuild_texture_model_index(&mut project)?;
+        crate::catalog::build_project_catalog(&mut project, &db)?;
         project.index.entries.len() as u64
     };
 
@@ -294,20 +299,19 @@ fn reindex_project_blocking(
     }
 
     {
-        let mut app = state.write()?;
-        if let Some(project) = app.projects.get_mut(&handle_id) {
-            refresh_pack_format(project);
-        }
+        let app = state.read()?;
+        let arc = super::helpers::project_for_handle(&app, ProjectHandle { id: handle_id })?;
+        let mut project = write_project(&arc)?;
+        refresh_pack_format(&mut project);
     }
 
     Ok(crate::dto::ReindexResult {
         asset_count: entries,
         catalog_count: {
             let app = state.read()?;
-            app.projects
-                .get(&handle_id)
-                .map(|p| p.catalog.entries.len() as u64)
-                .unwrap_or(0)
+            let arc = app.projects.get(&handle_id).ok_or(CoreError::ProjectNotFound)?;
+            let project = read_project(arc)?;
+            project.catalog.entries.len() as u64
         },
     })
 }
@@ -316,7 +320,8 @@ fn reindex_project_blocking(
 #[specta::specta]
 pub fn invalidate_project_index(handle: ProjectHandle, state: State<'_, SharedState>) -> CoreResult<()> {
     let app = state.read()?;
-    let project = app.projects.get(&handle.id).ok_or(CoreError::ProjectNotFound)?;
+    let arc = app.projects.get(&handle.id).ok_or(CoreError::ProjectNotFound)?;
+    let project = read_project(arc)?;
     invalidate_index(&app.db, &project.index.fingerprint)?;
     crate::catalog::invalidate_project_catalog_cache(&app.db, &project.index.fingerprint)?;
     crate::catalog::icon_cache::invalidate_icon_cache_prefix(&app.db, &project.index.fingerprint)
@@ -342,11 +347,28 @@ pub fn cancel_index(handle: ProjectHandle, state: State<'_, SharedState>) -> Cor
 
 #[tauri::command]
 #[specta::specta]
+pub fn cancel_ipc_request(request_id: u64, state: State<'_, SharedState>) -> CoreResult<()> {
+    let mut app = state.write()?;
+    app.cancel_ipc_request_flag(request_id);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn finish_ipc_request(request_id: u64, state: State<'_, SharedState>) -> CoreResult<()> {
+    let mut app = state.write()?;
+    app.finish_ipc_request(request_id);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
 pub fn get_project_fingerprint(
     handle: ProjectHandle,
     state: State<'_, SharedState>,
 ) -> CoreResult<String> {
     let app = state.read()?;
-    let project = app.projects.get(&handle.id).ok_or(CoreError::ProjectNotFound)?;
+    let arc = app.projects.get(&handle.id).ok_or(CoreError::ProjectNotFound)?;
+    let project = read_project(arc)?;
     Ok(project.index.fingerprint.clone())
 }

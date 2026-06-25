@@ -2,7 +2,7 @@ import { useEffect } from "react";
 
 import { ipc } from "../ipc/client";
 import { useProjectStore } from "../state/projectStore";
-import { syncTextureCacheLimitsFromSettings } from "../state/textureCacheSync";
+import { syncTextureCacheLimitsFromSettings, subscribeTextureCacheLimitSync } from "../state/textureCacheSync";
 import { syncViewerPreferencesFromSettings } from "../state/viewerPreferencesSync";
 import { useSettingsStore } from "../state/settingsStore";
 import { useUiStore } from "../state/uiStore";
@@ -28,15 +28,31 @@ export function useAppBootstrap() {
   useEffect(() => {
     let cancelled = false;
 
-    async function bootstrap() {
+    const runPostHydrationSync = () => {
+      syncViewerPreferencesFromSettings();
+      syncTextureCacheLimitsFromSettings();
+    };
+
+    if (useSettingsStore.persist.hasHydrated()) {
+      runPostHydrationSync();
+    } else {
+      useSettingsStore.persist.onFinishHydration(runPostHydrationSync);
+    }
+
+    const unsubCache = subscribeTextureCacheLimitSync();
+
+    async function bootstrap(attempt = 0): Promise<void> {
+      const maxAttempts = 4;
       try {
         const [info, pong] = await Promise.all([ipc.getAppInfo(), ipc.ping()]);
         if (cancelled) return;
         setAppInfo(info);
         setIpcHealthy(pong === "pong");
-        syncViewerPreferencesFromSettings();
-        syncTextureCacheLimitsFromSettings();
       } catch (error) {
+        if (attempt + 1 < maxAttempts && !cancelled) {
+          await new Promise<void>((resolve) => setTimeout(resolve, 400 * (attempt + 1)));
+          return bootstrap(attempt + 1);
+        }
         console.error("[useAppBootstrap] IPC bootstrap failed", error);
         if (!cancelled) {
           setIpcHealthy(false);
@@ -48,6 +64,7 @@ export function useAppBootstrap() {
     void bootstrap();
     return () => {
       cancelled = true;
+      unsubCache();
     };
   }, [setAppInfo, setIpcHealthy, pushToast]);
 

@@ -8,7 +8,7 @@ import { CATALOG_GRID_COLS, catalogRowCount } from "./catalogUtils";
 import { useCatalogIconPipeline } from "./useCatalogIconPipeline";
 
 const ROW_HEIGHT = 48;
-const ICON_PREFETCH_ROWS = 2;
+const ICON_PREFETCH_ROWS = 1;
 
 interface CatalogVirtualGridProps {
   scrollRef: React.RefObject<HTMLDivElement | null>;

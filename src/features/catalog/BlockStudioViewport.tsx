@@ -1,22 +1,26 @@
 import { useCallback, useEffect, useState } from "react";
 
 import type { CatalogEntry, ProjectHandle, RenderableModel, VariantKey } from "../../ipc/types";
+import { useInteractionStore } from "../../state/interactionStore";
 import { useSelectionStore } from "../../state/selectionStore";
 import { useSettingsStore } from "../../state/settingsStore";
 import { useViewerStore } from "../../state/viewerStore";
 import { applyBiomeChange } from "../viewer3d/viewerTextureSync";
+import { Compare3DViewport } from "../viewer3d/Compare3DViewport";
 import { Scene3D } from "../viewer3d/Scene3D";
+import { MiniSceneControl } from "../viewer3d/MiniSceneControl";
 import { ViewerLoadingState } from "../viewer3d/ViewerLoadingState";
 import { Select } from "../../ui/primitives/Select";
-import { buildSelectedFaceFromModel, multipartSchematicLabel } from "./modelFaceNav";
+import { IconButton } from "../../ui/primitives/IconButton";
+import { multipartSchematicLabel } from "./modelFaceNav";
+import { FACE_PICK_CENTER_HINT } from "./faceEditingGuide";
 import styles from "./BlockStudioViewport.module.css";
 import { variantPickerLabel } from "./catalogUtils";
 import { StudioTexturePreview } from "./StudioTexturePreview";
-import { TextureNavigator } from "./TextureNavigator";
-import { UnfoldPanel } from "./UnfoldPanel";
 import { StudioAnimationPreview } from "./StudioAnimationPreview";
 import { useStudioFaceBootstrap } from "./useStudioFaceBootstrap";
-import { useStudioFaceHotkeys } from "./useStudioFaceHotkeys";
+import { ModelFaceChrome } from "../viewer3d/ModelFaceChrome";
+import { buildFullTextureSpriteFace } from "./textureFaceSelection";
 import {
   defaultStudioItemView,
   entryPresentation,
@@ -66,12 +70,20 @@ export function BlockStudioViewport({
 
   const interactionMode = useSelectionStore((s) => s.interactionMode);
   const selectedFace = useSelectionStore((s) => s.selectedFace);
-  const setInteractionMode = useSelectionStore((s) => s.setInteractionMode);
   const setSelectedFace = useSelectionStore((s) => s.setSelectedFace);
+  const activeTextureMeta = useViewerStore((s) => s.activeTextureMeta);
   const setCameraPreset = useViewerStore((s) => s.setCameraPreset);
   const setDisplaySlot = useViewerStore((s) => s.setDisplaySlot);
   const studioShowFloorGrid = useSettingsStore((s) => s.studioShowFloorGrid);
-  const setRightPanelCollapsed = useSettingsStore((s) => s.setRightPanelCollapsed);
+  const miniSceneEnabled = useSettingsStore((s) => s.miniSceneEnabled);
+  const miniSceneSize = useSettingsStore((s) => s.miniSceneSize);
+  const comparatorMode = useInteractionStore((s) => s.comparatorMode);
+  const viewerBeforeModel = useInteractionStore((s) => s.viewerBeforeModel);
+  const cycleComparator = useInteractionStore((s) => s.cycleComparator);
+  const captureCompareBefore = useInteractionStore((s) => s.captureCompareBefore);
+
+  const compareLabel =
+    comparatorMode === "2d" ? "2D" : comparatorMode === "3d" ? "3D" : "Off";
 
   const schematicLabel = model ? multipartSchematicLabel(model) : null;
   const preferredDisplaySlot = studioDisplaySlotFor(presentation, itemView);
@@ -89,26 +101,11 @@ export function BlockStudioViewport({
   }, [entry.id, presentation]);
 
   useEffect(() => {
-    setRightPanelCollapsed(false);
-    setInteractionMode("paint");
-  }, [entry.id, setRightPanelCollapsed, setInteractionMode]);
-
-  useEffect(() => {
-    if (model || !isTextureEntry) return;
+    if (model || !isTextureEntry || interactionMode !== "paint") return;
     const path = texturePathForEntry(entry);
     if (!path) return;
-    setSelectedFace({
-      cuboidIndex: 0,
-      faceIndex: 0,
-      direction: "up",
-      texturePath: path,
-      uv: [0, 0, 16, 16],
-      rotation: 0,
-      tintindex: -1,
-      hitUv: [0.5, 0.5],
-      pixel: [8, 8],
-    });
-  }, [model, isTextureEntry, entry, setSelectedFace]);
+    setSelectedFace(buildFullTextureSpriteFace(path, "up", activeTextureMeta[path]));
+  }, [model, isTextureEntry, entry, setSelectedFace, interactionMode, activeTextureMeta]);
 
   useEffect(() => {
     if (!model || !isItemPresentation(presentation)) return;
@@ -116,21 +113,6 @@ export function BlockStudioViewport({
     const slot = studioDisplaySlotFor(presentation, itemView);
     if (slot) setDisplaySlot(slot);
   }, [model, presentation, itemView, setCameraPreset, setDisplaySlot]);
-
-  const handleSelectFace = useCallback(
-    (cuboidIndex: number, faceIndex: number) => {
-      if (!model) return;
-      const face = buildSelectedFaceFromModel(model, cuboidIndex, faceIndex);
-      if (!face) return;
-      setSelectedFace(face);
-      if (interactionMode !== "paint") {
-        setInteractionMode("paint");
-      }
-    },
-    [model, setSelectedFace, setInteractionMode, interactionMode],
-  );
-
-  useStudioFaceHotkeys(model, handleSelectFace);
 
   const handleBiomeChange = useCallback(
     (next: string) => {
@@ -152,11 +134,6 @@ export function BlockStudioViewport({
   const show3d = Boolean(model) && !isTextureEntry;
   const showCenterPlaceholder =
     !show3d && !showFlatTexturePreview && !resolveLoading && !resolveError;
-  const isItemGuiView =
-    Boolean(model) &&
-    isItemPresentation(presentation) &&
-    itemView === "gui" &&
-    (model?.kind === "itemGenerated" || presentation === "item" || presentation === "tool");
 
   return (
     <div className={styles.studio} data-tour="tour-studio-viewport">
@@ -204,6 +181,29 @@ export function BlockStudioViewport({
           />
         ) : null}
         {model ? (
+          <div className={styles.compareGroup} role="group" aria-label="Compare">
+            <IconButton
+              label="Cycle comparator: off → 2D editor → 3D split (C)"
+              className={comparatorMode != null ? styles.compareActive : styles.compareBtn}
+              onClick={() => cycleComparator(model)}
+            >
+              {compareLabel}
+            </IconButton>
+            <IconButton
+              label="Capture before snapshot for 3D compare"
+              className={styles.compareBtn}
+              onClick={() => captureCompareBefore(model)}
+            >
+              📷
+            </IconButton>
+          </div>
+        ) : null}
+        {model ? (
+          <div className={styles.miniScene} role="group" aria-label="Test scene">
+            <MiniSceneControl />
+          </div>
+        ) : null}
+        {model ? (
           <div className={styles.biomes} role="group" aria-label="Biome tint">
             {STUDIO_BIOMES.map((name) => (
               <button
@@ -218,26 +218,6 @@ export function BlockStudioViewport({
               </button>
             ))}
           </div>
-        ) : null}
-        {model ? (
-          <>
-            <button
-              type="button"
-              className={interactionMode === "orbit" ? styles.modeActive : styles.modeBtn}
-              onClick={() => setInteractionMode("orbit")}
-              aria-pressed={interactionMode === "orbit"}
-            >
-              Orbit
-            </button>
-            <button
-              type="button"
-              className={interactionMode === "paint" ? styles.modeActive : styles.modeBtn}
-              onClick={() => setInteractionMode("paint")}
-              aria-pressed={interactionMode === "paint"}
-            >
-              Paint
-            </button>
-          </>
         ) : null}
       </div>
 
@@ -289,42 +269,41 @@ export function BlockStudioViewport({
             </span>
           </div>
         ) : null}
-        {show3d && model ? (
-          <Scene3D
-            model={model}
-            handle={handle}
-            studioMode
-            preferredDisplaySlot={preferredDisplaySlot}
-            showVignette
-          />
+        {show3d && model && interactionMode === "paint" ? (
+          <div className={styles.paintWorkflowBanner} role="status">
+            {FACE_PICK_CENTER_HINT}
+          </div>
         ) : null}
-        <p className={styles.hintBar}>
-          {flatPreviewReason === "textureEntry"
-            ? "Flat texture preview — paint in the panel on the right"
-            : flatPreviewReason === "resolveFailed"
-              ? "Flat fallback — 3D resolve failed; editor paint is still active"
-              : isItemGuiView
-                ? "GUI view — click a face on the icon; switch to Hand for easier sword/tool paint"
-                : interactionMode === "paint"
-                  ? "Click a face to paint · 1–6 jump to faces · texture chips below"
-                  : "Orbit to inspect · switch to Paint to edit faces"}
-        </p>
+        {show3d && model ? (
+          comparatorMode === "3d" && viewerBeforeModel ? (
+            <Compare3DViewport
+              className={styles.comparator3d}
+              beforeModel={viewerBeforeModel}
+              afterModel={model}
+              handle={handle}
+              sceneProps={{
+                studioMode: true,
+                preferredDisplaySlot,
+                showVignette: true,
+                miniSceneEnabled,
+                miniSceneSize,
+              }}
+            />
+          ) : (
+            <Scene3D
+              model={model}
+              handle={handle}
+              studioMode
+              preferredDisplaySlot={preferredDisplaySlot}
+              showVignette
+              miniSceneEnabled={miniSceneEnabled}
+              miniSceneSize={miniSceneSize}
+            />
+          )
+        ) : null}
       </div>
 
-      {model ? (
-        <>
-          <UnfoldPanel
-            model={model}
-            selectedFace={selectedFace}
-            onSelectFace={handleSelectFace}
-          />
-          <TextureNavigator
-            model={model}
-            selectedFace={selectedFace}
-            onSelectFace={handleSelectFace}
-          />
-        </>
-      ) : null}
+      {model ? <ModelFaceChrome model={model} /> : null}
     </div>
   );
 }

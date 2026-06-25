@@ -62,9 +62,89 @@ impl CoreError {
                 CoreError::Internal(_) => "internal",
             }
             .to_string(),
-            message: self.to_string(),
+            message: user_facing_message(self),
         }
     }
+}
+
+/// IPC-safe error text — no absolute filesystem paths or raw OS diagnostics.
+fn user_facing_message(err: &CoreError) -> String {
+    match err {
+        CoreError::Io(io) => user_facing_io_message(io),
+        CoreError::Cache(_) => "cache operation failed".to_string(),
+        CoreError::Archive(msg) => msg.clone(),
+        CoreError::Cancelled => "operation cancelled".to_string(),
+        CoreError::ProjectNotFound => "project not found".to_string(),
+        CoreError::AssetNotFound(path) => format!("asset not found: {path}"),
+        CoreError::ModelNotFound(id) => format!("model not found: {id}"),
+        CoreError::InvalidPack(msg) => msg.clone(),
+        CoreError::InvalidInput(msg) => msg.clone(),
+        CoreError::Unavailable(msg) => msg.clone(),
+        CoreError::Internal(msg) => redact_absolute_paths(msg),
+    }
+}
+
+fn user_facing_io_message(err: &std::io::Error) -> String {
+    use std::io::ErrorKind;
+    match err.kind() {
+        ErrorKind::NotFound => "file not found".to_string(),
+        ErrorKind::PermissionDenied => "permission denied".to_string(),
+        ErrorKind::AlreadyExists => "file already exists".to_string(),
+        ErrorKind::InvalidInput => "invalid file path".to_string(),
+        ErrorKind::TimedOut => "operation timed out".to_string(),
+        ErrorKind::Interrupted => "operation interrupted".to_string(),
+        _ => "I/O operation failed".to_string(),
+    }
+}
+
+fn redact_absolute_paths(message: &str) -> String {
+    let mut out = String::with_capacity(message.len());
+    let mut i = 0;
+    let bytes = message.as_bytes();
+    while i < bytes.len() {
+        let rest = &message[i..];
+        if let Some(skipped) = skip_absolute_path_prefix(rest) {
+            out.push_str("<path>");
+            i += skipped;
+            continue;
+        }
+        if let Some(ch) = message[i..].chars().next() {
+            out.push(ch);
+            i += ch.len_utf8();
+        } else {
+            break;
+        }
+    }
+    if out == message {
+        message.to_string()
+    } else {
+        out
+    }
+}
+
+fn skip_absolute_path_prefix(s: &str) -> Option<usize> {
+    let bytes = s.as_bytes();
+    if bytes.len() >= 3
+        && bytes[0].is_ascii_alphabetic()
+        && bytes[1] == b':'
+        && (bytes[2] == b'\\' || bytes[2] == b'/')
+    {
+        return Some(path_token_len(s));
+    }
+    if s.starts_with("//") || s.starts_with("\\\\") {
+        return Some(path_token_len(s));
+    }
+    if s.starts_with('/') && !s.starts_with("assets/") {
+        return Some(path_token_len(s));
+    }
+    None
+}
+
+fn path_token_len(s: &str) -> usize {
+    s.char_indices()
+        .find(|(_, ch)| ch.is_whitespace())
+        .map(|(idx, _)| idx)
+        .unwrap_or(s.len())
 }
 
 impl serde::Serialize for CoreError {
@@ -88,5 +168,41 @@ pub fn log_if_err<T>(result: CoreResult<T>, context: &'static str) {
 impl From<zip::result::ZipError> for CoreError {
     fn from(value: zip::result::ZipError) -> Self {
         CoreError::Archive(value.to_string())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::{Error, ErrorKind};
+
+    #[test]
+    fn io_payload_omits_os_path() {
+        let err = CoreError::Io(Error::new(
+            ErrorKind::NotFound,
+            r#"The system cannot find the file specified. (os error 2): C:\Users\Secret\pack.jar"#,
+        ));
+        let payload = err.to_payload();
+        assert_eq!(payload.code, "io");
+        assert_eq!(payload.message, "file not found");
+        assert!(!payload.message.contains('\\'));
+        assert!(!payload.message.contains("Users"));
+    }
+
+    #[test]
+    fn internal_payload_redacts_windows_paths() {
+        let err = CoreError::Internal(
+            "failed to open C:\\Users\\Max\\secret\\pack.jar: access denied".to_string(),
+        );
+        let payload = err.to_payload();
+        assert!(payload.message.contains("<path>"));
+        assert!(!payload.message.contains("Users"));
+    }
+
+    #[test]
+    fn asset_paths_are_preserved_in_payload() {
+        let err = CoreError::AssetNotFound("assets/minecraft/textures/block/stone.png".to_string());
+        let payload = err.to_payload();
+        assert!(payload.message.contains("assets/minecraft"));
     }
 }

@@ -145,6 +145,9 @@ describe("modelFaceNav", () => {
       kind: "itemGenerated",
       cuboids: [],
       textureRefs: { layer0: "assets/ic2/textures/block/copper_ore.png" },
+      textureMeta: {
+        "assets/ic2/textures/block/copper_ore.png": { width: 32, height: 32, animation: null },
+      },
       modelId: "texture:assets/ic2/textures/block/copper_ore.png",
     });
     const nav = buildModelFaceNav(model);
@@ -154,5 +157,7 @@ describe("modelFaceNav", () => {
     expect(preferred?.texturePath).toContain("copper_ore");
     const selected = buildSelectedFaceFromModel(model, 0, 0);
     expect(selected?.direction).toBe("item");
+    expect(selected?.uv).toEqual([0, 0, 32, 32]);
+    expect(selected?.pixel).toEqual([16, 16]);
   });
 });

@@ -3,9 +3,9 @@ import { describe, expect, it } from "vitest";
 import { fuzzyScore, filterAssetsFuzzy } from "./fuzzy";
 
 describe("fuzzyScore", () => {
-  it("returns 0 for empty query", () => {
-    expect(fuzzyScore("", "stone")).toBe(0);
-    expect(fuzzyScore("  ", "stone")).toBe(0);
+  it("returns null for empty query", () => {
+    expect(fuzzyScore("", "stone")).toBeNull();
+    expect(fuzzyScore("  ", "stone")).toBeNull();
   });
 
   it("prefers substring matches", () => {

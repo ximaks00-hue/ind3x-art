@@ -1,5 +1,6 @@
 import type { RenderableModel } from "../../ipc/types";
 import type { SelectedFace } from "../../state/selectionStore";
+import { buildFullTextureSpriteFace } from "./textureFaceSelection";
 import { formatFaceDirection, textureBasename } from "../../app/studioStatusLabels";
 import { faceThreeUvs } from "../viewer3d/uvMapping";
 
@@ -153,17 +154,11 @@ export function buildSelectedFaceFromModel(
       (face) => face.cuboidIndex === cuboidIndex && face.faceIndex === faceIndex,
     );
     if (!item) return null;
-    return {
-      cuboidIndex,
-      faceIndex,
-      direction: item.direction,
-      texturePath: item.texturePath,
-      uv: [0, 0, 16, 16],
-      rotation: 0,
-      tintindex: -1,
-      hitUv: [0.5, 0.5],
-      pixel: [8, 8],
-    };
+    return buildFullTextureSpriteFace(
+      item.texturePath,
+      item.direction,
+      model.textureMeta[item.texturePath],
+    );
   }
 
   const face = model.cuboids[cuboidIndex]?.faces[faceIndex];

@@ -3,14 +3,14 @@
   inset: 0;
   background:
     radial-gradient(
-      ellipse 80% 60% at 50% 35%,
-      var(--viewer-bg-glow, rgba(99, 140, 255, 0.12)),
-      transparent 70%
+      ellipse 75% 55% at 50% 38%,
+      color-mix(in srgb, var(--color-accent) 10%, transparent),
+      transparent 68%
     ),
     linear-gradient(
       180deg,
-      var(--viewer-bg-top, #1a1f2b) 0%,
-      var(--viewer-bg-bottom, #12151c) 100%
+      color-mix(in srgb, var(--color-bg-canvas) 92%, var(--color-bg-elevated)) 0%,
+      var(--color-bg-canvas) 100%
     );
 }
 
@@ -72,4 +72,20 @@
   color: var(--color-text-muted);
   max-width: 320px;
   word-break: break-word;
+}
+
+.miniSceneBadge {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  z-index: 4;
+  padding: 2px 8px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  color: var(--color-text-secondary);
+  background: color-mix(in srgb, var(--color-bg-elevated) 88%, transparent);
+  border: 1px solid color-mix(in srgb, var(--color-border) 80%, transparent);
+  border-radius: var(--radius-sm);
+  pointer-events: none;
 }

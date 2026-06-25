@@ -1,6 +1,7 @@
 import * as THREE from "three";
 
 import { ipc } from "../../ipc/client";
+import { base64ToUint8ArrayAsync } from "../../ipc/binary";
 import type {
   ProjectHandle,
   TextureAnimationMeta,
@@ -10,13 +11,21 @@ import type {
 const cache = new Map<string, THREE.Texture>();
 const inflightLoads = new Map<string, Promise<THREE.Texture>>();
 const animationStates = new Map<string, TextureAnimationState>();
-const animatedTextureBranches = new Map<string, Set<THREE.Texture>>();
 let cacheLimit = 512;
+let maxCacheBytes = 128 * 1024 * 1024;
+let totalCacheBytes = 0;
+
+function estimateTextureBytes(texture: THREE.Texture): number {
+  const image = texture.image as { width?: number; height?: number } | null;
+  const width = image?.width ?? 16;
+  const height = image?.height ?? 16;
+  return width * height * 4;
+}
 
 function evictExcessTextures(): void {
-  while (cache.size > cacheLimit) {
+  while (cache.size > cacheLimit || totalCacheBytes > maxCacheBytes) {
     const oldest = cache.keys().next().value;
-    if (oldest === undefined) break;
+    if (oldest === undefined || cache.size <= 1) break;
     disposeCachedTexture(oldest);
   }
 }
@@ -24,62 +33,39 @@ function evictExcessTextures(): void {
 function disposeCachedTexture(key: string): void {
   const texture = cache.get(key);
   if (texture) {
+    totalCacheBytes -= estimateTextureBytes(texture);
     texture.dispose();
     cache.delete(key);
   }
   animationStates.delete(key);
-  const branches = animatedTextureBranches.get(key);
-  if (branches) {
-    for (const branch of branches) branch.dispose();
-    animatedTextureBranches.delete(key);
-  }
 }
 
 function touchCachedTexture(key: string, texture: THREE.Texture): THREE.Texture {
-  if (cache.has(key)) {
+  const existing = cache.get(key);
+  if (existing === texture) {
+    cache.delete(key);
+    cache.set(key, texture);
+    evictExcessTextures();
+    return texture;
+  }
+  if (existing) {
+    totalCacheBytes -= estimateTextureBytes(existing);
     cache.delete(key);
   }
   cache.set(key, texture);
+  totalCacheBytes += estimateTextureBytes(texture);
   evictExcessTextures();
   return texture;
 }
 
-function registerAnimatedBranch(key: string, texture: THREE.Texture): void {
-  let branches = animatedTextureBranches.get(key);
-  if (!branches) {
-    branches = new Set();
-    animatedTextureBranches.set(key, branches);
-  }
-  branches.add(texture);
-  const state = animationStates.get(key);
-  if (state) {
-    texture.userData.animation = state;
-    applyAnimationFrame(texture, state);
-  }
-}
-
 function branchCachedTexture(key: string, cached: THREE.Texture): THREE.Texture {
-  if (!animationStates.has(key)) {
-    return touchCachedTexture(key, cached);
-  }
-  const branch = cached.clone();
-  branch.image = cached.image;
-  registerAnimatedBranch(key, branch);
-  return branch;
-}
-
-function syncAnimationFrame(key: string): void {
-  const state = animationStates.get(key);
-  if (!state) return;
-  const branches = animatedTextureBranches.get(key);
-  if (!branches) return;
-  for (const texture of branches) {
-    applyAnimationFrame(texture, state);
-  }
+  touchCachedTexture(key, cached);
+  return cached;
 }
 
 export function setViewerTextureCacheLimit(limit: number): void {
   cacheLimit = Math.max(8, limit);
+  maxCacheBytes = Math.max(8 * 1024 * 1024, limit * 256 * 1024);
   evictExcessTextures();
 }
 
@@ -94,7 +80,7 @@ function cacheKey(handle: ProjectHandle, path: string): string {
   return `${handle.id}:${path}`;
 }
 
-function applyAnimationFrame(texture: THREE.Texture, state: TextureAnimationState): void {
+function applyAnimationFrameToTexture(texture: THREE.Texture, state: TextureAnimationState): void {
   const { meta, frameIndex } = state;
   const frame = meta.frames[frameIndex] ?? 0;
   const image = texture.image as { height: number };
@@ -106,6 +92,13 @@ function applyAnimationFrame(texture: THREE.Texture, state: TextureAnimationStat
   texture.repeat.set(1, frameHeight / totalHeight);
   texture.offset.set(0, 1 - (frame + 1) * (frameHeight / totalHeight));
   texture.needsUpdate = true;
+}
+
+function syncAnimationFrame(key: string): void {
+  const state = animationStates.get(key);
+  const texture = cache.get(key);
+  if (!state || !texture) return;
+  applyAnimationFrameToTexture(texture, state);
 }
 
 export function releaseCanvasElement(canvas: HTMLCanvasElement): void {
@@ -120,11 +113,15 @@ export function disposeViewerTexture(handle: ProjectHandle, path: string): void 
 export function clearTextureCache(handle?: ProjectHandle): void {
   if (!handle) {
     for (const key of [...cache.keys()]) disposeCachedTexture(key);
+    inflightLoads.clear();
     return;
   }
   const prefix = `${handle.id}:`;
   for (const key of [...cache.keys()]) {
     if (key.startsWith(prefix)) disposeCachedTexture(key);
+  }
+  for (const key of [...inflightLoads.keys()]) {
+    if (key.startsWith(prefix)) inflightLoads.delete(key);
   }
 }
 
@@ -150,11 +147,20 @@ async function decodeTextureImage(
     });
   } catch {
     const data = await ipc.getTexture(handle, path);
+    const bytes = await base64ToUint8ArrayAsync(data.pngBase64);
+    const blob = new Blob([bytes], { type: "image/png" });
+    const url = URL.createObjectURL(blob);
     return new Promise<HTMLImageElement>((resolve, reject) => {
       const img = new Image();
-      img.onload = () => resolve(img);
-      img.onerror = () => reject(new Error(`failed to decode texture: ${path}`));
-      img.src = `data:image/png;base64,${data.pngBase64}`;
+      img.onload = () => {
+        URL.revokeObjectURL(url);
+        resolve(img);
+      };
+      img.onerror = () => {
+        URL.revokeObjectURL(url);
+        reject(new Error(`failed to decode texture: ${path}`));
+      };
+      img.src = url;
     });
   }
 }

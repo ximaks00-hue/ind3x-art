@@ -1,10 +1,13 @@
 /** LRU cache for texture preview data URLs. */
 export class ThumbnailLruCache {
   private max: number;
+  private readonly maxBytes: number;
   private readonly map = new Map<string, string>();
+  private totalBytes = 0;
 
-  constructor(maxEntries: number) {
+  constructor(maxEntries: number, maxBytes = 64 * 1024 * 1024) {
     this.max = Math.max(16, maxEntries);
+    this.maxBytes = maxBytes;
   }
 
   get(key: string): string | undefined {
@@ -16,10 +19,14 @@ export class ThumbnailLruCache {
   }
 
   set(key: string, value: string): void {
-    if (this.map.has(key)) {
+    const bytes = estimateDataUrlBytes(value);
+    const existing = this.map.get(key);
+    if (existing) {
+      this.totalBytes -= estimateDataUrlBytes(existing);
       this.map.delete(key);
     }
     this.map.set(key, value);
+    this.totalBytes += bytes;
     this.trim();
   }
 
@@ -29,16 +36,26 @@ export class ThumbnailLruCache {
   }
 
   private trim(): void {
-    while (this.map.size > this.max) {
+    while ((this.map.size > this.max || this.totalBytes > this.maxBytes) && this.map.size > 1) {
       const oldest = this.map.keys().next().value;
       if (oldest === undefined) break;
+      const removed = this.map.get(oldest);
+      if (removed) this.totalBytes -= estimateDataUrlBytes(removed);
       this.map.delete(oldest);
     }
   }
 
   clear(): void {
     this.map.clear();
+    this.totalBytes = 0;
   }
+}
+
+function estimateDataUrlBytes(url: string): number {
+  const comma = url.indexOf(",");
+  if (comma < 0) return url.length;
+  const base64Len = url.length - comma - 1;
+  return Math.ceil(base64Len * 0.75);
 }
 
 let sharedLimit = 512;
@@ -53,7 +70,8 @@ export function getThumbnailCache(limit: number): ThumbnailLruCache {
 }
 
 export function resetThumbnailCache(): void {
-  sharedCache?.clear();
+  sharedCache.clear();
+  inflight.clear();
 }
 
 export function thumbnailCacheKey(handleId: number, assetPath: string): string {
@@ -101,4 +119,8 @@ export function trackThumbnailBatch(
       }),
     );
   }
+}
+
+export function cancelThumbnailInflight(keys: Iterable<string>): void {
+  for (const key of keys) inflight.delete(key);
 }

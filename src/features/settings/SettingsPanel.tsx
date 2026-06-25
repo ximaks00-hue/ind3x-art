@@ -1,13 +1,12 @@
 import { useEffect, useState } from "react";
 
-import { rebuildProjectCatalog, getCatalogEntry } from "../../app/services/catalogService";
-import { bumpProjectDataRevision } from "../../app/projectDataRevision";
-import { useFocusTrap } from "../../hooks/useFocusTrap";
+import { useWorkspaceMode } from "../../app/useWorkspaceMode";
 import { ipc } from "../../ipc/client";
 import { downloadShortcutsExport } from "../../lib/shortcuts";
-import { useCatalogStore } from "../catalog/catalogStore";
+import { useFocusTrap } from "../../hooks/useFocusTrap";
+import { CATALOG_LANGUAGE_OPTIONS } from "../catalog/catalogLanguageOptions";
+import { useCatalogLanguageSwitch } from "../catalog/useCatalogLanguageSwitch";
 import { useProjectStore } from "../../state/projectStore";
-import { useUiStore } from "../../state/uiStore";
 import {
   useSettingsStore,
   type CatalogIconMode,
@@ -24,6 +23,7 @@ interface Props {
 
 export function SettingsPanel({ open, onClose }: Props) {
   const trapRef = useFocusTrap(open);
+  const { workspaceMode, setWorkspaceMode } = useWorkspaceMode();
   const {
     theme,
     setTheme,
@@ -40,14 +40,12 @@ export function SettingsPanel({ open, onClose }: Props) {
     studioShowFloorGrid,
     setStudioShowFloorGrid,
     catalogLanguage,
-    setCatalogLanguage,
     uiScale,
     setUiScale,
   } = useSettingsStore();
 
   const projectHandle = useProjectStore((s) => s.handle);
-  const pushToast = useUiStore((s) => s.pushToast);
-  const [languageBusy, setLanguageBusy] = useState(false);
+  const { switchLanguage, busy: languageBusy } = useCatalogLanguageSwitch();
 
   const [logLines, setLogLines] = useState<string[]>([]);
   const [logFile, setLogFile] = useState<string | undefined>();
@@ -66,34 +64,6 @@ export function SettingsPanel({ open, onClose }: Props) {
       setLogLines([]);
     } finally {
       setLogLoading(false);
-    }
-  }
-
-  async function handleCatalogLanguageChange(next: string) {
-    const previous = catalogLanguage;
-    setCatalogLanguage(next);
-    if (!projectHandle) return;
-    setLanguageBusy(true);
-    try {
-      await rebuildProjectCatalog(projectHandle, next);
-      bumpProjectDataRevision();
-      const selectedId = useCatalogStore.getState().selectedId;
-      if (selectedId) {
-        try {
-          const entry = await getCatalogEntry(projectHandle, selectedId);
-          useCatalogStore.getState().selectEntry(entry);
-        } catch {
-          // selection may no longer exist in new language build
-        }
-      }
-    } catch (e) {
-      setCatalogLanguage(previous);
-      pushToast(
-        e instanceof Error ? e.message : "Failed to rebuild catalog for language",
-        "error",
-      );
-    } finally {
-      setLanguageBusy(false);
     }
   }
 
@@ -124,6 +94,22 @@ export function SettingsPanel({ open, onClose }: Props) {
 
         <section className={styles.section}>
           <h3 className={styles.sectionTitle}>Appearance</h3>
+          <div className={styles.row}>
+            <label className={styles.rowLabel} htmlFor="workspace-mode">
+              Workspace mode
+            </label>
+            <select
+              id="workspace-mode"
+              className={styles.select}
+              value={workspaceMode}
+              onChange={(e) =>
+                setWorkspaceMode((e.target.value as "classic" | "studio") ?? "classic")
+              }
+            >
+              <option value="classic">Classic (JAR + folder)</option>
+              <option value="studio">Studio (JAR only)</option>
+            </select>
+          </div>
           <div className={styles.row}>
             <label className={styles.rowLabel} htmlFor="theme-select">
               Theme
@@ -209,11 +195,13 @@ export function SettingsPanel({ open, onClose }: Props) {
               className={styles.select}
               value={catalogLanguage}
               disabled={languageBusy || !projectHandle}
-              onChange={(e) => void handleCatalogLanguageChange(e.target.value)}
+              onChange={(e) => void switchLanguage(e.target.value)}
             >
-              <option value="en_us">English (US)</option>
-              <option value="en_gb">English (UK)</option>
-              <option value="ru_ru">Русский</option>
+              {CATALOG_LANGUAGE_OPTIONS.map((opt) => (
+                <option key={opt.value} value={opt.value}>
+                  {opt.label}
+                </option>
+              ))}
             </select>
           </div>
           <div className={styles.row}>

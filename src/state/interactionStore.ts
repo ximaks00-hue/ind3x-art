@@ -3,7 +3,6 @@ import { create } from "zustand";
 import type { RenderableModel } from "../ipc/types";
 import type { ComparatorMode } from "../lib/cameraPresets";
 import { cloneRenderable } from "../lib/cloneRenderable";
-import { useViewerStore } from "./viewerStore";
 
 interface InteractionState {
   comparatorMode: ComparatorMode;
@@ -12,7 +11,7 @@ interface InteractionState {
   /** Cycle comparator: off → 2D split → 3D split → off */
   cycleComparator: (captureFor3d?: RenderableModel | null) => void;
   captureCompareBefore: (model: RenderableModel) => void;
-  captureCompareBeforeFromSave: () => void;
+  captureCompareBeforeFromSave: (model: RenderableModel | null) => void;
   setViewerBeforeModel: (model: RenderableModel | null) => void;
   resetInteractionState: () => void;
   /** @deprecated Use cycleComparator */
@@ -43,11 +42,12 @@ export const useInteractionStore = create<InteractionState>((set, get) => ({
     set({ comparatorMode: null, viewerBeforeModel: null });
   },
   captureCompareBefore: (model) => set({ viewerBeforeModel: cloneRenderable(model) }),
-  captureCompareBeforeFromSave: () => {
-    const current = useViewerStore.getState().currentRenderable;
-    if (current) {
-      set({ viewerBeforeModel: cloneRenderable(current) });
+  captureCompareBeforeFromSave: (model) => {
+    if (!model) {
+      console.warn("[interaction] compare-before skipped: no renderable model");
+      return;
     }
+    set({ viewerBeforeModel: cloneRenderable(model) });
   },
   setViewerBeforeModel: (viewerBeforeModel) => set({ viewerBeforeModel }),
   resetInteractionState: () => set({ comparatorMode: null, viewerBeforeModel: null }),

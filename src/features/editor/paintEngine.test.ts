@@ -60,6 +60,7 @@ function baseCtx(overrides: Partial<PaintStrokeContext> = {}): PaintStrokeContex
     symmetryY: false,
     brushSize: 1,
     brushOpacity: 1,
+    brushMode: "normal",
     ...overrides,
   };
 }

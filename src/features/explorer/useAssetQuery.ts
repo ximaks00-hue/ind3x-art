@@ -23,6 +23,7 @@ export function useAssetQuery(debouncedSearch: string) {
   const pushToast = useUiStore((s) => s.pushToast);
 
   const requestId = useRef(0);
+  const autoSelectPendingRef = useRef(true);
 
   const buildFilter = useCallback((): AssetFilter => {
     return {
@@ -60,6 +61,7 @@ export function useAssetQuery(debouncedSearch: string) {
 
         if (
           !append &&
+          autoSelectPendingRef.current &&
           page.entries.length > 0 &&
           !useProjectStore.getState().selectedAsset &&
           useSettingsStore.getState().workspaceMode === "classic"
@@ -73,6 +75,7 @@ export function useAssetQuery(debouncedSearch: string) {
           );
           if (previewable) {
             useProjectStore.getState().selectAsset(previewable);
+            autoSelectPendingRef.current = false;
           }
         }
       } catch (error) {
@@ -85,6 +88,10 @@ export function useAssetQuery(debouncedSearch: string) {
     },
     [handle, buildFilter, debouncedSearch, setQueryPage, setQueryLoading, pushToast],
   );
+
+  useEffect(() => {
+    autoSelectPendingRef.current = true;
+  }, [handle?.id]);
 
   useEffect(() => {
     if (!handle || indexStatus !== "done") return;

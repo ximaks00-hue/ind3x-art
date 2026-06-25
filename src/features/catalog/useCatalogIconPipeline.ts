@@ -19,7 +19,7 @@ import {
   type IconBakeBatch,
 } from "./catalogIconPipeline";
 
-const PREFETCH_RING = 36;
+const PREFETCH_RING = 12;
 
 function prefetchEntries(
   entries: CatalogEntry[],

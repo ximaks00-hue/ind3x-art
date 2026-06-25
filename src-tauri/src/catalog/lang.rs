@@ -55,6 +55,9 @@ impl LangResolver {
                     return Some(value.clone());
                 }
             }
+            if let Some(value) = super::vanilla_lang::resolve_key(&locale, key) {
+                return Some(value);
+            }
         }
         None
     }
@@ -260,6 +263,20 @@ mod tests {
         assert_eq!(entries.len(), 1);
         assert_eq!(entries[0].stem, "batbox");
         assert_eq!(entries[0].display_name, "BatBox");
+    }
+
+    #[test]
+    fn vanilla_lang_fills_missing_pack_translation() {
+        let resolver = LangResolver::default();
+        assert_eq!(
+            resolver.resolve_block("en_us", "minecraft", "stone"),
+            Some("Stone".to_string())
+        );
+        assert_eq!(
+            resolver.resolve_block("ru_ru", "minecraft", "stone"),
+            Some("Камень".to_string())
+        );
+        assert_eq!(resolver.resolve_block("en_us", "mymod", "stone"), None);
     }
 
     #[test]

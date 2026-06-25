@@ -1,0 +1,33 @@
+.wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.btn,
+.btnActive {
+  font-size: 10px;
+  font-weight: 600;
+  padding: 4px 8px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-border);
+  background: transparent;
+  color: var(--color-text-muted);
+}
+
+.btn:hover {
+  color: var(--color-text-secondary);
+  border-color: color-mix(in srgb, var(--color-accent) 35%, var(--color-border));
+}
+
+.btnActive {
+  border-color: color-mix(in srgb, var(--color-accent) 55%, transparent);
+  color: var(--color-accent);
+  background: var(--color-bg-accent-subtle);
+}
+
+.select {
+  max-width: 56px;
+  font-size: 10px;
+  padding: 2px 4px;
+}

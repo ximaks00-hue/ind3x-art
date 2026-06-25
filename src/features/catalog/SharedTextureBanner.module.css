@@ -1,0 +1,10 @@
+.banner {
+  margin: 0 0 var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  font-size: 10px;
+  line-height: 1.4;
+  color: var(--color-text-secondary);
+  background: color-mix(in srgb, #e6a23c 10%, var(--color-bg-panel));
+  border: 1px solid color-mix(in srgb, #e6a23c 35%, var(--color-border));
+  border-radius: var(--radius-sm);
+}

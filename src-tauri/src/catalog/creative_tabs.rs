@@ -5,10 +5,11 @@ use serde::Deserialize;
 use crate::dto::CatalogCategory;
 use crate::source::AssetSource;
 
-/// Optional per-pack (or builtin) creative tab ordering for catalog queries.
+/// Per-pack creative tab ordering and id → category mapping from `creative_tabs.json`.
 #[derive(Debug, Clone, Default)]
 pub struct CreativeTabOrder {
     rank: HashMap<String, u32>,
+    categories: HashMap<String, CatalogCategory>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -17,81 +18,25 @@ struct CreativeTabsFile {
     tabs: HashMap<String, Vec<String>>,
 }
 
+#[derive(Deserialize)]
+struct VanillaCategoryFile {
+    blocks: HashMap<String, String>,
+    items: HashMap<String, String>,
+}
+
 const TAB_PATHS: &[&str] = &["creative_tabs.json", "assets/ind3x/creative_tabs.json"];
 
-/// Builtin vanilla-adjacent order used when the pack has no `creative_tabs.json`.
-fn builtin_tabs() -> CreativeTabsFile {
-    CreativeTabsFile {
-        tabs: HashMap::from([
-            (
-                "building".to_string(),
-                vec![
-                    "minecraft:stone".to_string(),
-                    "minecraft:cobblestone".to_string(),
-                    "minecraft:oak_planks".to_string(),
-                    "minecraft:bricks".to_string(),
-                    "minecraft:glass".to_string(),
-                    "minecraft:test_stone".to_string(),
-                    "minecraft:demo_grass".to_string(),
-                    "minecraft:demo_oak_log".to_string(),
-                    "minecraft:demo_crafting_table".to_string(),
-                ],
-            ),
-            (
-                "decoration".to_string(),
-                vec![
-                    "minecraft:torch".to_string(),
-                    "minecraft:demo_torch".to_string(),
-                    "minecraft:flower_pot".to_string(),
-                ],
-            ),
-            (
-                "tools".to_string(),
-                vec![
-                    "minecraft:diamond_sword".to_string(),
-                    "minecraft:iron_pickaxe".to_string(),
-                ],
-            ),
-        ]),
+pub fn parse_tab_category(name: &str) -> Option<CatalogCategory> {
+    match name {
+        "building" => Some(CatalogCategory::Building),
+        "decoration" => Some(CatalogCategory::Decoration),
+        "redstone" => Some(CatalogCategory::Redstone),
+        "nature" => Some(CatalogCategory::Nature),
+        "tools" => Some(CatalogCategory::Tools),
+        "food" => Some(CatalogCategory::Food),
+        "misc" => Some(CatalogCategory::Misc),
+        _ => None,
     }
-}
-
-pub fn load_creative_tabs(source: &dyn AssetSource) -> CreativeTabOrder {
-    for path in TAB_PATHS {
-        if let Ok(bytes) = source.read(path) {
-            match serde_json::from_slice::<CreativeTabsFile>(&bytes) {
-                Ok(file) => return order_from_file(file),
-                Err(e) => tracing::warn!(path, error = %e, "invalid creative_tabs.json"),
-            }
-        }
-    }
-    order_from_file(builtin_tabs())
-}
-
-fn order_from_file(file: CreativeTabsFile) -> CreativeTabOrder {
-    let mut rank = HashMap::new();
-    let mut index: u32 = 0;
-    for category in category_tab_order() {
-        if let Some(ids) = file.tabs.get(category) {
-            for id in ids {
-                rank.entry(id.clone()).or_insert_with(|| {
-                    let r = index;
-                    index += 1;
-                    r
-                });
-            }
-        }
-    }
-    for ids in file.tabs.values() {
-        for id in ids {
-            rank.entry(id.clone()).or_insert_with(|| {
-                let r = index;
-                index += 1;
-                r
-            });
-        }
-    }
-    CreativeTabOrder { rank }
 }
 
 fn category_tab_order() -> [&'static str; 7] {
@@ -106,12 +51,93 @@ fn category_tab_order() -> [&'static str; 7] {
     ]
 }
 
+fn vanilla_category_file() -> VanillaCategoryFile {
+    serde_json::from_str(include_str!("../../assets/vanilla_lang/creative_categories.json"))
+        .expect("vanilla creative_categories.json")
+}
+
+/// Builtin vanilla id → tab mapping derived from `creative_categories.json`.
+fn builtin_order() -> CreativeTabOrder {
+    let data = vanilla_category_file();
+    let mut tabs: HashMap<String, Vec<String>> = HashMap::new();
+    for (stem, tab) in data.blocks {
+        tabs.entry(tab).or_default().push(format!("minecraft:{stem}"));
+    }
+    for (stem, tab) in data.items {
+        tabs.entry(tab).or_default().push(format!("minecraft:{stem}"));
+    }
+    let file = CreativeTabsFile { tabs };
+    let mut order = CreativeTabOrder::default();
+    merge_file(&mut order, &file, true);
+    order
+}
+
+fn merge_file(order: &mut CreativeTabOrder, file: &CreativeTabsFile, override_categories: bool) {
+    let mut index = order.next_rank();
+    for tab_name in category_tab_order() {
+        if let Some(ids) = file.tabs.get(tab_name) {
+            apply_tab(order, tab_name, ids, &mut index, override_categories);
+        }
+    }
+    for (tab_name, ids) in &file.tabs {
+        if category_tab_order().contains(&tab_name.as_str()) {
+            continue;
+        }
+        apply_tab(order, tab_name, ids, &mut index, override_categories);
+    }
+}
+
+fn apply_tab(
+    order: &mut CreativeTabOrder,
+    tab_name: &str,
+    ids: &[String],
+    index: &mut u32,
+    override_categories: bool,
+) {
+    let Some(category) = parse_tab_category(tab_name) else {
+        return;
+    };
+    for id in ids {
+        if override_categories || !order.categories.contains_key(id) {
+            order.categories.insert(id.clone(), category);
+        }
+        order.rank.entry(id.clone()).or_insert_with(|| {
+            let rank = *index;
+            *index += 1;
+            rank
+        });
+    }
+}
+
+pub fn load_creative_tabs(source: &dyn AssetSource) -> CreativeTabOrder {
+    let mut order = builtin_order();
+    for path in TAB_PATHS {
+        if let Ok(bytes) = source.read(path) {
+            match serde_json::from_slice::<CreativeTabsFile>(&bytes) {
+                Ok(file) => {
+                    merge_file(&mut order, &file, true);
+                }
+                Err(e) => tracing::warn!(path, error = %e, "invalid creative_tabs.json"),
+            }
+        }
+    }
+    order
+}
+
 impl CreativeTabOrder {
+    pub fn category_for(&self, entry_id: &str) -> Option<CatalogCategory> {
+        self.categories.get(entry_id).copied()
+    }
+
     pub fn sort_key(&self, entry_id: &str, display_name: &str) -> (u32, String) {
         match self.rank.get(entry_id) {
             Some(rank) => (*rank, display_name.to_lowercase()),
             None => (u32::MAX / 2, display_name.to_lowercase()),
         }
+    }
+
+    fn next_rank(&self) -> u32 {
+        self.rank.values().copied().max().map(|m| m + 1).unwrap_or(0)
     }
 
     #[allow(dead_code)]
@@ -133,6 +159,39 @@ mod tests {
     use super::*;
 
     #[test]
+    fn pack_tab_assigns_category_and_rank() {
+        let file = CreativeTabsFile {
+            tabs: HashMap::from([(
+                "decoration".to_string(),
+                vec![
+                    "minecraft:demo_torch".to_string(),
+                    "mymod:glow_panel".to_string(),
+                ],
+            )]),
+        };
+        let mut order = CreativeTabOrder::default();
+        merge_file(&mut order, &file, true);
+        assert_eq!(
+            order.category_for("minecraft:demo_torch"),
+            Some(CatalogCategory::Decoration)
+        );
+        assert_eq!(
+            order.category_for("mymod:glow_panel"),
+            Some(CatalogCategory::Decoration)
+        );
+        assert!(order.rank.get("minecraft:demo_torch").unwrap() < order.rank.get("mymod:glow_panel").unwrap());
+    }
+
+    #[test]
+    fn builtin_maps_vanilla_stone_to_building() {
+        let order = builtin_order();
+        assert_eq!(
+            order.category_for("minecraft:stone"),
+            Some(CatalogCategory::Building)
+        );
+    }
+
+    #[test]
     fn pack_tabs_define_rank() {
         let file = CreativeTabsFile {
             tabs: HashMap::from([(
@@ -140,7 +199,8 @@ mod tests {
                 vec!["minecraft:stone".to_string(), "minecraft:dirt".to_string()],
             )]),
         };
-        let order = order_from_file(file);
+        let mut order = CreativeTabOrder::default();
+        merge_file(&mut order, &file, true);
         assert!(order.rank.get("minecraft:stone").unwrap() < order.rank.get("minecraft:dirt").unwrap());
     }
 }

@@ -35,7 +35,10 @@ export async function saveDirtyTextures(handle: ProjectHandle, options?: SaveOpt
   const result = await (ipc.saveBatch
     ? ipc.saveBatch(handle, textures, options)
     : ipc.saveTextures(handle, textures, options));
-  markTexturesSaved(result.savedPaths, result.originalPaths, snapshots);
+  const writesBackToSource = !options?.mode || options.mode === "overwrite";
+  if (writesBackToSource) {
+    markTexturesSaved(result.savedPaths, result.originalPaths, snapshots);
+  }
   await invalidateCatalogIconsForTextures(handle, result.savedPaths);
   return {
     savedCount: result.savedCount,

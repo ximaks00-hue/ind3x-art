@@ -2,6 +2,7 @@
 //! Watches a source path and emits Tauri events when it changes externally.
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
+use std::sync::mpsc::{self, Receiver, RecvTimeoutError};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -29,20 +30,25 @@ struct DebouncerState {
 
 #[derive(Clone)]
 struct WatchDebouncer {
-    app: AppHandle,
     state: Arc<Mutex<DebouncerState>>,
+    schedule_tx: mpsc::Sender<u64>,
 }
 
 impl WatchDebouncer {
     fn new(app: AppHandle) -> Self {
-        Self {
-            app,
-            state: Arc::new(Mutex::new(DebouncerState {
-                paths: HashSet::new(),
-                kind: "modify".to_string(),
-                generation: 0,
-            })),
-        }
+        let state = Arc::new(Mutex::new(DebouncerState {
+            paths: HashSet::new(),
+            kind: "modify".to_string(),
+            generation: 0,
+        }));
+        let (schedule_tx, schedule_rx) = mpsc::channel();
+        let worker_state = Arc::clone(&state);
+        std::thread::Builder::new()
+            .name("ind3x-watcher-debounce".into())
+            .spawn(move || debounce_worker(app, worker_state, schedule_rx))
+            .expect("spawn watcher debounce worker");
+
+        Self { state, schedule_tx }
     }
 
     fn note_change(&self, relative: String, kind: &str) {
@@ -56,44 +62,52 @@ impl WatchDebouncer {
             guard.generation += 1;
             guard.generation
         };
-
-        let debouncer = self.clone();
-        std::thread::spawn(move || {
-            std::thread::sleep(Duration::from_millis(DEBOUNCE_MS));
-            debouncer.flush(generation);
-        });
+        let _ = self.schedule_tx.send(generation);
     }
+}
 
-    fn flush(&self, generation: u64) {
-        let (paths, kind) = {
-            let mut guard = match self.state.lock() {
-                Ok(guard) => guard,
-                Err(poisoned) => poisoned.into_inner(),
-            };
-            if guard.generation != generation {
-                return;
+fn debounce_worker(app: AppHandle, state: Arc<Mutex<DebouncerState>>, schedule_rx: Receiver<u64>) {
+    while let Ok(mut target_gen) = schedule_rx.recv() {
+        loop {
+            match schedule_rx.recv_timeout(Duration::from_millis(DEBOUNCE_MS)) {
+                Ok(generation) => target_gen = generation,
+                Err(RecvTimeoutError::Timeout) => break,
+                Err(RecvTimeoutError::Disconnected) => return,
             }
-            let paths: Vec<String> = guard.paths.drain().collect();
-            let kind = guard.kind.clone();
-            guard.generation += 1;
-            (paths, kind)
-        };
+        }
+        flush_generation(&app, &state, target_gen);
+    }
+}
 
-        if paths.is_empty() {
+fn flush_generation(app: &AppHandle, state: &Mutex<DebouncerState>, generation: u64) {
+    let (paths, kind) = {
+        let mut guard = match state.lock() {
+            Ok(guard) => guard,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+        if guard.generation != generation {
             return;
         }
+        let paths: Vec<String> = guard.paths.drain().collect();
+        let kind = guard.kind.clone();
+        guard.generation += 1;
+        (paths, kind)
+    };
 
-        for path in paths {
-            let _ = self.app.emit(
-                EVENT_SOURCE_CHANGED,
-                SourceChangedPayload {
-                    path,
-                    kind: kind.clone(),
-                },
-            );
-        }
-        let _ = self.app.emit(EVENT_CACHE_INVALIDATED, ());
+    if paths.is_empty() {
+        return;
     }
+
+    for path in paths {
+        let _ = app.emit(
+            EVENT_SOURCE_CHANGED,
+            SourceChangedPayload {
+                path,
+                kind: kind.clone(),
+            },
+        );
+    }
+    let _ = app.emit(EVENT_CACHE_INVALIDATED, ());
 }
 
 pub struct SourceWatcher {
@@ -120,6 +134,7 @@ impl SourceWatcher {
 
         let debouncer = WatchDebouncer::new(app);
         let watch_root_for_events = watch_root.clone();
+        // `with_poll_interval` only applies to `PollWatcher`; `RecommendedWatcher` uses native backends.
         let mut watcher = RecommendedWatcher::new(
             move |res: notify::Result<Event>| {
                 if let Ok(event) = res {
@@ -138,7 +153,7 @@ impl SourceWatcher {
                     }
                 }
             },
-            Config::default().with_poll_interval(Duration::from_secs(2)),
+            Config::default(),
         )?;
 
         watcher.watch(&watch_root, RecursiveMode::Recursive)?;
@@ -226,5 +241,26 @@ mod tests {
     fn jar_sources_skip_filesystem_watcher() {
         assert!(!should_watch_source(SourceKind::Jar));
         assert!(should_watch_source(SourceKind::Folder));
+    }
+
+    #[test]
+    fn debouncer_accumulates_paths_for_one_generation() {
+        let state = Mutex::new(DebouncerState {
+            paths: HashSet::new(),
+            kind: "modify".to_string(),
+            generation: 0,
+        });
+        {
+            let mut guard = state.lock().expect("lock");
+            guard.paths.insert("assets/a.png".to_string());
+            guard.paths.insert("assets/b.png".to_string());
+            guard.generation = 1;
+        }
+        let (paths, generation) = {
+            let guard = state.lock().expect("lock");
+            (guard.paths.len(), guard.generation)
+        };
+        assert_eq!(paths, 2);
+        assert_eq!(generation, 1);
     }
 }

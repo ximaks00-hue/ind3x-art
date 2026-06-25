@@ -131,7 +131,7 @@ pub fn read_pack_format_from_bytes(bytes: &[u8]) -> CoreResult<Option<u32>> {
     }
 
     let root: Root = serde_json::from_slice(bytes)
-        .map_err(|e| CoreError::Internal(format!("pack.mcmeta parse failed: {e}")))?;
+        .map_err(|e| CoreError::InvalidPack(format!("pack.mcmeta parse failed: {e}")))?;
     Ok(root.pack.and_then(|p| p.pack_format))
 }
 

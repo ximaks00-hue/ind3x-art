@@ -7,16 +7,14 @@ import { useCatalogStore } from "./catalogStore";
 import { catalogCategoryCount } from "./catalogUtils";
 import { useCatalogSelection } from "./useCatalogSelection";
 
-/** Restores persisted studio category/selection and runs first-entry auto-select. */
+/** Restores persisted studio category/selection without forced first-entry auto-select. */
 export function useCatalogSessionRestore() {
   const handle = useProjectStore((s) => s.handle);
   const indexStatus = useProjectStore((s) => s.indexStatus);
-  const workspaceMode = useSettingsStore((s) => s.workspaceMode);
   const entries = useCatalogStore((s) => s.entries);
   const category = useCatalogStore((s) => s.category);
   const facets = useCatalogStore((s) => s.facets);
   const catalogLoading = useCatalogStore((s) => s.loading);
-  const selectedId = useCatalogStore((s) => s.selectedId);
   const sessionRestorePending = useCatalogStore((s) => s.sessionRestorePending);
   const setCategory = useCatalogStore((s) => s.setCategory);
   const setFocusIndex = useCatalogStore((s) => s.setFocusIndex);
@@ -93,14 +91,16 @@ export function useCatalogSessionRestore() {
 
       const signal = restoreAbortRef.current?.signal;
       let cancelled = false;
-      void getCatalogEntry(handle, studioSelectedCatalogId)
+      void getCatalogEntry(handle, studioSelectedCatalogId, { signal })
         .then((entry) => {
           if (cancelled || signal?.aborted || sessionRestoredRef.current) return;
           selectEntry(entry);
           finishSessionRestore();
         })
-        .catch(() => {
-          if (!cancelled && !signal?.aborted) finishSessionRestore();
+        .catch((error) => {
+          if (cancelled || signal?.aborted) return;
+          console.warn("[catalog] session restore getCatalogEntry failed", error);
+          finishSessionRestore();
         });
 
       return () => {
@@ -140,9 +140,4 @@ export function useCatalogSessionRestore() {
     finishSessionRestore,
   ]);
 
-  useEffect(() => {
-    if (workspaceMode !== "studio" || sessionRestorePending || selectedId) return;
-    if (!entries.length) return;
-    selectEntry(entries[0]!);
-  }, [workspaceMode, sessionRestorePending, selectedId, entries, selectEntry]);
 }

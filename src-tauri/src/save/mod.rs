@@ -38,7 +38,7 @@ pub fn decode_texture_entry(path: String, png_base64: String) -> CoreResult<Deco
     }
     let bytes = STANDARD
         .decode(png_base64.as_bytes())
-        .map_err(|e| CoreError::Internal(format!("texture base64 decode failed: {e}")))?;
+        .map_err(|e| CoreError::InvalidInput(format!("texture base64 decode failed: {e}")))?;
     crate::image::validate_png_bytes(&bytes)?;
     Ok(DecodedTexture {
         path: normalize_zip_path(&path),
@@ -50,6 +50,11 @@ pub fn validate_png(bytes: &[u8]) -> CoreResult<()> {
     crate::image::validate_png_bytes(bytes)
 }
 
+/// Lightweight PNG check (signature + size cap) without full decode.
+pub fn validate_png_header(bytes: &[u8]) -> CoreResult<()> {
+    crate::image::validate_png_header(bytes)
+}
+
 pub fn backup_jar(jar_path: &Path) -> CoreResult<PathBuf> {
     if !jar_path.is_file() {
         return Err(CoreError::Internal(format!(
@@ -58,10 +63,7 @@ pub fn backup_jar(jar_path: &Path) -> CoreResult<PathBuf> {
         )));
     }
 
-    let stamp = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(0);
+    let stamp = backup::backup_timestamp_millis();
     let backup_path = jar_path.with_extension(format!("jar.{stamp}.bak"));
     std::fs::copy(jar_path, &backup_path)?;
     Ok(backup_path)
@@ -288,6 +290,7 @@ pub fn save_textures_to_source(
             }
 
             let _ = std::fs::remove_dir_all(&staging);
+            backup::prune_old_folder_session_backups(source_path)?;
             Ok((saved_paths, backup_path))
         }
 

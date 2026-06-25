@@ -2,6 +2,10 @@ import { create } from "zustand";
 import { persist } from "zustand/middleware";
 
 import type { CatalogCategory } from "../ipc/types";
+import {
+  clampModelCacheLimit,
+  clampTextureCacheLimit,
+} from "./cacheLimits";
 
 export type Theme = "dark" | "light" | "high-contrast";
 export type WorkspaceMode = "classic" | "studio";
@@ -49,6 +53,8 @@ interface SettingsState {
   studioSelectedCatalogId: string | null;
   studioCatalogCategory: CatalogCategory | null;
   catalogLanguage: string;
+  miniSceneEnabled: boolean;
+  miniSceneSize: 2 | 3;
   setTheme: (theme: Theme) => void;
   cycleTheme: () => void;
   toggleTheme: () => void;
@@ -57,7 +63,6 @@ interface SettingsState {
   setTextureCacheLimit: (n: number) => void;
   setModelCacheLimit: (n: number) => void;
   setUiScale: (scale: number) => void;
-  setWorkspaceModeState: (mode: WorkspaceMode) => void;
   setCatalogIconMode: (mode: CatalogIconMode) => void;
   setCatalogIconCacheLimit: (n: number) => void;
   setCatalogShowCellLabels: (show: boolean) => void;
@@ -92,6 +97,8 @@ interface SettingsState {
   setStudioSelectedCatalogId: (id: string | null) => void;
   setStudioCatalogCategory: (category: CatalogCategory | null) => void;
   setCatalogLanguage: (language: string) => void;
+  setMiniSceneEnabled: (enabled: boolean) => void;
+  setMiniSceneSize: (size: 2 | 3) => void;
 }
 
 export const useSettingsStore = create<SettingsState>()(
@@ -130,17 +137,15 @@ export const useSettingsStore = create<SettingsState>()(
       studioSelectedCatalogId: null,
       studioCatalogCategory: null,
       catalogLanguage: "en_us",
+      miniSceneEnabled: false,
+      miniSceneSize: 2,
       setTheme: (theme) => set({ theme }),
       cycleTheme: () => {
         const idx = THEME_ORDER.indexOf(get().theme);
         const next = THEME_ORDER[(idx + 1) % THEME_ORDER.length] ?? "dark";
         set({ theme: next });
       },
-      toggleTheme: () => {
-        const idx = THEME_ORDER.indexOf(get().theme);
-        const next = THEME_ORDER[(idx + 1) % THEME_ORDER.length] ?? "dark";
-        set({ theme: next });
-      },
+      toggleTheme: () => get().cycleTheme(),
       addRecentProject: (path, kind) => {
         const next = [
           { path, kind, openedAt: Date.now() },
@@ -149,10 +154,11 @@ export const useSettingsStore = create<SettingsState>()(
         set({ recentProjects: next });
       },
       clearRecentProjects: () => set({ recentProjects: [] }),
-      setTextureCacheLimit: (textureCacheLimit) => set({ textureCacheLimit }),
-      setModelCacheLimit: (modelCacheLimit) => set({ modelCacheLimit }),
+      setTextureCacheLimit: (textureCacheLimit) =>
+        set({ textureCacheLimit: clampTextureCacheLimit(textureCacheLimit) }),
+      setModelCacheLimit: (modelCacheLimit) =>
+        set({ modelCacheLimit: clampModelCacheLimit(modelCacheLimit) }),
       setUiScale: (uiScale) => set({ uiScale: Math.max(0.8, Math.min(1.5, uiScale)) }),
-      setWorkspaceModeState: (workspaceMode) => set({ workspaceMode }),
       setCatalogIconMode: (catalogIconMode) => set({ catalogIconMode }),
       setCatalogIconCacheLimit: (catalogIconCacheLimit) =>
         set({
@@ -230,6 +236,8 @@ export const useSettingsStore = create<SettingsState>()(
         set({ studioSelectedCatalogId }),
       setStudioCatalogCategory: (studioCatalogCategory) => set({ studioCatalogCategory }),
       setCatalogLanguage: (catalogLanguage) => set({ catalogLanguage }),
+      setMiniSceneEnabled: (miniSceneEnabled) => set({ miniSceneEnabled }),
+      setMiniSceneSize: (miniSceneSize) => set({ miniSceneSize }),
     }),
     {
       name: "ind3x-art-settings",
@@ -267,7 +275,14 @@ export const useSettingsStore = create<SettingsState>()(
         studioSelectedCatalogId: state.studioSelectedCatalogId,
         studioCatalogCategory: state.studioCatalogCategory,
         catalogLanguage: state.catalogLanguage,
+        miniSceneEnabled: state.miniSceneEnabled,
+        miniSceneSize: state.miniSceneSize,
       }),
+      onRehydrateStorage: () => (state) => {
+        if (!state) return;
+        state.textureCacheLimit = clampTextureCacheLimit(state.textureCacheLimit);
+        state.modelCacheLimit = clampModelCacheLimit(state.modelCacheLimit);
+      },
     },
   ),
 );

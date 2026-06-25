@@ -1,8 +1,7 @@
 import { useEffect } from "react";
 
 import type { RenderableModel } from "../../ipc/types";
-import { useSettingsStore } from "../../state/settingsStore";
-import { buildModelFaceNav, buildSelectedFaceFromModel } from "./modelFaceNav";
+import { buildModelFaceNav, buildSelectedFaceFromModel } from "../catalog/modelFaceNav";
 
 const FACE_DIRECTION_HOTKEYS: Record<string, string> = {
   "1": "north",
@@ -13,15 +12,13 @@ const FACE_DIRECTION_HOTKEYS: Record<string, string> = {
   "6": "down",
 };
 
-/** Studio paint: jump to face with number keys 1–6 (north/south/east/west/up/down). */
-export function useStudioFaceHotkeys(
+/** Jump to model face with number keys 1–6 (north/south/east/west/up/down). */
+export function useModelFaceHotkeys(
   model: RenderableModel | null,
   onSelectFace: (cuboidIndex: number, faceIndex: number) => void,
 ) {
-  const workspaceMode = useSettingsStore((s) => s.workspaceMode);
-
   useEffect(() => {
-    if (workspaceMode !== "studio" || !model) return;
+    if (!model) return;
 
     const nav = buildModelFaceNav(model);
 
@@ -54,5 +51,5 @@ export function useStudioFaceHotkeys(
 
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [workspaceMode, model, onSelectFace]);
+  }, [model, onSelectFace]);
 }

@@ -1,5 +1,6 @@
 import { Archive, FolderOpen, History, Package } from "lucide-react";
 
+import { useWorkspaceMode } from "../../app/useWorkspaceMode";
 import type { RecentProject } from "../../state/settingsStore";
 import { Icon } from "../../ui/icons/Icon";
 import { Button } from "../../ui/primitives/Button";
@@ -28,6 +29,7 @@ export function WelcomeScreen({
   onTryDemo,
 }: WelcomeScreenProps) {
   const hero = variant === "hero";
+  const { workspaceMode, setWorkspaceMode } = useWorkspaceMode();
 
   return (
     <div className={hero ? styles.hero : styles.panel}>
@@ -38,16 +40,46 @@ export function WelcomeScreen({
         {hero ? "Welcome to inD3X Art" : "No project open"}
       </h2>
       <p className={styles.subtitle}>
-        Open a mod JAR or resource pack folder to browse textures, models, and blockstates
-        in a premium studio workflow.
+        {workspaceMode === "studio"
+          ? "Studio mode opens mod JAR files only: browse a creative-style catalog and paint blocks in 3D."
+          : "Classic mode opens JAR or folder sources: inspect assets and repaint selected textures."}
       </p>
+      <div className={styles.modeSection}>
+        <p className={styles.modeLabel}>Workspace</p>
+        <div className="segmented" role="group" aria-label="Workspace mode">
+          <button
+            type="button"
+            className={
+              workspaceMode === "classic"
+                ? "segmented-item segmented-item--active"
+                : "segmented-item"
+            }
+            onClick={() => setWorkspaceMode("classic")}
+            aria-pressed={workspaceMode === "classic"}
+          >
+            Classic
+          </button>
+          <button
+            type="button"
+            className={
+              workspaceMode === "studio"
+                ? "segmented-item segmented-item--active"
+                : "segmented-item"
+            }
+            onClick={() => setWorkspaceMode("studio")}
+            aria-pressed={workspaceMode === "studio"}
+          >
+            Studio
+          </button>
+        </div>
+      </div>
 
-      <div className={styles.actions} data-tour="tour-open">
+      <div className={styles.openActions} data-tour="tour-open">
         <Button variant="primary" onClick={onOpenJar}>
           <Icon icon={Archive} size={16} />
           Open JAR
         </Button>
-        <Button onClick={onOpenFolder}>
+        <Button onClick={onOpenFolder} disabled={workspaceMode === "studio"}>
           <Icon icon={FolderOpen} size={16} />
           Open folder
         </Button>

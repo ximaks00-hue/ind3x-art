@@ -83,7 +83,7 @@ export function FaceShapePreview({ model }: FaceShapePreviewProps) {
 
   useEffect(() => {
     return () => {
-      if (previewRoot) disposeObject3D(previewRoot);
+      if (previewRoot) disposeObject3D(previewRoot, { disposeMaps: true });
     };
   }, [previewRoot]);
 

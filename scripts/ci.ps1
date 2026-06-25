@@ -1,6 +1,7 @@
 # Local CI — core subset of .github/workflows/ci.yml
-# NOTE: does not run: ESLint, Prettier, coverage, bundle-size, bindings drift, E2E.
 # For full gate parity use: npm run ci
+# For critical regression slice only: npm run ci:regression
+# GitHub Actions runs jobs in parallel — see .github/workflows/ci.yml
 
 $ErrorActionPreference = "Stop"
 $ProjectRoot = Split-Path $PSScriptRoot -Parent

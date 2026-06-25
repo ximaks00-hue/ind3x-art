@@ -1,24 +1,26 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
 import type { RenderableModel, RenderFace } from "../../ipc/types";
 import { formatFaceDirection } from "../../app/studioStatusLabels";
-import { getTextureCanvas, getOriginalTextureCanvas } from "../editor/textureDocument";
 import { useEditorStore } from "../../state/editorStore";
 import type { HoveredFace, SelectedFace } from "../../state/selectionStore";
 import { useSelectionStore } from "../../state/selectionStore";
-import { faceUvRegion } from "../viewer3d/uvMapping";
+import { UNFOLD_HEADER_HINT } from "./faceEditingGuide";
+import { EditableUnfoldFace } from "./EditableUnfoldFace";
 import {
   CUBE_FACE_ORDER,
   CUBE_UNFOLD_GRID_COLS,
   CUBE_UNFOLD_GRID_ROWS,
   CUBE_FACE_SLOTS,
 } from "./cubeUnfoldLayout";
+import { drawFacePreviewToCanvas } from "./unfoldFacePreview";
 import styles from "./UnfoldPanel.module.css";
 
 interface UnfoldPanelProps {
   model: RenderableModel;
   selectedFace: SelectedFace | null;
   onSelectFace: (cuboidIndex: number, faceIndex: number) => void;
+  editable?: boolean;
 }
 
 interface FaceCell {
@@ -27,6 +29,9 @@ interface FaceCell {
   faceIndex: number;
   face: RenderFace;
 }
+
+const UNFOLD_PREVIEW_DEBOUNCE_MS = 120;
+const EDITABLE_CELL_PX = 64;
 
 function findFaceByDirection(
   model: RenderableModel,
@@ -41,32 +46,6 @@ function findFaceByDirection(
   return { direction, cuboidIndex, faceIndex, face };
 }
 
-function facePreviewUrl(face: RenderFace, revision: number): string | null {
-  void revision;
-  const source = getTextureCanvas(face.texture) ?? getOriginalTextureCanvas(face.texture);
-  if (!source) return null;
-
-  const region = faceUvRegion(face, source.width, source.height);
-  const canvas = document.createElement("canvas");
-  canvas.width = Math.max(1, region.width);
-  canvas.height = Math.max(1, region.height);
-  const ctx = canvas.getContext("2d");
-  if (!ctx) return null;
-  ctx.imageSmoothingEnabled = false;
-  ctx.drawImage(
-    source,
-    region.x,
-    region.y,
-    region.width,
-    region.height,
-    0,
-    0,
-    canvas.width,
-    canvas.height,
-  );
-  return canvas.toDataURL("image/png");
-}
-
 function isSameFace(
   a: { cuboidIndex: number; faceIndex: number } | null | undefined,
   b: { cuboidIndex: number; faceIndex: number } | null | undefined,
@@ -75,13 +54,43 @@ function isSameFace(
   return a.cuboidIndex === b.cuboidIndex && a.faceIndex === b.faceIndex;
 }
 
-export function UnfoldPanel({ model, selectedFace, onSelectFace }: UnfoldPanelProps) {
+function FacePreviewCanvas({
+  face,
+  refreshToken,
+}: {
+  face: RenderFace;
+  refreshToken: number;
+}) {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const [missing, setMissing] = useState(false);
+
+  useLayoutEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const drew = drawFacePreviewToCanvas(canvas, face);
+    setMissing(!drew);
+  }, [face, refreshToken]);
+
+  if (missing) {
+    return <span className={styles.placeholder} />;
+  }
+
+  return <canvas ref={canvasRef} className={styles.preview} aria-hidden />;
+}
+
+export function UnfoldPanel({
+  model,
+  selectedFace,
+  onSelectFace,
+  editable = false,
+}: UnfoldPanelProps) {
   const revision = useEditorStore((s) => s.revision);
   const hoveredFace = useSelectionStore((s) => s.hoveredFace);
   const setHoveredFace = useSelectionStore((s) => s.setHoveredFace);
   const cuboidIndex = selectedFace?.cuboidIndex ?? 0;
-  const [previewUrls, setPreviewUrls] = useState<Record<string, string>>({});
-  const prevUrlsRef = useRef<Record<string, string>>({});
+  const [debouncedRevision, setDebouncedRevision] = useState(revision);
+
+  const cellPx = editable ? EDITABLE_CELL_PX : 44;
 
   const faces = useMemo(
     () =>
@@ -93,21 +102,12 @@ export function UnfoldPanel({ model, selectedFace, onSelectFace }: UnfoldPanelPr
   );
 
   useEffect(() => {
-    const next: Record<string, string> = {};
-    for (const { direction, cell } of faces) {
-      if (!cell) continue;
-      const url = facePreviewUrl(cell.face, revision);
-      if (url) next[direction] = url;
-    }
-    const prev = prevUrlsRef.current;
-    prevUrlsRef.current = next;
-    setPreviewUrls(next);
-    return () => {
-      for (const url of Object.values(prev)) {
-        if (url.startsWith("blob:")) URL.revokeObjectURL(url);
-      }
-    };
-  }, [faces, revision]);
+    const timer = window.setTimeout(
+      () => setDebouncedRevision(revision),
+      UNFOLD_PREVIEW_DEBOUNCE_MS,
+    );
+    return () => window.clearTimeout(timer);
+  }, [revision]);
 
   const handleHover = (cell: FaceCell | null, active: boolean) => {
     if (!cell) {
@@ -121,21 +121,25 @@ export function UnfoldPanel({ model, selectedFace, onSelectFace }: UnfoldPanelPr
     setHoveredFace(active ? next : null);
   };
 
+  const selectedDirection = selectedFace?.direction ?? null;
+
   return (
     <section
-      className={styles.panel}
+      className={[styles.panel, editable ? styles.panelEditable : ""].filter(Boolean).join(" ")}
       data-tour="tour-unfold-panel"
       aria-label="UV unfold"
     >
       <header className={styles.header}>
         <h3 className={styles.title}>Unfold</h3>
-        <span className={styles.hint}>Click a face · syncs with 3D</span>
+        <span className={styles.hint}>
+          {editable ? "Paint on mini canvases · click to switch face" : UNFOLD_HEADER_HINT}
+        </span>
       </header>
       <div
         className={styles.grid}
         style={{
-          gridTemplateColumns: `repeat(${CUBE_UNFOLD_GRID_COLS}, 44px)`,
-          gridTemplateRows: `repeat(${CUBE_UNFOLD_GRID_ROWS}, 44px)`,
+          gridTemplateColumns: `repeat(${CUBE_UNFOLD_GRID_COLS}, ${cellPx}px)`,
+          gridTemplateRows: `repeat(${CUBE_UNFOLD_GRID_ROWS}, ${cellPx}px)`,
         }}
       >
         {faces.map(({ direction, cell }) => {
@@ -143,7 +147,8 @@ export function UnfoldPanel({ model, selectedFace, onSelectFace }: UnfoldPanelPr
           const slot = CUBE_FACE_SLOTS[direction];
           const selected = isSameFace(selectedFace, cell);
           const hovered = isSameFace(hoveredFace, cell);
-          const preview = previewUrls[direction];
+          const refreshToken =
+            selectedDirection === direction ? revision : debouncedRevision;
 
           return (
             <button
@@ -151,6 +156,7 @@ export function UnfoldPanel({ model, selectedFace, onSelectFace }: UnfoldPanelPr
               type="button"
               className={[
                 styles.face,
+                editable ? styles.faceEditable : "",
                 selected ? styles.faceSelected : "",
                 hovered ? styles.faceHovered : "",
               ]
@@ -159,6 +165,8 @@ export function UnfoldPanel({ model, selectedFace, onSelectFace }: UnfoldPanelPr
               style={{
                 gridColumn: slot.col + 1,
                 gridRow: slot.row + 1,
+                width: cellPx,
+                height: cellPx,
               }}
               title={formatFaceDirection(cell.direction)}
               aria-label={formatFaceDirection(cell.direction)}
@@ -167,10 +175,14 @@ export function UnfoldPanel({ model, selectedFace, onSelectFace }: UnfoldPanelPr
               onMouseEnter={() => handleHover(cell, true)}
               onMouseLeave={() => handleHover(cell, false)}
             >
-              {preview ? (
-                <img src={preview} alt="" className={styles.preview} draggable={false} />
+              {editable ? (
+                <EditableUnfoldFace
+                  face={cell.face}
+                  refreshToken={refreshToken}
+                  editable={editable}
+                />
               ) : (
-                <span className={styles.placeholder} />
+                <FacePreviewCanvas face={cell.face} refreshToken={refreshToken} />
               )}
               <span className={styles.label}>{formatFaceDirection(cell.direction)}</span>
             </button>

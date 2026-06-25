@@ -16,6 +16,7 @@ vi.mock("../../app/services/catalogService", async (importOriginal) => {
 });
 
 import { useStudioAssetLoader } from "./useStudioAssetLoader";
+import { clearStudioResolveCache } from "./studioResolveCache";
 
 const handle: ProjectHandle = { id: 1 };
 
@@ -42,6 +43,7 @@ const entry: CatalogEntry = {
 
 describe("useStudioAssetLoader", () => {
   beforeEach(() => {
+    clearStudioResolveCache();
     resolveCatalogEntryMock.mockReset();
     listVariantsMock.mockReset();
     listVariantsMock.mockResolvedValue([
@@ -70,6 +72,7 @@ describe("useStudioAssetLoader", () => {
       "minecraft:test_stone",
       "placed",
       "",
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
     );
     expect(result.current.renderable?.modelId).toBe("minecraft:block/test_stone");
     expect(result.current.variants).toHaveLength(2);
@@ -87,6 +90,7 @@ describe("useStudioAssetLoader", () => {
       "minecraft:test_stone",
       "placed",
       "variant=a",
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
     );
     expect(result.current.variantKey).toBe("variant=a");
   });
@@ -96,5 +100,44 @@ describe("useStudioAssetLoader", () => {
     expect(result.current.loading).toBe(false);
     expect(result.current.renderable).toBeNull();
     expect(resolveCatalogEntryMock).not.toHaveBeenCalled();
+  });
+
+  it("resolves without waiting for listVariants", async () => {
+    let releaseVariants: () => void = () => {};
+    listVariantsMock.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          releaseVariants = () =>
+            resolve([
+              {
+                key: "",
+                model: "minecraft:block/test_stone",
+                x: 0,
+                y: 0,
+                z: 0,
+                uvlock: false,
+              },
+            ]);
+        }),
+    );
+
+    const { result } = renderHook(() => useStudioAssetLoader(handle, entry));
+
+    await waitFor(() => expect(resolveCatalogEntryMock).toHaveBeenCalled());
+    expect(listVariantsMock).toHaveBeenCalled();
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    releaseVariants();
+    await waitFor(() => expect(result.current.variants).toHaveLength(1));
+    expect(resolveCatalogEntryMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("surfaces variant list errors without blocking resolve", async () => {
+    listVariantsMock.mockRejectedValue(new Error("blockstate missing"));
+    const { result } = renderHook(() => useStudioAssetLoader(handle, entry));
+
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    await waitFor(() => expect(result.current.variantLoadError).toBe("blockstate missing"));
+    expect(resolveCatalogEntryMock).toHaveBeenCalled();
   });
 });

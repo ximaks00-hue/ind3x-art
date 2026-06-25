@@ -408,7 +408,7 @@ export function useAppCommands(handlers: AppCommandHandlers): AppCommand[] {
       ...explorerCommands,
       {
         id: "focus-explorer",
-        label: "Focus explorer search",
+        label: "Focus left panel search",
         group: "navigation",
         shortcut: sc("focus-explorer", "Ctrl+F"),
         disabled: !handlers.hasProject,

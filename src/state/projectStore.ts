@@ -69,7 +69,7 @@ interface ProjectState {
   bumpQueryRevision: () => void;
 }
 
-export const useProjectStore = create<ProjectState>((set, get) => ({
+export const useProjectStore = create<ProjectState>((set) => ({
   appInfo: null,
   handle: null,
   sourcePath: null,
@@ -211,21 +211,36 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     set({
       indexProgress: total > 0 ? Math.round((scanned / total) * 100) : 0,
       indexStage: stage,
-      indexTotal: total > 0 ? total : get().indexTotal,
+      indexTotal: total > 0 ? total : 0,
     }),
   setFromCache: (fromCache) => set({ fromCache }),
   setIpcHealthy: (ipcHealthy) => set({ ipcHealthy }),
   setValidationCount: (assetId, count) =>
-    set((s) => ({
-      validationById: { ...s.validationById, [assetId]: count },
-    })),
+    set((s) => {
+      const validationById = { ...s.validationById, [assetId]: count };
+      const keys = Object.keys(validationById);
+      if (keys.length > 512) {
+        const keep = new Set(s.assets.map((asset) => asset.id));
+        for (const key of keys) {
+          if (!keep.has(key)) delete validationById[key];
+        }
+      }
+      return { validationById };
+    }),
   bumpQueryRevision: () => set((s) => ({ queryRevision: s.queryRevision + 1 })),
 }));
 
 function mergeAssets(existing: AssetEntry[], incoming: AssetEntry[]): AssetEntry[] {
-  const map = new Map(existing.map((e) => [e.id, e]));
-  for (const e of incoming) {
-    map.set(e.id, e);
+  const merged = [...existing];
+  const indexById = new Map(existing.map((entry, index) => [entry.id, index]));
+  for (const entry of incoming) {
+    const existingIndex = indexById.get(entry.id);
+    if (existingIndex !== undefined) {
+      merged[existingIndex] = entry;
+    } else {
+      indexById.set(entry.id, merged.length);
+      merged.push(entry);
+    }
   }
-  return Array.from(map.values());
+  return merged;
 }

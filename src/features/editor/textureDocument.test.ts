@@ -20,7 +20,9 @@ import {
   clearTextureDocuments,
   commitChanges,
   ensureTextureDocument,
+  addTextureLayer,
   getDoc,
+  getLayerPixel,
   markTexturesSaved,
   getDirtyTexturePaths,
   getPixel,
@@ -92,6 +94,36 @@ describe("textureDocument", () => {
     expect(hasClipboard(path)).toBe(true);
     expect(hasClipboard(otherPath)).toBe(false);
     expect(pasteRegion(otherPath, 0, 0)).toEqual([]);
+  });
+
+  it("copy reads composite and paste writes active layer", async () => {
+    const { copyRegion, pasteRegion } = await import("./textureDocument");
+    await ensureTextureDocument(handle, path);
+    addTextureLayer(path);
+    const doc = getDoc(path)!;
+    const baseId = doc.layers[0]!.id;
+    const overlayId = doc.activeLayerId;
+
+    commitChanges(handle, path, [
+      {
+        x: 0,
+        y: 0,
+        before: getPixel(path, 0, 0)!,
+        after: [255, 0, 0, 255],
+        layerId: baseId,
+      },
+    ]);
+    expect(getPixel(path, 0, 0)).toEqual([255, 0, 0, 255]);
+
+    expect(copyRegion(path, 0, 0, 1, 1)).toBe(true);
+    const layerBefore = getLayerPixel(path, overlayId, 0, 0);
+    const changes = pasteRegion(path, 0, 0);
+    expect(changes.length).toBe(1);
+    expect(changes[0]?.layerId).toBe(overlayId);
+    expect(changes[0]?.after).toEqual([255, 0, 0, 255]);
+    expect(layerBefore).not.toEqual([255, 0, 0, 255]);
+    commitChanges(handle, path, changes, true, "Paste");
+    expect(getLayerPixel(path, overlayId, 0, 0)).toEqual([255, 0, 0, 255]);
   });
 
   it("undo restores pixel after commit", async () => {

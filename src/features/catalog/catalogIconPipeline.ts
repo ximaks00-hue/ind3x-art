@@ -1,10 +1,10 @@
-import type { CatalogEntry, ProjectHandle } from "../../ipc/types";
+import type { CatalogEntry, ProjectHandle, RenderableModel } from "../../ipc/types";
 import {
   getCatalogIconCache as fetchSledCatalogIcon,
   resolveCatalogEntry,
   setCatalogIconCache as persistSledCatalogIcon,
 } from "../../app/services/catalogService";
-import { getTexturePreview } from "../../app/services/textureService";
+import { getTexturePreview, getTexturePreviewsBatch } from "../../app/services/textureService";
 import { getThumbnailCache, thumbnailCacheKey } from "../explorer/thumbnailCache";
 import {
   catalogIconCacheKey,
@@ -34,6 +34,11 @@ const ICON_LOW_RES = 24;
 const ICON_PIXEL_SIZE = 48;
 const MAX_INFLIGHT = 3;
 const ICON_BAKE_TIMEOUT_MS = 8_000;
+const TIER1_BATCH_MIN = 2;
+
+/** IPC preview bytes keyed by `${handleId}:${texturePath}` — filled by batch prefetch (APP-010). */
+const tier1PreviewByPath = new Map<string, string>();
+let tier1BatchInflight: Promise<void> | null = null;
 
 export type IconBakePriority = "selected" | "visible" | "prefetch";
 
@@ -44,6 +49,7 @@ const PRIORITY_RANK: Record<IconBakePriority, number> = {
 };
 
 const inflight = new Set<string>();
+const runningKeys = new Set<string>();
 interface QueuedTask {
   priority: number;
   key: string;
@@ -80,6 +86,43 @@ function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
   });
 }
 
+function tier1PreviewKey(handleId: number, texturePath: string): string {
+  return `${handleId}:${texturePath}`;
+}
+
+async function prefetchTier1TexturePreviews(
+  handle: ProjectHandle,
+  texturePaths: string[],
+  cacheLimit: number,
+): Promise<void> {
+  const thumbCache = getThumbnailCache(cacheLimit);
+  const missing = [
+    ...new Set(
+      texturePaths.filter((path) => {
+        const thumbKey = thumbnailCacheKey(handle.id, path);
+        const batchKey = tier1PreviewKey(handle.id, path);
+        return !thumbCache.get(thumbKey) && !tier1PreviewByPath.has(batchKey);
+      }),
+    ),
+  ];
+  if (missing.length < TIER1_BATCH_MIN) return;
+
+  const inflight = getTexturePreviewsBatch(handle, missing, THUMB_PIXEL_SIZE)
+    .then((previews) => {
+      for (const [path, preview] of previews) {
+        tier1PreviewByPath.set(tier1PreviewKey(handle.id, path), preview.pngBase64);
+      }
+    })
+    .catch((error) => {
+      console.warn("[catalogIconPipeline] tier-1 preview batch failed", error);
+    })
+    .finally(() => {
+      if (tier1BatchInflight === inflight) tier1BatchInflight = null;
+    });
+  tier1BatchInflight = inflight;
+  await inflight;
+}
+
 export async function bakeTier1Preview(
   handle: ProjectHandle,
   texturePath: string,
@@ -91,9 +134,23 @@ export async function bakeTier1Preview(
 
   if (!dataUrl) {
     try {
-      const preview = await getTexturePreview(handle, texturePath, THUMB_PIXEL_SIZE);
-      dataUrl = `data:image/png;base64,${preview.pngBase64}`;
+      if (tier1BatchInflight) {
+        await tier1BatchInflight.catch(() => {});
+      }
+      const batchKey = tier1PreviewKey(handle.id, texturePath);
+      let pngBase64 = tier1PreviewByPath.get(batchKey);
+      if (pngBase64) {
+        tier1PreviewByPath.delete(batchKey);
+      } else {
+        const preview = await getTexturePreview(handle, texturePath, THUMB_PIXEL_SIZE);
+        pngBase64 = preview.pngBase64;
+      }
+      const { bakeCatalogIconFromPreviewAsync } = await loadIconRenderer();
+      const url = await bakeCatalogIconFromPreviewAsync(pngBase64, ICON_PIXEL_SIZE);
+      if (!url) return { url: null, error: "Preview icon bake returned empty" };
+      dataUrl = url;
       thumbCache.set(thumbKey, dataUrl);
+      return { url: dataUrl };
     } catch (error) {
       const message = error instanceof Error ? error.message : "Texture preview failed";
       return { url: null, error: message };
@@ -127,6 +184,18 @@ export function scheduleCatalogIconBakes(
   const sorted = [...batches].sort(
     (a, b) => PRIORITY_RANK[a.priority] - PRIORITY_RANK[b.priority],
   );
+
+  const tier1Paths: string[] = [];
+  for (const batch of sorted) {
+    for (const entry of batch.entries) {
+      const wants3d = shouldUpgradeTo3d(entry, mode);
+      const wantsTier1Only = shouldBakeTier1(entry, mode) && !wants3d;
+      if (!wants3d && !wantsTier1Only) continue;
+      const texturePath = entry.texturePaths[0];
+      if (texturePath) tier1Paths.push(texturePath);
+    }
+  }
+  void prefetchTier1TexturePreviews(handle, tier1Paths, textureCacheLimit);
 
   for (const batch of sorted) {
     for (const entry of batch.entries) {
@@ -188,7 +257,8 @@ async function loadSledIcon(
     const base64 = await fetchSledCatalogIcon(handle, iconKey);
     if (!base64) return null;
     return `data:image/png;base64,${base64}`;
-  } catch {
+  } catch (error) {
+    console.warn("[catalogIconPipeline] sled icon read failed", iconKey, error);
     return null;
   }
 }
@@ -202,8 +272,8 @@ async function persistSledIcon(
   if (!base64) return;
   try {
     await persistSledCatalogIcon(handle, iconKey, base64);
-  } catch {
-    // non-fatal
+  } catch (error) {
+    console.warn("[catalogIconPipeline] sled icon write failed", iconKey, error);
   }
 }
 
@@ -241,14 +311,25 @@ async function bakeCatalogIconForEntry(
   if (sledHit && write(sledHit, 2)) return;
 
   if (shouldUpgradeTo3d(entry, mode)) {
-    const low = await bakeTier2Gui(handle, entry.id, ICON_LOW_RES);
+    let model: RenderableModel | null = null;
+    try {
+      model = await resolveCatalogEntry(handle, entry.id, "icon");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Model resolve failed";
+      errors.push(message);
+    }
     if (stale()) return;
-    if (low.url) write(low.url, 1);
 
-    const tier2 = await bakeTier2Gui(handle, entry.id, ICON_PIXEL_SIZE);
-    if (stale()) return;
-    if (tier2.url && write(tier2.url, 2)) return;
-    if (tier2.error) errors.push(tier2.error);
+    if (model) {
+      const low = await bakeTier2FromModel(model, handle, ICON_LOW_RES);
+      if (stale()) return;
+      if (low.url) write(low.url, 1);
+
+      const tier2 = await bakeTier2FromModel(model, handle, ICON_PIXEL_SIZE);
+      if (stale()) return;
+      if (tier2.url && write(tier2.url, 2)) return;
+      if (tier2.error) errors.push(tier2.error);
+    }
 
     const texturePath = entry.texturePaths[0];
     if (texturePath) {
@@ -272,13 +353,12 @@ async function bakeCatalogIconForEntry(
   }
 }
 
-async function bakeTier2Gui(
+async function bakeTier2FromModel(
+  model: RenderableModel,
   handle: ProjectHandle,
-  entryId: string,
   size: number,
 ): Promise<{ url: string | null; error?: string }> {
   try {
-    const model = await resolveCatalogEntry(handle, entryId, "icon");
     const { bakeCatalogIcon3d } = await loadIconRenderer();
     const url = await withTimeout(
       bakeCatalogIcon3d(model, handle, size),
@@ -287,7 +367,7 @@ async function bakeTier2Gui(
     if (!url) return { url: null, error: "3D icon bake returned empty" };
     return { url };
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Model resolve failed";
+    const message = error instanceof Error ? error.message : "3D icon bake failed";
     return { url: null, error: message };
   }
 }
@@ -320,9 +400,11 @@ async function pumpQueue(): Promise<void> {
     if (!task) break;
     if (task.generation !== pipelineGeneration) continue;
     activeWorkers++;
+    runningKeys.add(task.key);
     void task
       .run()
       .finally(() => {
+        runningKeys.delete(task.key);
         activeWorkers--;
         void pumpQueue();
       });
@@ -332,6 +414,9 @@ async function pumpQueue(): Promise<void> {
 export function resetCatalogIconPipeline(): void {
   pipelineGeneration += 1;
   queue.length = 0;
+  runningKeys.clear();
+  tier1PreviewByPath.clear();
+  tier1BatchInflight = null;
   for (const key of inflight) {
     clearCatalogIconInflight(key);
   }
@@ -351,7 +436,9 @@ export function cancelInvisibleIconBakes(keepKeys: Set<string>): void {
     if (task.priority <= PRIORITY_RANK.selected) continue;
     if (keepKeys.has(task.key)) continue;
     queue.splice(i, 1);
-    if (inflight.has(task.key)) {
+    if (runningKeys.has(task.key)) continue;
+    const stillQueued = queue.some((queued) => queued.key === task.key);
+    if (!stillQueued && inflight.has(task.key)) {
       inflight.delete(task.key);
       clearCatalogIconInflight(task.key);
     }

@@ -3,6 +3,8 @@ mod cache;
 mod category;
 mod creative_tabs;
 mod dedup;
+mod vanilla_category;
+mod vanilla_lang;
 pub mod patch;
 pub(crate) mod icon;
 pub(crate) mod icon_cache;
@@ -108,7 +110,8 @@ pub fn build_project_catalog(project: &mut Project, db: &sled::Db) -> CoreResult
 
     let source = project.source.as_ref();
     project.catalog.creative_tab_order = load_creative_tabs(source);
-    let ctx = CatalogBuildCtx::new(&project.index.entries, Some(source), &language);
+    let tab_order = &project.catalog.creative_tab_order;
+    let ctx = CatalogBuildCtx::new(&project.index.entries, Some(source), &language, Some(tab_order));
     let catalog = build_deduped_catalog(&ctx);
     let pack = PackInfo {
         pack_format: project.pack_format,
@@ -165,5 +168,20 @@ mod tests {
             .collect();
         let catalog = build_catalog(&entries, Some(&source));
         assert!(catalog.len() >= 1);
+    }
+
+    #[test]
+    fn sample_pack_creative_tabs_assign_categories() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../assets/sample");
+        let source = FolderSource::new(&root).expect("source");
+        let tabs = creative_tabs::load_creative_tabs(&source);
+        assert_eq!(
+            tabs.category_for("minecraft:demo_torch"),
+            Some(crate::dto::CatalogCategory::Decoration)
+        );
+        assert_eq!(
+            tabs.category_for("minecraft:demo_grass"),
+            Some(crate::dto::CatalogCategory::Building)
+        );
     }
 }

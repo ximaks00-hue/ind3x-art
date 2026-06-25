@@ -20,6 +20,8 @@ pub const SESSION_MANIFEST: &str = ".ind3x-session-manifest.json";
 
 /// Keep at most this many manual folder snapshots under `.ind3x-backups/`.
 const MAX_RETAINED_FOLDER_BACKUPS: usize = 10;
+/// Keep at most this many per-save session folders under `.ind3x-backups/`.
+pub const MAX_RETAINED_FOLDER_SESSION_BACKUPS: usize = 20;
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -316,12 +318,17 @@ pub fn restore_backup_by_id(
 }
 
 
+/// Millisecond timestamp for backup file/dir names (avoids same-second collisions).
+pub fn backup_timestamp_millis() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis())
+        .unwrap_or(0) as u64
+}
+
 /// Creates a new manual backup snapshot and returns its `BackupInfo`.
 pub fn create_backup(source_path: &Path, kind: SourceKind) -> CoreResult<BackupInfo> {
-    let ts = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(0);
+    let ts = backup_timestamp_millis();
 
     match kind {
         SourceKind::Jar => {
@@ -368,7 +375,7 @@ pub fn create_backup(source_path: &Path, kind: SourceKind) -> CoreResult<BackupI
                 std::fs::copy(path, &dest)?;
             }
             std::fs::write(backup_dir.join(FULL_SNAPSHOT_MARKER), b"")?;
-            prune_old_folder_backups(source_path, MAX_RETAINED_FOLDER_BACKUPS)?;
+            prune_folder_backups(source_path, BackupKind::FullSnapshot, MAX_RETAINED_FOLDER_BACKUPS)?;
             let path_str = backup_dir.to_string_lossy().to_string();
             Ok(BackupInfo {
                 id: backup_id(&path_str),
@@ -381,21 +388,58 @@ pub fn create_backup(source_path: &Path, kind: SourceKind) -> CoreResult<BackupI
     }
 }
 
-fn prune_old_folder_backups(pack_root: &Path, keep: usize) -> CoreResult<()> {
+/// Prune oldest per-save session folders (those without `.ind3x-full-snapshot`).
+pub fn prune_old_folder_session_backups(pack_root: &Path) -> CoreResult<()> {
+    prune_folder_backups(
+        pack_root,
+        BackupKind::SaveSession,
+        MAX_RETAINED_FOLDER_SESSION_BACKUPS,
+    )
+}
+
+#[derive(Clone, Copy)]
+enum BackupKind {
+    FullSnapshot,
+    SaveSession,
+}
+
+fn prune_folder_backups(pack_root: &Path, kind: BackupKind, keep: usize) -> CoreResult<()> {
     if keep == 0 {
         return Ok(());
     }
-    let mut backups = list_folder_backups(pack_root)?;
+    let backup_root = pack_root.join(".ind3x-backups");
+    if !backup_root.is_dir() {
+        return Ok(());
+    }
+
+    let mut backups = Vec::new();
+    for entry in std::fs::read_dir(&backup_root)? {
+        let entry = entry?;
+        if !entry.file_type()?.is_dir() {
+            continue;
+        }
+        let is_full_snapshot = entry.path().join(FULL_SNAPSHOT_MARKER).is_file();
+        let matches = match kind {
+            BackupKind::FullSnapshot => is_full_snapshot,
+            BackupKind::SaveSession => !is_full_snapshot,
+        };
+        if !matches {
+            continue;
+        }
+        let name = entry.file_name().to_string_lossy().to_string();
+        let Ok(created_at) = name.parse::<u64>() else {
+            continue;
+        };
+        backups.push((created_at, entry.path()));
+    }
+
     if backups.len() <= keep {
         return Ok(());
     }
-    backups.sort_by_key(|b| b.created_at);
+    backups.sort_by_key(|(created_at, _)| *created_at);
     let remove_count = backups.len().saturating_sub(keep);
-    for info in backups.into_iter().take(remove_count) {
-        let path = PathBuf::from(&info.path);
-        if path.is_dir() {
-            std::fs::remove_dir_all(path)?;
-        }
+    for (_, path) in backups.into_iter().take(remove_count) {
+        std::fs::remove_dir_all(path)?;
     }
     Ok(())
 }
@@ -546,6 +590,38 @@ mod tests {
         restore_folder_backup(&root, &session).expect("session restore");
         assert_eq!(std::fs::read_to_string(root.join("a.txt")).unwrap(), "old-a");
         assert!(root.join("b.txt").exists());
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn prune_old_folder_session_backups_keeps_newest_sessions() {
+        let root = std::env::temp_dir().join(format!(
+            "ind3x-backup-prune-sessions-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).unwrap();
+
+        let backup_root = root.join(".ind3x-backups");
+        let total = super::MAX_RETAINED_FOLDER_SESSION_BACKUPS + 5;
+        for i in 0..total {
+            let session = backup_root.join(format!("{}", 1_000 + i));
+            std::fs::create_dir_all(&session).unwrap();
+            std::fs::write(session.join("marker.txt"), b"session").unwrap();
+        }
+
+        super::prune_old_folder_session_backups(&root).expect("prune sessions");
+
+        let remaining: Vec<_> = std::fs::read_dir(&backup_root)
+            .expect("read backups")
+            .filter_map(|e| e.ok())
+            .filter(|e| e.file_type().map(|t| t.is_dir()).unwrap_or(false))
+            .map(|e| e.file_name().to_string_lossy().to_string())
+            .collect();
+        assert_eq!(remaining.len(), super::MAX_RETAINED_FOLDER_SESSION_BACKUPS);
+        assert!(!remaining.contains(&"1000".to_string()));
+        assert!(remaining.contains(&format!("{}", 1_000 + total - 1)));
 
         let _ = std::fs::remove_dir_all(&root);
     }

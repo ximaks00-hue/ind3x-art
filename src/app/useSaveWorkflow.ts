@@ -8,6 +8,7 @@ import { useDirtyTextureCount } from "../features/save/useDirtyTextures";
 import type { SaveOptions } from "../ipc/types";
 import { useInteractionStore } from "../state/interactionStore";
 import { useProjectStore } from "../state/projectStore";
+import { useViewerStore } from "../state/viewerStore";
 import { useUiStore } from "../state/uiStore";
 
 export function useSaveWorkflow({
@@ -50,7 +51,7 @@ export function useSaveWorkflow({
       if (!handle || dirtyCount === 0 || savingRef.current) return;
 
       savingRef.current = true;
-      setSaving(true);
+      safeSetSaving(true);
       setSaveMessage("writing textures…");
       try {
         const result = await saveDirtyTextures(handle, options);
@@ -63,7 +64,9 @@ export function useSaveWorkflow({
           safeSetSaveMessage(message);
           pushToast(`Saved ${result.savedCount} texture(s)`, "success");
           triggerSaveFlash();
-          useInteractionStore.getState().captureCompareBeforeFromSave();
+          useInteractionStore
+            .getState()
+            .captureCompareBeforeFromSave(useViewerStore.getState().currentRenderable);
         }
       } catch (error) {
         const message = error instanceof Error ? error.message : "save failed";

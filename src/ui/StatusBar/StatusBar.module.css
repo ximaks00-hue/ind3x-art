@@ -5,12 +5,13 @@
   gap: 0;
   height: 100%;
   padding: 0 var(--space-4);
-  font-size: 11px;
+  font-size: var(--text-caption);
   font-family: var(--font-mono);
   color: var(--color-text-secondary);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  background: color-mix(in srgb, var(--color-bg-panel) 92%, transparent);
 }
 
 .segment {
@@ -22,26 +23,37 @@
 
 .sep {
   color: var(--color-border-strong);
-  margin-right: var(--space-2);
+  margin: 0 var(--space-2);
   user-select: none;
+  opacity: 0.6;
 }
 
 .dirty {
   color: var(--color-warning);
+  font-weight: var(--font-weight-semibold);
 }
 
 .modeBadge {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 7px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--color-accent) 35%, transparent);
+  background: var(--color-bg-accent-subtle);
   color: var(--color-accent);
-  font-weight: 600;
+  font-weight: var(--font-weight-semibold);
+  font-family: var(--font-sans);
+  letter-spacing: 0.03em;
 }
 
 .catalogError {
   color: var(--color-danger);
+  font-weight: var(--font-weight-medium);
 }
 
 .studioBar {
   font-family: var(--font-sans);
-  font-size: 12px;
+  font-size: var(--text-sm);
 }
 
 .studioLine {
@@ -52,6 +64,7 @@
 .dotSep {
   color: var(--color-text-muted);
   user-select: none;
+  opacity: 0.7;
 }
 
 .saveFlash {
@@ -61,17 +74,17 @@
 @keyframes statusSaveFlash {
   0%,
   100% {
-    background: var(--color-bg-panel);
+    background: color-mix(in srgb, var(--color-bg-panel) 92%, transparent);
   }
   35% {
-    background: color-mix(in srgb, var(--color-success) 22%, var(--color-bg-panel));
-    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-success) 35%, transparent);
+    background: color-mix(in srgb, var(--color-success) 18%, var(--color-bg-panel));
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-success) 30%, transparent);
   }
 }
 
 @media (prefers-reduced-motion: reduce) {
   .saveFlash {
     animation: none;
-    background: color-mix(in srgb, var(--color-success) 12%, var(--color-bg-panel));
+    background: color-mix(in srgb, var(--color-success) 10%, var(--color-bg-panel));
   }
 }

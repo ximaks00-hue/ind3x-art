@@ -13,6 +13,8 @@ import { FaceZoomHandler } from "./FaceZoomHandler";
 import { MinecraftModel, type MeshBuildState } from "./MinecraftModel";
 import { SceneLighting } from "./SceneLighting";
 import { SceneRig } from "./SceneRig";
+import { MiniSceneTiles } from "./MiniSceneTiles";
+import { miniSceneLabel, type MiniSceneSize } from "./miniSceneLayout";
 import { UvDebugOverlay } from "./UvDebugOverlay";
 import {
   useViewerShowDevOverlay,
@@ -28,6 +30,8 @@ interface Scene3DProps {
   showVignette?: boolean;
   studioMode?: boolean;
   preferredDisplaySlot?: string;
+  miniSceneEnabled?: boolean;
+  miniSceneSize?: MiniSceneSize;
 }
 
 function SceneControls() {
@@ -106,6 +110,8 @@ export function Scene3D({
   showVignette = true,
   studioMode = false,
   preferredDisplaySlot,
+  miniSceneEnabled = false,
+  miniSceneSize = 2,
 }: Scene3DProps) {
   const interactionMode = useSelectionStore((s) => s.interactionMode);
   const uvDebugMode = useViewerStore((s) => s.uvDebugMode);
@@ -149,6 +155,15 @@ export function Scene3D({
           preferredDisplaySlot={preferredDisplaySlot}
           onMeshState={(state, error) => meshStateHandlerRef.current(state, error)}
         />
+        {miniSceneEnabled ? (
+          <MiniSceneTiles
+            model={model}
+            handle={handle}
+            size={miniSceneSize}
+            studioMode={studioMode}
+            preferredDisplaySlot={preferredDisplaySlot}
+          />
+        ) : null}
         <FaceHighlight model={model} studioMode={studioMode} />
         <FaceShapePreview model={model} />
         <FaceRaycaster model={model} handle={handle} studioMode={studioMode} />
@@ -170,6 +185,11 @@ export function Scene3D({
         </div>
       ) : null}
       {vignetteEnabled && <div className={styles.vignette} aria-hidden />}
+      {miniSceneEnabled ? (
+        <div className={styles.miniSceneBadge} role="status">
+          {miniSceneLabel(miniSceneSize)}
+        </div>
+      ) : null}
       <DevOverlay model={model} />
     </div>
     </PanelErrorBoundary>

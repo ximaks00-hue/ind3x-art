@@ -1,9 +1,8 @@
 //! IPC command-flow integration tests (open / save / reindex).
 //! Exercises the same code paths as `ipc::project` and `ipc::save` without a Tauri runtime.
 
-use std::collections::HashMap;
 use std::sync::atomic::AtomicBool;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, RwLock};
 
 use base64::engine::general_purpose::STANDARD;
 use base64::Engine;
@@ -53,7 +52,7 @@ fn insert_opened_project(
         let source_kind = prepared.source.source_kind();
         app.projects.insert(
             handle.id,
-            crate::state::Project {
+            Arc::new(RwLock::new(crate::state::Project {
                 source_path: source_path.to_path_buf(),
                 source_kind,
                 pack_format: prepared.pack_format,
@@ -72,15 +71,16 @@ fn insert_opened_project(
                 save: crate::state::SaveState {
                     journal: Vec::new(),
                 },
-            },
+            })),
         );
         handle
     };
     {
         let mut app = state.write().expect("state write");
-        if let Some(project) = app.projects.get_mut(&handle.id) {
-            crate::ipc::helpers::apply_texture_link_counts(project);
-            crate::ipc::helpers::refresh_entry_id_index(project);
+        if let Some(arc) = app.projects.get(&handle.id) {
+            let mut project = crate::state::write_project(arc).expect("project write");
+            crate::ipc::helpers::apply_texture_link_counts(&mut project);
+            crate::ipc::helpers::refresh_entry_id_index(&mut project);
         }
     }
     handle
@@ -133,7 +133,8 @@ fn open_source_flow_indexes_simple_pack() {
 
     let handle = insert_opened_project(&state, &root, prepared);
     let app = state.read().expect("state read");
-    let project = app.projects.get(&handle.id).expect("project");
+    let arc = app.projects.get(&handle.id).expect("project");
+    let project = crate::state::read_project(arc).expect("project lock");
     assert_eq!(project.source_kind, SourceKind::Folder);
     assert!(!project.catalog.entries.is_empty());
 }
@@ -184,12 +185,13 @@ fn save_textures_flow_writes_and_refreshes_index() {
 
     let handle_id = handle.id;
     {
-        let mut app = state.write().expect("state write");
-        refresh_project_for_paths(&mut app, &db, handle, &saved_paths).expect("refresh index");
+        let app = state.read().expect("state read");
+        refresh_project_for_paths(&app, &db, handle, &saved_paths).expect("refresh index");
     }
 
     let app = state.read().expect("state read");
-    let project = app.projects.get(&handle_id).expect("project");
+    let arc = app.projects.get(&handle_id).expect("project");
+    let project = crate::state::read_project(arc).expect("project lock");
     assert!(
         project.index.entries.iter().any(|e| e.path == texture_path),
         "index should still list saved texture"
@@ -228,9 +230,9 @@ fn reindex_project_flow_patches_changed_texture() {
 
     let handle_id = handle.id;
     {
-        let mut app = state.write().expect("state write");
+        let app = state.read().expect("state read");
         refresh_project_for_paths(
-            &mut app,
+            &app,
             &db,
             handle,
             &[texture_path.to_string()],
@@ -239,11 +241,55 @@ fn reindex_project_flow_patches_changed_texture() {
     }
 
     let app = state.read().expect("state read");
-    let project = app.projects.get(&handle_id).expect("project");
+    let arc = app.projects.get(&handle_id).expect("project");
+    let project = crate::state::read_project(arc).expect("project lock");
     assert!(
         project.index.entries.len() >= entry_count.saturating_sub(1),
         "partial reindex should keep index populated"
     );
     let reread = project.source.read(texture_path).expect("reread texture");
     assert_eq!(reread, new_bytes);
+}
+
+#[test]
+fn project_arc_survives_inner_rwlock_poison() {
+    let root = simple_pack_root();
+    let (state, db) = shared_state_with_db();
+    let cancel = Arc::new(AtomicBool::new(false));
+    let channel = noop_channel();
+    let source = load_source(&root).expect("open source");
+    let fingerprint = source_fingerprint(source.source_path()).expect("fingerprint");
+    let prepared = prepare_opened_project(
+        &root,
+        source.source_kind(),
+        fingerprint,
+        &db,
+        &cancel,
+        &channel,
+        None,
+    )
+    .expect("prepare open");
+    let handle = insert_opened_project(&state, &root, prepared);
+    let handle_id = handle.id;
+
+    let arc = {
+        let app = state.read().expect("state read");
+        app.projects.get(&handle_id).expect("project in map").clone()
+    };
+
+    let arc_poison = Arc::clone(&arc);
+    let worker = std::thread::spawn(move || {
+        let _guard = arc_poison.write().expect("project write");
+        panic!("simulate panic during spawn_blocking-style mutation");
+    });
+    let _ = worker.join();
+
+    let app = state.read().expect("state read after poison");
+    assert!(
+        app.projects.contains_key(&handle_id),
+        "project must remain registered after inner lock poison"
+    );
+    let recovered = crate::state::read_project(app.projects.get(&handle_id).expect("project"))
+        .expect("recover poisoned project read");
+    assert_eq!(recovered.source_path, root);
 }

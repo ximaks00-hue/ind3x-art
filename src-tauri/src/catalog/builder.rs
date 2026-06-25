@@ -8,6 +8,7 @@ use crate::resolve::{collect_variant_models, list_all_variant_models};
 use crate::source::AssetSource;
 
 use super::category::{categorize, presentation_for};
+use super::creative_tabs::CreativeTabOrder;
 use super::dedup::dedup_catalog;
 use super::lang::{build_lang_resolver, humanize_id, LangResolver};
 use crate::model::parse::parse_blockstate;
@@ -16,6 +17,7 @@ pub struct CatalogBuildOptions<'a> {
     pub language: &'a str,
     /// When false, skip per-blockstate JSON reads during catalog assembly (load via `list_variants`).
     pub resolve_variant_keys: bool,
+    pub tab_order: Option<&'a CreativeTabOrder>,
 }
 
 impl Default for CatalogBuildOptions<'_> {
@@ -23,6 +25,7 @@ impl Default for CatalogBuildOptions<'_> {
         Self {
             language: "en_us",
             resolve_variant_keys: false,
+            tab_order: None,
         }
     }
 }
@@ -87,6 +90,7 @@ pub fn build_from_entries_with_options(
                 icon_model_path,
                 studio_model_path: entry.path.clone(),
             },
+            options.tab_order,
         ));
     }
 
@@ -124,6 +128,7 @@ pub fn build_from_entries_with_options(
                 icon_model_path: Some(entry.path.clone()),
                 studio_model_path: entry.path.clone(),
             },
+            options.tab_order,
         ));
     }
 
@@ -167,6 +172,7 @@ pub fn build_from_entries_with_options(
                 icon_model_path,
                 studio_model_path: entry.path.clone(),
             },
+            options.tab_order,
         ));
     }
 
@@ -251,8 +257,13 @@ fn block_model_paths_set(entries: &[AssetEntry]) -> HashSet<(String, String)> {
         .collect()
 }
 
-pub(crate) fn make_entry_public(lang: &LangResolver, language: &str, input: MakeEntryInput) -> CatalogEntry {
-    make_entry(lang, language, input)
+pub(crate) fn make_entry_public(
+    lang: &LangResolver,
+    language: &str,
+    input: MakeEntryInput,
+    tab_order: Option<&CreativeTabOrder>,
+) -> CatalogEntry {
+    make_entry(lang, language, input, tab_order)
 }
 
 pub(crate) struct MakeEntryInput {
@@ -271,12 +282,17 @@ pub(crate) struct MakeEntryInput {
     pub studio_model_path: String,
 }
 
-fn make_entry(lang: &LangResolver, language: &str, input: MakeEntryInput) -> CatalogEntry {
+fn make_entry(
+    lang: &LangResolver,
+    language: &str,
+    input: MakeEntryInput,
+    tab_order: Option<&CreativeTabOrder>,
+) -> CatalogEntry {
     let display_name = lang
         .resolve_display_name(language, input.kind, &input.namespace, &input.stem)
         .unwrap_or_else(|| humanize_id(&input.stem));
 
-    let category = categorize(&input.id, &input.source_path, input.kind);
+    let category = categorize(&input.id, &input.source_path, input.kind, tab_order);
     let presentation = presentation_for(&input.id, &input.source_path, input.kind, category);
     let variant_suffix = input.default_variant_key.as_deref().unwrap_or("");
     let icon_key = format!("{}:{variant_suffix}", input.id);
@@ -322,6 +338,7 @@ mod tests {
     use std::collections::HashMap;
     use std::path::Path;
 
+    use crate::catalog::creative_tabs;
     use crate::catalog::query::query_catalog;
     use crate::catalog::textures::enrich_catalog_texture_paths;
     use crate::dto::{CatalogCategory, CatalogFilter, CatalogPresentation, PageReq};
@@ -366,12 +383,14 @@ mod tests {
         let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../tests/fixtures/multipart_pack");
         let entries = fixture_entries(&root);
         let source = FolderSource::new(&root).expect("source");
+        let tabs = creative_tabs::load_creative_tabs(&source);
         let catalog = build_from_entries_with_options(
             &entries,
             Some(&source),
             CatalogBuildOptions {
                 language: "en_us",
                 resolve_variant_keys: true,
+                tab_order: Some(&tabs),
             },
         );
         let pack = PackInfo { pack_format: None };
@@ -445,12 +464,14 @@ mod tests {
         let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../tests/fixtures/simple_pack");
         let entries = fixture_entries(&root);
         let source = FolderSource::new(&root).expect("source");
+        let tabs = creative_tabs::load_creative_tabs(&source);
         let catalog = build_from_entries_with_options(
             &entries,
             Some(&source),
             CatalogBuildOptions {
                 language: "en_us",
                 resolve_variant_keys: true,
+                tab_order: Some(&tabs),
             },
         );
 

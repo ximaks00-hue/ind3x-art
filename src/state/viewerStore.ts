@@ -44,6 +44,8 @@ interface ViewerState {
   setUvDebugMode: (enabled: boolean) => void;
   setDisplaySlot: (slot: DisplaySlot) => void;
   setActiveTextureMeta: (meta: Record<string, TextureMetaInfo>) => void;
+  clearActiveTextureMeta: () => void;
+  consumeFaceZoomRequest: () => void;
   setCurrentRenderable: (model: RenderableModel | null) => void;
   setVram: (textures: number, geometries: number) => void;
   bumpTextureReloadTick: () => void;
@@ -91,7 +93,12 @@ export const useViewerStore = create<ViewerState>((set) => ({
   setShowDevOverlay: (showDevOverlay) => set({ showDevOverlay }),
   setUvDebugMode: (uvDebugMode) => set({ uvDebugMode }),
   setDisplaySlot: (displaySlot) => set({ displaySlot }),
-  setActiveTextureMeta: (activeTextureMeta) => set({ activeTextureMeta }),
+  setActiveTextureMeta: (meta) =>
+    set((state) => ({
+      activeTextureMeta: { ...state.activeTextureMeta, ...meta },
+    })),
+  clearActiveTextureMeta: () => set({ activeTextureMeta: {} }),
+  consumeFaceZoomRequest: () => set({ faceZoomRequest: null }),
   setCurrentRenderable: (currentRenderable) => set({ currentRenderable }),
   setVram: (vramTextures, vramGeometries) => set({ vramTextures, vramGeometries }),
   bumpTextureReloadTick: () =>

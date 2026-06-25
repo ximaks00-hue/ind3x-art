@@ -45,10 +45,15 @@ pub fn normalize_zip_path(path: &str) -> String {
 
 pub fn validate_relative_asset_path(path: &str) -> CoreResult<String> {
     let normalized = normalize_zip_path(path);
-    let trimmed = normalized.trim();
-    if trimmed.is_empty() {
+    if normalized.trim().is_empty() {
         return Err(CoreError::InvalidInput("path cannot be empty".to_string()));
     }
+    if normalized != normalized.trim() {
+        return Err(CoreError::InvalidInput(format!(
+            "path must not have leading or trailing whitespace: {path}"
+        )));
+    }
+    let trimmed = normalized.as_str();
     if trimmed.starts_with('/') || trimmed.starts_with("//") {
         return Err(CoreError::InvalidInput(format!(
             "absolute paths are not allowed: {path}"
@@ -69,6 +74,7 @@ pub fn validate_relative_asset_path(path: &str) -> CoreResult<String> {
                 "path traversal is not allowed: {path}"
             )));
         }
+        path_safety::validate_path_segment(segment, path)?;
         cleaned.push(segment);
     }
     if cleaned.is_empty() {
@@ -138,6 +144,38 @@ mod tests {
         ));
         assert!(matches!(
             validate_relative_asset_path("C:/windows/system32"),
+            Err(CoreError::InvalidInput(_))
+        ));
+    }
+
+    #[test]
+    fn validate_path_rejects_windows_reserved_names() {
+        for reserved in [
+            "CON",
+            "nul",
+            "PRN",
+            "COM1",
+            "lpt9",
+            "assets/minecraft/textures/CON.png",
+        ] {
+            assert!(
+                matches!(
+                    validate_relative_asset_path(reserved),
+                    Err(CoreError::InvalidInput(_))
+                ),
+                "expected rejection for {reserved}"
+            );
+        }
+    }
+
+    #[test]
+    fn validate_path_rejects_trailing_dots_and_spaces() {
+        assert!(matches!(
+            validate_relative_asset_path("assets/foo.png "),
+            Err(CoreError::InvalidInput(_))
+        ));
+        assert!(matches!(
+            validate_relative_asset_path("assets/bar."),
             Err(CoreError::InvalidInput(_))
         ));
     }

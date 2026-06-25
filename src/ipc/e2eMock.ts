@@ -327,12 +327,13 @@ export function createE2eMockIpc() {
   let handleSeq = 1;
   let currentHandle: ProjectHandle | null = null;
   let savedTextures: TextureSaveEntry[] = [];
+  const cancelledIpcRequests = new Set<number>();
   const mockCatalog = buildSyntheticCatalog(E2E_CATALOG_SIZE);
   const catalogById = new Map(mockCatalog.map((entry) => [entry.id, entry]));
 
   const appInfo: AppInfo = {
     name: "inD3X Art",
-    version: "0.3.4-e2e",
+    version: "0.3.5-e2e",
     identifier: "com.ind3x.art",
     target: "e2e-mock",
     profile: "test",
@@ -364,6 +365,12 @@ export function createE2eMockIpc() {
     useProjectStore.getState().setIndexProgress(100, 100, "fixture");
     const { bumpProjectDataRevision } = await import("../app/projectDataRevision");
     bumpProjectDataRevision();
+  }
+
+  function assertIpcRequestActive(ipcRequestId: number | null | undefined): void {
+    if (ipcRequestId != null && cancelledIpcRequests.has(ipcRequestId)) {
+      throw new Error("operation cancelled");
+    }
   }
 
   async function setWorkspaceMode(mode: WorkspaceMode) {
@@ -542,10 +549,23 @@ export function createE2eMockIpc() {
         catalogLanguage: "en_us",
       };
     },
-    closeSource: async () => {
+    closeSource: async (handle: ProjectHandle) => {
+      if (currentHandle?.id !== handle.id) return;
       currentHandle = null;
+      const { useProjectStore } = await import("../state/projectStore");
+      useProjectStore.getState().clearProject();
+      const { useCatalogStore } = await import("../features/catalog/catalogStore");
+      useCatalogStore.getState().reset();
+      const { clearTextureDocuments } = await import("../features/editor/textureDocument");
+      clearTextureDocuments();
     },
     cancelIndex: async () => undefined,
+    cancelIpcRequest: async (requestId: number) => {
+      cancelledIpcRequests.add(requestId);
+    },
+    finishIpcRequest: async (requestId: number) => {
+      cancelledIpcRequests.delete(requestId);
+    },
     queryAssets: async (
       _handle: ProjectHandle,
       filter: AssetFilter,
@@ -572,14 +592,18 @@ export function createE2eMockIpc() {
       _handle: ProjectHandle,
       filter: CatalogFilter,
       page: PageReq,
+      ipcRequestId?: number | null,
     ): Promise<CatalogPage> => {
+      assertIpcRequestActive(ipcRequestId);
       await applyFaultPoint("queryCatalog");
       return queryCatalogMock(filter, page);
     },
     getCatalogEntry: async (
       _handle: ProjectHandle,
       entryId: string,
+      ipcRequestId?: number | null,
     ): Promise<CatalogEntry> => {
+      assertIpcRequestActive(ipcRequestId);
       const entry = catalogById.get(entryId);
       if (!entry) throw new Error(`Catalog entry not found: ${entryId}`);
       return entry;
@@ -600,7 +624,9 @@ export function createE2eMockIpc() {
       entryId: string,
       _context?: string,
       variantKey?: string | null,
+      ipcRequestId?: number | null,
     ) => {
+      assertIpcRequestActive(ipcRequestId);
       if (entryId === "minecraft:broken_block") {
         throw new Error("Missing parent model: minecraft:block/missing_parent");
       }
@@ -640,7 +666,10 @@ export function createE2eMockIpc() {
     getTexturePreviewsBatch: async (
       _handle: ProjectHandle,
       assetPaths: string[],
+      _maxSize?: number | null,
+      ipcRequestId?: number | null,
     ): Promise<TexturePreviewBatch[]> => {
+      assertIpcRequestActive(ipcRequestId);
       await applyFaultPoint("getTexturePreviewsBatch");
       return assetPaths.map((path) => ({
         path,
@@ -661,7 +690,14 @@ export function createE2eMockIpc() {
       width: 16,
       height: 16,
     }),
-    listVariants: async (): Promise<VariantKey[]> => [],
+    listVariants: async (
+      _handle: ProjectHandle,
+      _assetPath: string,
+      ipcRequestId?: number | null,
+    ): Promise<VariantKey[]> => {
+      assertIpcRequestActive(ipcRequestId);
+      return [];
+    },
     modelsForTexture: async (): Promise<ModelRefInfo[]> => [
       {
         modelId: "minecraft:block/test_stone",

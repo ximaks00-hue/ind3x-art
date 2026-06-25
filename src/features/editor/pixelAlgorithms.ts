@@ -38,6 +38,8 @@ function colorMatch(
 }
 
 /** Flood fill on a mutable RGBA buffer; returns sparse pixel changes only. */
+export const MAX_FLOOD_FILL_PIXELS = 4_000_000;
+
 export function floodFillAlgorithm(input: FloodFillInput): WorkerPixelChange[] {
   const {
     data,
@@ -77,6 +79,7 @@ export function floodFillAlgorithm(input: FloodFillInput): WorkerPixelChange[] {
   const after: RgbaTuple = [fillR, fillG, fillB, fillA];
 
   while (stack.length > 0) {
+    if (changes.length >= MAX_FLOOD_FILL_PIXELS) break;
     const pos = stack.pop()!;
     if (visited[pos]) continue;
     const x = pos % width;
@@ -152,6 +155,7 @@ export function magicWandAlgorithm(
   const visited = new Uint8Array(width * height);
 
   while (stack.length > 0) {
+    if (found && (maxX - minX + 1) * (maxY - minY + 1) >= MAX_FLOOD_FILL_PIXELS) break;
     const [x, y] = stack.pop()!;
     if (x < 0 || y < 0 || x >= width || y >= height) continue;
     const vi = y * width + x;

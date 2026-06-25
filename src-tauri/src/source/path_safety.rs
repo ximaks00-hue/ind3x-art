@@ -110,6 +110,62 @@ pub fn prepare_file_write_under_root(root: &Path, rel_path: &str) -> CoreResult<
     ensure_write_path_under_root(&root_canonical, &target)
 }
 
+/// Reject path segments that Windows treats specially (reserved device names, trailing dots/spaces).
+pub fn validate_path_segment(segment: &str, full_path: &str) -> CoreResult<()> {
+    if segment.ends_with(' ') || segment.ends_with('.') {
+        return Err(CoreError::InvalidInput(format!(
+            "path segment must not end with a dot or space: {full_path}"
+        )));
+    }
+    if segment.contains(|c: char| matches!(c, '\0'..='\x1f' | '"' | '*' | '?' | '<' | '>' | '|')) {
+        return Err(CoreError::InvalidInput(format!(
+            "path segment contains invalid characters: {full_path}"
+        )));
+    }
+    if is_windows_reserved_device_name(segment) {
+        return Err(CoreError::InvalidInput(format!(
+            "path segment uses a reserved Windows device name: {full_path}"
+        )));
+    }
+    Ok(())
+}
+
+fn is_windows_reserved_device_name(segment: &str) -> bool {
+    let stem = segment
+        .rsplit_once('.')
+        .map(|(name, _)| name)
+        .unwrap_or(segment);
+    let stem = stem.trim_end_matches(&[' ', '.'][..]);
+    if stem.is_empty() {
+        return false;
+    }
+    let upper = stem.to_ascii_uppercase();
+    if matches!(upper.as_str(), "CON" | "PRN" | "AUX" | "NUL") {
+        return true;
+    }
+    if upper.len() == 4 {
+        let prefix = &upper[..3];
+        let suffix = upper.as_bytes()[3];
+        if (prefix == "COM" || prefix == "LPT") && suffix.is_ascii_digit() {
+            return true;
+        }
+    }
+    false
+}
+
+#[cfg(test)]
+mod segment_tests {
+    use super::*;
+
+    #[test]
+    fn rejects_reserved_device_stems() {
+        for name in ["CON", "con.txt", "COM1", "LPT9"] {
+            assert!(is_windows_reserved_device_name(name), "{name}");
+        }
+        assert!(!is_windows_reserved_device_name("stone"));
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

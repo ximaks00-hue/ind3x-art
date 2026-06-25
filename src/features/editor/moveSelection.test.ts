@@ -41,7 +41,7 @@ describe("moveSelection", () => {
     expect(byPoint.get("2,0")?.after).toEqual([20, 0, 0, 255]);
   });
 
-  it("rejects moves that would place pixels outside document bounds", () => {
+  it("skips out-of-bounds destination pixels but still clears the source", () => {
     const buffer: MoveBuffer = {
       x0: 0,
       y0: 0,
@@ -55,10 +55,11 @@ describe("moveSelection", () => {
       buffer,
       2,
       0,
-      () => null,
+      (x, y) => (x === 0 && y === 0 ? [255, 0, 0, 255] : null),
       { width: 2, height: 2 },
     );
 
-    expect(changes).toEqual([]);
+    expect(changes).toHaveLength(1);
+    expect(changes[0]).toMatchObject({ x: 0, y: 0, after: [0, 0, 0, 0] });
   });
 });

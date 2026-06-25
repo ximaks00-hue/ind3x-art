@@ -1,14 +1,20 @@
-import type { EditorTool } from "../../state/editorStore";
+import type { EditorTool, BrushBlendMode } from "../../state/editorStore";
 import type { PixelChange, Rgba } from "./textureDocument";
+import {
+  floodFillAlgorithm,
+  magicWandAlgorithm,
+} from "./pixelAlgorithms";
 import {
   getActiveLayerContext,
   getActiveLayerCanvas,
+  getDoc,
   getLayerPixel,
   getPixel,
 } from "./textureDocument";
+import { ensureLayerPixelCache, getLayer } from "./textureDocumentCore";
 
 export function hexToRgba(hex: string): Rgba {
-  const normalized = hex.replace("#", "");
+  const normalized = hex.replace("#", "").trim();
   const value =
     normalized.length === 3
       ? normalized
@@ -19,6 +25,9 @@ export function hexToRgba(hex: string): Rgba {
   const r = Number.parseInt(value.slice(0, 2), 16);
   const g = Number.parseInt(value.slice(2, 4), 16);
   const b = Number.parseInt(value.slice(4, 6), 16);
+  if (!Number.isFinite(r) || !Number.isFinite(g) || !Number.isFinite(b)) {
+    return [0, 0, 0, 255];
+  }
   return [r, g, b, 255];
 }
 
@@ -135,7 +144,7 @@ function applySymmetry(
   let out = points;
   if (symmetryX) out = mirrorX(out, width);
   if (symmetryY) out = mirrorY(out, height);
-  return out;
+  return out.filter(([x, y]) => x >= 0 && y >= 0 && x < width && y < height);
 }
 
 function brushDisk(cx: number, cy: number, size: number): [number, number][] {
@@ -244,6 +253,7 @@ export function collectStrokeChanges(
   symmetryY = false,
   brushSize = 1,
   brushOpacity = 1,
+  brushMode: BrushBlendMode = "normal",
 ): PixelChange[] {
   const layer = getActiveLayerContext(path);
   if (!layer || layer.locked) return [];
@@ -264,25 +274,28 @@ export function collectStrokeChanges(
   for (const [x, y] of allPoints) {
     const key = `${x},${y}`;
     if (seen.has(key)) continue;
+    if (x < 0 || y < 0 || x >= layer.width || y >= layer.height) continue;
     seen.add(key);
+
+    const before = getLayerPixel(path, layer.layerId, x, y);
+    if (!before) continue;
 
     let after: Rgba;
     if (tool === "lighten" || tool === "darken" || tool === "dither") {
-      const src = getLayerPixel(path, layer.layerId, x, y) ?? ([0, 0, 0, 255] as Rgba);
-      if (tool === "lighten") after = lightenPixel(src);
-      else if (tool === "darken") after = darkenPixel(src);
-      else after = ditherPixel(src, x, y, fillRgba);
+      if (tool === "lighten") after = lightenPixel(before);
+      else if (tool === "darken") after = darkenPixel(before);
+      else after = ditherPixel(before, x, y, fillRgba);
     } else {
       after = toolColor(tool, color);
     }
 
-    if (brushOpacity < 1 && tool !== "eraser") {
-      const src = getLayerPixel(path, layer.layerId, x, y) ?? ([0, 0, 0, 0] as Rgba);
-      after = blendRgba(src, after, brushOpacity);
+    if (brushMode === "replace" && tool !== "eraser") {
+      after = toolColor(tool, color);
+    } else if (brushOpacity < 1 && tool !== "eraser") {
+      after = blendRgba(before, after, brushOpacity);
     }
 
-    const before = getLayerPixel(path, layer.layerId, x, y);
-    if (!before || rgbaEqual(before, after)) continue;
+    if (rgbaEqual(before, after)) continue;
     changes.push({ x, y, before, after, layerId: layer.layerId });
   }
 
@@ -301,6 +314,7 @@ export function lineToolChanges(
   symmetryY = false,
   brushSize = 1,
   brushOpacity = 1,
+  brushMode: BrushBlendMode = "normal",
   pixelPerfect = false,
 ): PixelChange[] {
   let pts = linePixels(x0, y0, x1, y1);
@@ -314,6 +328,7 @@ export function lineToolChanges(
     symmetryY,
     brushSize,
     brushOpacity,
+    brushMode,
   );
 }
 
@@ -330,6 +345,7 @@ export function rectToolChanges(
   symmetryY = false,
   brushSize = 1,
   brushOpacity = 1,
+  brushMode: BrushBlendMode = "normal",
 ): PixelChange[] {
   return collectStrokeChanges(
     path,
@@ -340,6 +356,7 @@ export function rectToolChanges(
     symmetryY,
     brushSize,
     brushOpacity,
+    brushMode,
   );
 }
 
@@ -351,7 +368,8 @@ export function floodFillChanges(
   tolerance = 0,
 ): PixelChange[] {
   const layer = getActiveLayerContext(path);
-  if (!layer || layer.locked) return [];
+  const canvas = getActiveLayerCanvas(path);
+  if (!layer || !canvas || layer.locked) return [];
   if (
     startX < 0 ||
     startY < 0 ||
@@ -361,43 +379,29 @@ export function floodFillChanges(
     return [];
   }
 
-  const start = getLayerPixel(path, layer.layerId, startX, startY);
-  if (!start) return [];
+  const doc = getDoc(path);
+  const layerBuf = doc ? getLayer(doc, layer.layerId) : null;
+  if (!layerBuf) return [];
 
-  const replacement = hexToRgba(fillColor);
-  if (rgbaWithinTolerance(start, replacement, tolerance)) return [];
+  const data = new Uint8ClampedArray(ensureLayerPixelCache(layerBuf));
+  const [fillR, fillG, fillB, fillA] = hexToRgba(fillColor);
+  const workerChanges = floodFillAlgorithm({
+    data,
+    width: layer.width,
+    height: layer.height,
+    startX,
+    startY,
+    fillR,
+    fillG,
+    fillB,
+    fillA,
+    tolerance,
+  });
 
-  const changes: PixelChange[] = [];
-  const stack: [number, number][] = [[startX, startY]];
-  const visited = new Set<string>();
-  const filled = new Map<string, Rgba>();
-
-  const readPixel = (x: number, y: number): Rgba | null => {
-    const key = `${x},${y}`;
-    if (filled.has(key)) return filled.get(key)!;
-    return getLayerPixel(path, layer.layerId, x, y);
-  };
-
-  while (stack.length > 0) {
-    const [x, y] = stack.pop()!;
-    const key = `${x},${y}`;
-    if (visited.has(key)) continue;
-    if (x < 0 || y < 0 || x >= layer.width || y >= layer.height) continue;
-
-    const pixel = readPixel(x, y);
-    if (!pixel || !rgbaWithinTolerance(pixel, start, tolerance)) continue;
-
-    visited.add(key);
-    const change = createPixelChange(path, x, y, replacement, layer.layerId);
-    if (change) {
-      changes.push(change);
-      filled.set(key, replacement);
-    }
-
-    stack.push([x + 1, y], [x - 1, y], [x, y + 1], [x, y - 1]);
-  }
-
-  return changes;
+  return workerChanges.map((change) => ({
+    ...change,
+    layerId: layer.layerId,
+  }));
 }
 
 export function pickColor(path: string, x: number, y: number): string | null {
@@ -422,7 +426,7 @@ export function ellipsePixels(
     pixels.push([Math.round(cx), Math.round(cy)]);
     return pixels;
   }
-  const steps = Math.ceil(Math.max(a, b) * 2 * Math.PI);
+  const steps = Math.max(64, Math.ceil(Math.max(a, b) * 4 * Math.PI));
   const seen = new Set<string>();
   for (let i = 0; i <= steps; i++) {
     const angle = (i / steps) * 2 * Math.PI;
@@ -478,54 +482,19 @@ export function magicWandSelection(
   const height = layer.height;
   if (startX < 0 || startY < 0 || startX >= width || startY >= height) return null;
 
-  const ctx = canvas.getContext("2d");
-  if (!ctx) return null;
+  const doc = getDoc(path);
+  const layerBuf = doc ? getLayer(doc, layer.layerId) : null;
+  if (!layerBuf) return null;
 
-  const imageData = ctx.getImageData(0, 0, width, height);
-  const data = imageData.data;
-
-  const idx = (x: number, y: number) => (y * width + x) * 4;
-  const si = idx(startX, startY);
-  const sr = data[si];
-  const sg = data[si + 1];
-  const sb = data[si + 2];
-  const sa = data[si + 3];
-
-  const matches = (x: number, y: number): boolean => {
-    const i = idx(x, y);
-    return (
-      Math.abs(data[i] - sr) <= tolerance &&
-      Math.abs(data[i + 1] - sg) <= tolerance &&
-      Math.abs(data[i + 2] - sb) <= tolerance &&
-      Math.abs(data[i + 3] - sa) <= tolerance
-    );
-  };
-
-  let minX = startX;
-  let maxX = startX;
-  let minY = startY;
-  let maxY = startY;
-  let found = false;
-
-  const stack: [number, number][] = [[startX, startY]];
-  const visited = new Uint8Array(width * height);
-
-  while (stack.length > 0) {
-    const [x, y] = stack.pop()!;
-    if (x < 0 || y < 0 || x >= width || y >= height) continue;
-    const vi = y * width + x;
-    if (visited[vi]) continue;
-    if (!matches(x, y)) continue;
-    visited[vi] = 1;
-    found = true;
-    if (x < minX) minX = x;
-    if (x > maxX) maxX = x;
-    if (y < minY) minY = y;
-    if (y > maxY) maxY = y;
-    stack.push([x + 1, y], [x - 1, y], [x, y + 1], [x, y - 1]);
-  }
-
-  return found ? [minX, minY, maxX, maxY] : null;
+  const data = ensureLayerPixelCache(layerBuf);
+  return magicWandAlgorithm({
+    data,
+    width,
+    height,
+    startX,
+    startY,
+    tolerance,
+  });
 }
 
 export function ellipseToolChanges(
@@ -540,6 +509,7 @@ export function ellipseToolChanges(
   symmetryY = false,
   brushSize = 1,
   brushOpacity = 1,
+  brushMode: BrushBlendMode = "normal",
 ): PixelChange[] {
   const pts = filled ? ellipseFillPixels(x0, y0, x1, y1) : ellipsePixels(x0, y0, x1, y1);
   return collectStrokeChanges(
@@ -551,5 +521,6 @@ export function ellipseToolChanges(
     symmetryY,
     brushSize,
     brushOpacity,
+    brushMode,
   );
 }

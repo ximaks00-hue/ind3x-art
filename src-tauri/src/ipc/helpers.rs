@@ -1,5 +1,5 @@
 use std::collections::{HashMap, HashSet};
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex, RwLock};
 
 use tauri::Emitter;
 
@@ -13,9 +13,32 @@ use crate::index::{
 use crate::model::normalize::{read_pack_info, PackInfo};
 use crate::resolve::ModelRegistry;
 use crate::source::open_source as load_source;
-use crate::state::{lock_model_cache, IndexState, SharedState};
+use crate::state::{lock_model_cache, read_project, write_project, IndexState, Project, SharedState};
 
 pub(crate) const INDEX_EVENT: &str = "index-event";
+
+pub(crate) fn touch_ipc_request(state: &SharedState, request_id: Option<u64>) -> CoreResult<()> {
+    let Some(request_id) = request_id else {
+        return Ok(());
+    };
+    {
+        let mut app = state.write()?;
+        app.register_ipc_request(request_id);
+    }
+    let app = state.read()?;
+    if app.is_ipc_request_cancelled(request_id) {
+        return Err(CoreError::Cancelled);
+    }
+    Ok(())
+}
+
+pub(crate) fn finish_ipc_request_opt(state: &SharedState, request_id: Option<u64>) {
+    if let Some(request_id) = request_id {
+        if let Ok(mut app) = state.write() {
+            app.finish_ipc_request(request_id);
+        }
+    }
+}
 
 pub(crate) fn emit_index_event(app: &tauri::AppHandle, event: IndexEvent) {
     let _ = app.emit(INDEX_EVENT, event);
@@ -176,25 +199,19 @@ pub(crate) fn prepare_opened_project(
             stage: "building catalog".to_string(),
         },
     );
-    let mut catalog_from_cache = crate::catalog::build_project_catalog(&mut project, db)?;
-    if crate::catalog::catalog_needs_rebuild(&project) {
-        let fp = project.index.fingerprint.clone();
-        log_if_err(
-            crate::catalog::invalidate_project_catalog_cache(db, &fp),
-            "invalidate catalog before rebuild",
-        );
-        catalog_from_cache = crate::catalog::build_project_catalog(&mut project, db)?;
-    }
-    if project.catalog.entries.is_empty() && crate::catalog::catalog_needs_rebuild(&project) {
+
+    // Stale sled index cache can produce an empty catalog while blockstates/models exist.
+    // Cold-scan once before the first catalog build instead of build → invalidate → cold → build.
+    if from_cache && crate::catalog::catalog_needs_rebuild(&project) {
         tracing::warn!(
             entry_count = project.index.entries.len(),
-            "texture pack catalog still empty — forcing cold index + catalog rebuild"
+            "cached index produced empty catalog — forcing cold index before catalog build"
         );
         let fp = project.index.fingerprint.clone();
         log_if_err(invalidate_index(db, &fp), "invalidate index for cold rebuild");
         log_if_err(
             crate::catalog::invalidate_project_catalog_cache(db, &fp),
-            "invalidate catalog before rebuild",
+            "invalidate catalog before cold rebuild",
         );
         project.source = load_source(source_path)?;
         let (fresh_entries, fresh_from_cache) = run_index(
@@ -209,17 +226,18 @@ pub(crate) fn prepare_opened_project(
         from_cache = fresh_from_cache;
         project.index.entries = fresh_entries;
         rebuild_texture_model_index(&mut project)?;
-        send_index_event(
-            app,
-            on_event,
-            IndexEvent::Progress {
-                scanned: 0,
-                total: 1,
-                stage: "rebuilding catalog".to_string(),
-            },
+    }
+
+    let mut catalog_from_cache = crate::catalog::build_project_catalog(&mut project, db)?;
+    if crate::catalog::catalog_needs_rebuild(&project) {
+        let fp = project.index.fingerprint.clone();
+        log_if_err(
+            crate::catalog::invalidate_project_catalog_cache(db, &fp),
+            "invalidate catalog before rebuild",
         );
         catalog_from_cache = crate::catalog::build_project_catalog(&mut project, db)?;
     }
+
     Ok(OpenPreparedProject {
         from_cache,
         catalog_from_cache,
@@ -241,20 +259,8 @@ pub(crate) fn prepare_opened_project(
 pub(crate) fn project_for_handle(
     app: &crate::state::AppState,
     handle: ProjectHandle,
-) -> CoreResult<&crate::state::Project> {
-    app.projects
-        .get(&handle.id)
-        .ok_or(CoreError::ProjectNotFound)
-}
-
-#[allow(dead_code)]
-pub(crate) fn project_for_handle_mut(
-    app: &mut crate::state::AppState,
-    handle: ProjectHandle,
-) -> CoreResult<&mut crate::state::Project> {
-    app.projects
-        .get_mut(&handle.id)
-        .ok_or(CoreError::ProjectNotFound)
+) -> CoreResult<Arc<RwLock<Project>>> {
+    crate::state::project_arc(&app.projects, handle.id)
 }
 
 pub(crate) fn refresh_index_cache(
@@ -330,11 +336,9 @@ pub(crate) fn invalidate_jar_cache_if_needed(
 pub(crate) fn ensure_catalog_built(state: &SharedState, handle_id: u64) -> CoreResult<()> {
     let needs = {
         let app = state.read()?;
-        let project = app
-            .projects
-            .get(&handle_id)
-            .ok_or(CoreError::ProjectNotFound)?;
-        crate::catalog::catalog_needs_rebuild(project)
+        let arc = crate::state::project_arc(&app.projects, handle_id)?;
+        let project = read_project(&arc)?;
+        crate::catalog::catalog_needs_rebuild(&project)
     };
     if !needs {
         return Ok(());
@@ -343,16 +347,16 @@ pub(crate) fn ensure_catalog_built(state: &SharedState, handle_id: u64) -> CoreR
         let app = state.read()?;
         app.db.clone()
     };
-    let mut app = state.write()?;
-    let project = app
-        .projects
-        .get_mut(&handle_id)
-        .ok_or(CoreError::ProjectNotFound)?;
+    let arc = {
+        let app = state.read()?;
+        crate::state::project_arc(&app.projects, handle_id)?
+    };
+    let mut project = write_project(&arc)?;
     tracing::warn!(
         entry_count = project.index.entries.len(),
         "catalog empty while index has blockstates/models — rebuilding"
     );
-    crate::catalog::build_project_catalog(project, &db)?;
+    crate::catalog::build_project_catalog(&mut project, &db)?;
     Ok(())
 }
 
@@ -431,27 +435,29 @@ pub(crate) fn full_resync_project_on_project(
 
 #[allow(dead_code)]
 pub(crate) fn refresh_project_for_paths(
-    app: &mut crate::state::AppState,
+    app: &crate::state::AppState,
     db: &sled::Db,
     handle: ProjectHandle,
     changed_paths: &[String],
 ) -> CoreResult<(crate::dto::SourceKind, std::path::PathBuf)> {
-    let project = project_for_handle_mut(app, handle)?;
+    let arc = project_for_handle(app, handle)?;
+    let mut project = write_project(&arc)?;
     let source_kind = project.source_kind;
     let source_path = project.source_path.clone();
-    refresh_project_for_paths_on_project(project, db, changed_paths)?;
+    refresh_project_for_paths_on_project(&mut project, db, changed_paths)?;
     Ok((source_kind, source_path))
 }
 
 #[allow(dead_code)]
 pub(crate) fn full_resync_project_after_disk_change(
-    app: &mut crate::state::AppState,
+    app: &crate::state::AppState,
     db: &sled::Db,
     handle: ProjectHandle,
 ) -> CoreResult<(crate::dto::SourceKind, std::path::PathBuf)> {
-    let project = project_for_handle_mut(app, handle)?;
+    let arc = project_for_handle(app, handle)?;
+    let mut project = write_project(&arc)?;
     let source_kind = project.source_kind;
     let source_path = project.source_path.clone();
-    full_resync_project_on_project(project, db)?;
+    full_resync_project_on_project(&mut project, db)?;
     Ok((source_kind, source_path))
 }

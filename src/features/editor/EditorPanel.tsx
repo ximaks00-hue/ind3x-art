@@ -3,6 +3,12 @@ import { useInteractionStore } from "../../state/interactionStore";
 import { useProjectStore } from "../../state/projectStore";
 import { useSelectionStore } from "../../state/selectionStore";
 import { useViewerStore } from "../../state/viewerStore";
+import { useSettingsStore } from "../../state/settingsStore";
+import { formatFaceDirection } from "../../app/studioStatusLabels";
+import { FACE_PICK_TO_CANVAS_HINT } from "../catalog/faceEditingGuide";
+import { SharedTextureBanner } from "../catalog/SharedTextureBanner";
+import { exportTextureToFolder } from "../save/exportTexture";
+import { FaceTransferBar } from "./FaceTransferBar";
 import { AnimationTimeline } from "./AnimationTimeline";
 import { EditorEmptyState } from "./EditorEmptyState";
 import { LayersPanel } from "./LayersPanel";
@@ -22,6 +28,7 @@ import {
 } from "./textureDocument";
 import { TextureCanvas } from "./TextureCanvas";
 import { TextureComparator } from "./TextureComparator";
+import { useUiStore } from "../../state/uiStore";
 import styles from "./EditorPanel.module.css";
 
 export function EditorPanel() {
@@ -38,6 +45,11 @@ export function EditorPanel() {
   const bumpRevision = useEditorStore((s) => s.bumpRevision);
   const revision = useEditorStore((s) => s.revision);
   const activeTextureMeta = useViewerStore((s) => s.activeTextureMeta);
+  const currentRenderable = useViewerStore((s) => s.currentRenderable);
+  const workspaceMode = useSettingsStore((s) => s.workspaceMode);
+  const atlasGuide = useEditorStore((s) => s.atlasGuide);
+  const setAtlasGuide = useEditorStore((s) => s.setAtlasGuide);
+  const pushToast = useUiStore((s) => s.pushToast);
 
   void revision;
 
@@ -155,6 +167,53 @@ export function EditorPanel() {
         <EditorEmptyState />
       ) : (
         <div className={styles.inspector}>
+          <div className={styles.faceCanvasBanner} data-active-face={selectedFace.direction}>
+            <span className={styles.faceCanvasActive}>
+              Canvas · {formatFaceDirection(selectedFace.direction)}
+            </span>
+            {workspaceMode === "studio" || interactionMode === "paint" ? (
+              <span className={styles.faceCanvasGuide}>{FACE_PICK_TO_CANVAS_HINT}</span>
+            ) : null}
+          </div>
+
+          <SharedTextureBanner model={currentRenderable} selectedFace={selectedFace} />
+
+          {currentRenderable ? (
+            <FaceTransferBar
+              handle={handle}
+              model={currentRenderable}
+              selectedFace={selectedFace}
+            />
+          ) : null}
+
+          <div className={styles.editorActions}>
+            <label className={styles.toggle}>
+              <input
+                type="checkbox"
+                checked={atlasGuide}
+                onChange={(e) => setAtlasGuide(e.target.checked)}
+              />
+              Atlas UV guide
+            </label>
+            <button
+              type="button"
+              className={styles.exportBtn}
+              onClick={() => {
+                void exportTextureToFolder(handle, selectedFace.texturePath)
+                  .then((result) => {
+                    if (result.exported) {
+                      pushToast(`Exported to ${result.folder}`, "success");
+                    }
+                  })
+                  .catch((e) => {
+                    pushToast(e instanceof Error ? e.message : "Export failed", "error");
+                  });
+              }}
+            >
+              Export texture…
+            </button>
+          </div>
+
           <dl className={styles.meta}>
             <div>
               <dt>Direction</dt>
@@ -179,12 +238,17 @@ export function EditorPanel() {
           {comparatorMode === "2d" ? (
             <TextureComparator handle={handle} selectedFace={selectedFace} />
           ) : (
-            <TextureCanvas handle={handle} selectedFace={selectedFace} />
+            <TextureCanvas
+              handle={handle}
+              selectedFace={selectedFace}
+              atlasModel={currentRenderable}
+            />
           )}
 
           {animMeta && animMeta.frames.length > 0 && (
             <>
               <AnimationTimeline
+                handle={handle}
                 texturePath={selectedFace.texturePath}
                 animation={animMeta}
               />

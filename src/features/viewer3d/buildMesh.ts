@@ -1,5 +1,6 @@
 import {
   BufferGeometry,
+  CanvasTexture,
   DoubleSide,
   Float32BufferAttribute,
   Group,
@@ -300,6 +301,8 @@ async function buildCuboidMeshes(
     }),
   );
 
+  const materialByKey = new Map<string, MeshLambertMaterial>();
+
   for (let cuboidIndex = 0; cuboidIndex < cuboids.length; cuboidIndex += 1) {
     const cuboid = cuboids[cuboidIndex];
     const cuboidGroup = new Group();
@@ -316,13 +319,20 @@ async function buildCuboidMeshes(
       // cullface: skip faces flush with block boundary when cuboid spans full 16-unit block
       if (!studioMode && shouldCullFace(face.cullface, cuboid.from, cuboid.to)) continue;
 
-      const tint = tintColorForIndex(face.tintindex);
-      const material = new MeshLambertMaterial({
-        map: textureMap.get(face.texture),
-        alphaTest: 0.1,
-        transparent: false,
-        ...(tint ? { color: tint } : {}),
-      });
+      const texture = textureMap.get(face.texture);
+      if (!texture) continue;
+      const materialKey = `${face.texture}\0${face.tintindex}`;
+      let material = materialByKey.get(materialKey);
+      if (!material) {
+        const tint = tintColorForIndex(face.tintindex);
+        material = new MeshLambertMaterial({
+          map: texture,
+          alphaTest: 0.1,
+          transparent: false,
+          ...(tint ? { color: tint } : {}),
+        });
+        materialByKey.set(materialKey, material);
+      }
       const mesh = new Mesh(geometry, material);
       attachFacePick(mesh, { cuboidIndex, faceIndex, face });
       cuboidGroup.add(mesh);
@@ -389,16 +399,78 @@ export function buildFaceOverlayNode(
 
 export function disposeObject3D(object: Object3D, options?: { disposeMaps?: boolean }): void {
   const disposeMaps = options?.disposeMaps ?? false;
+  const disposedMaterials = new Set<Material>();
+  const disposedGeometries = new Set<BufferGeometry>();
   object.traverse((child) => {
     if (child instanceof Mesh) {
-      child.geometry.dispose();
+      if (!disposedGeometries.has(child.geometry)) {
+        child.geometry.dispose();
+        disposedGeometries.add(child.geometry);
+      }
       const materials = Array.isArray(child.material) ? child.material : [child.material];
       for (const material of materials) {
-        if (disposeMaps && "map" in material && material.map) {
+        if (disposedMaterials.has(material)) continue;
+        disposedMaterials.add(material);
+        if (disposeMaps && "map" in material && material.map instanceof CanvasTexture) {
           material.map.dispose();
         }
         material.dispose();
       }
+    }
+  });
+}
+
+/** Refresh GPU texture maps on an existing model group after canvas edits. */
+export async function syncModelGroupTextures(
+  root: Group,
+  handle: ProjectHandle,
+  model: RenderableModel,
+): Promise<void> {
+  const paths = new Set<string>();
+  root.traverse((child) => {
+    if (!(child instanceof Mesh)) return;
+    const pick = child.userData[FACE_PICK_KEY] as FacePickData | undefined;
+    if (pick?.face?.texture) paths.add(pick.face.texture);
+  });
+  if (paths.size === 0) return;
+
+  const textureMap = new Map<string, Texture>();
+  await Promise.all(
+    [...paths].map(async (path) => {
+      textureMap.set(path, await loadTexture(handle, path, model.textureMeta[path]));
+    }),
+  );
+
+  root.traverse((child) => {
+    if (!(child instanceof Mesh)) return;
+    const pick = child.userData[FACE_PICK_KEY] as FacePickData | undefined;
+    const path = pick?.face?.texture;
+    if (!path) return;
+    const texture = textureMap.get(path);
+    if (!texture) return;
+    const materials = Array.isArray(child.material) ? child.material : [child.material];
+    for (const material of materials) {
+      if (material instanceof MeshLambertMaterial || material instanceof MeshBasicMaterial) {
+        material.map = texture;
+        material.needsUpdate = true;
+      }
+    }
+  });
+}
+
+/** Update biome tint colors without rebuilding geometry. */
+export function syncBiomeTints(root: Group): void {
+  root.traverse((child) => {
+    if (!(child instanceof Mesh)) return;
+    const pick = child.userData[FACE_PICK_KEY] as FacePickData | undefined;
+    if (!pick) return;
+    const material = child.material;
+    if (!(material instanceof MeshLambertMaterial)) return;
+    const tint = tintColorForIndex(pick.face.tintindex);
+    if (tint) {
+      material.color.copy(tint);
+    } else {
+      material.color.set(0xffffff);
     }
   });
 }

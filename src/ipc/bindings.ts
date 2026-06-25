@@ -6,7 +6,7 @@ import { invoke as __TAURI_INVOKE, Channel } from "@tauri-apps/api/core";
 
 /** Commands */
 export const commands = {
-  getAppInfo: () => __TAURI_INVOKE<AppInfo>("get_app_info"),
+  getAppInfo: () => typedError<AppInfo, CoreError>(__TAURI_INVOKE("get_app_info")),
   ping: () => __TAURI_INVOKE<string>("ping"),
   getSamplePackPath: () =>
     typedError<string, string>(__TAURI_INVOKE("get_sample_pack_path")),
@@ -28,19 +28,32 @@ export const commands = {
     typedError<null, CoreError>(__TAURI_INVOKE("close_source", { handle })),
   cancelIndex: (handle: ProjectHandle) =>
     typedError<null, CoreError>(__TAURI_INVOKE("cancel_index", { handle })),
+  cancelIpcRequest: (requestId: number) =>
+    typedError<null, CoreError>(__TAURI_INVOKE("cancel_ipc_request", { requestId })),
+  finishIpcRequest: (requestId: number) =>
+    typedError<null, CoreError>(__TAURI_INVOKE("finish_ipc_request", { requestId })),
   queryAssets: (handle: ProjectHandle, filter: AssetFilter, page: PageReq) =>
     typedError<AssetPage, CoreError>(
       __TAURI_INVOKE("query_assets", { handle, filter, page }),
     ),
   getAssetFacets: (handle: ProjectHandle) =>
     typedError<AssetFacets, CoreError>(__TAURI_INVOKE("get_asset_facets", { handle })),
-  queryCatalog: (handle: ProjectHandle, filter: CatalogFilter, page: PageReq) =>
+  queryCatalog: (
+    handle: ProjectHandle,
+    filter: CatalogFilter,
+    page: PageReq,
+    ipcRequestId: number | null,
+  ) =>
     typedError<CatalogPage, CoreError>(
-      __TAURI_INVOKE("query_catalog", { handle, filter, page }),
+      __TAURI_INVOKE("query_catalog", { handle, filter, page, ipcRequestId }),
     ),
-  getCatalogEntry: (handle: ProjectHandle, entryId: string) =>
+  getCatalogEntry: (
+    handle: ProjectHandle,
+    entryId: string,
+    ipcRequestId: number | null,
+  ) =>
     typedError<CatalogEntry, CoreError>(
-      __TAURI_INVOKE("get_catalog_entry", { handle, entryId }),
+      __TAURI_INVOKE("get_catalog_entry", { handle, entryId, ipcRequestId }),
     ),
   getCatalogFacets: (handle: ProjectHandle) =>
     typedError<CatalogFacets, CoreError>(
@@ -51,9 +64,16 @@ export const commands = {
     entryId: string,
     context: StudioResolveContext,
     variantKey: string | null,
+    ipcRequestId: number | null,
   ) =>
     typedError<RenderableModel, CoreError>(
-      __TAURI_INVOKE("resolve_catalog_entry", { handle, entryId, context, variantKey }),
+      __TAURI_INVOKE("resolve_catalog_entry", {
+        handle,
+        entryId,
+        context,
+        variantKey,
+        ipcRequestId,
+      }),
     ),
   rebuildProjectCatalog: (handle: ProjectHandle, language: string) =>
     typedError<null, CoreError>(
@@ -85,9 +105,15 @@ export const commands = {
     handle: ProjectHandle,
     assetPaths: string[],
     maxSize: number | null,
+    ipcRequestId: number | null,
   ) =>
     typedError<TexturePreviewBatch[], CoreError>(
-      __TAURI_INVOKE("get_texture_previews_batch", { handle, assetPaths, maxSize }),
+      __TAURI_INVOKE("get_texture_previews_batch", {
+        handle,
+        assetPaths,
+        maxSize,
+        ipcRequestId,
+      }),
     ),
   revealAssetInFolder: (handle: ProjectHandle, assetPath: string) =>
     typedError<null, CoreError>(
@@ -101,12 +127,10 @@ export const commands = {
     typedError<TexturePreview, CoreError>(
       __TAURI_INVOKE("get_texture", { handle, texturePath }),
     ),
-  // Returns PNG bytes as base64 (avoids JSON number[] materialization on the frontend).
   getTextureBinary: (handle: ProjectHandle, texturePath: string) =>
     typedError<string, CoreError>(
       __TAURI_INVOKE("get_texture_binary", { handle, texturePath }),
     ),
-  // Save or update a `.mcmeta` animation descriptor alongside a texture.
   saveTextureMcmeta: (handle: ProjectHandle, texturePath: string, mcmetaJson: string) =>
     typedError<null, CoreError>(
       __TAURI_INVOKE("save_texture_mcmeta", { handle, texturePath, mcmetaJson }),
@@ -123,10 +147,6 @@ export const commands = {
     typedError<SaveTexturesResult, CoreError>(
       __TAURI_INVOKE("save_textures", { handle, textures, options }),
     ),
-  /**
-   *  Batch-save every dirty texture in one call. Each entry carries its own SaveOptions.
-   *  This lets the UI flush all dirty textures to the same source in a single lock.
-   */
   saveBatch: (
     handle: ProjectHandle,
     textures: TextureSaveEntry[],
@@ -161,9 +181,9 @@ export const commands = {
     typedError<null, CoreError>(
       __TAURI_INVOKE("restore_project_backup_by_id", { handle, backupId }),
     ),
-  listVariants: (handle: ProjectHandle, assetPath: string) =>
+  listVariants: (handle: ProjectHandle, assetPath: string, ipcRequestId: number | null) =>
     typedError<VariantKey[], CoreError>(
-      __TAURI_INVOKE("list_variants", { handle, assetPath }),
+      __TAURI_INVOKE("list_variants", { handle, assetPath, ipcRequestId }),
     ),
   modelsForTexture: (handle: ProjectHandle, assetPath: string) =>
     typedError<ModelRefInfo[], CoreError>(
@@ -429,11 +449,6 @@ export type ModelRotation = {
   uvlock: boolean;
 };
 
-export type ReindexResult = {
-  assetCount: number;
-  catalogCount: number;
-};
-
 export type OpenSourceResult = {
   handle: ProjectHandle;
   sourcePath: string;
@@ -453,6 +468,11 @@ export type PageReq = {
 
 export type ProjectHandle = {
   id: number;
+};
+
+export type ReindexResult = {
+  assetCount: number;
+  catalogCount: number;
 };
 
 export type RelationshipNode = {

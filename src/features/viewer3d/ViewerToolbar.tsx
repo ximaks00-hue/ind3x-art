@@ -25,6 +25,7 @@ import { IconButton } from "../../ui/primitives/IconButton";
 import { Select } from "../../ui/primitives/Select";
 import { BIOME_TINT_PALETTES } from "./textureLoader";
 import { applyBiomeChange } from "./viewerTextureSync";
+import { MiniSceneControl } from "./MiniSceneControl";
 import styles from "./ViewerToolbar.module.css";
 
 const BIOME_NAMES = Object.keys(BIOME_TINT_PALETTES);
@@ -41,6 +42,9 @@ interface ViewerToolbarProps {
   onVariantChange: (key: string) => void;
   onLinkedModelChange: (path: string) => void;
   onBiomeChange: (biome: string) => void;
+  canCubeWrap?: boolean;
+  cubeWrap?: boolean;
+  onCubeWrapChange?: (enabled: boolean) => void;
   hidden?: boolean;
 }
 
@@ -56,6 +60,9 @@ export function ViewerToolbar({
   onVariantChange,
   onLinkedModelChange,
   onBiomeChange,
+  canCubeWrap = false,
+  cubeWrap = false,
+  onCubeWrapChange,
   hidden = false,
 }: ViewerToolbarProps) {
   const interactionMode = useSelectionStore((s) => s.interactionMode);
@@ -158,6 +165,24 @@ export function ViewerToolbar({
           </Select>
         </div>
       )}
+
+      {canCubeWrap && onCubeWrapChange ? (
+        <div className={styles.group}>
+          <span className={styles.groupLabel}>Preview</span>
+          <IconButton
+            label="Wrap texture in a cube for face painting"
+            className={cubeWrap ? styles.btnActive : styles.btn}
+            onClick={() => onCubeWrapChange(!cubeWrap)}
+          >
+            Cube
+          </IconButton>
+        </div>
+      ) : null}
+
+      <div className={styles.group}>
+        <span className={styles.groupLabel}>Scene</span>
+        <MiniSceneControl />
+      </div>
 
       <div className={styles.group}>
         <span className={styles.groupLabel}>Camera</span>

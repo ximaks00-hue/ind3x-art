@@ -4,6 +4,7 @@ import { open } from "@tauri-apps/plugin-dialog";
 
 import { getCatalogEntry, rebuildProjectCatalog } from "../app/services/catalogService";
 import { bumpProjectDataRevision, invalidateProjectCaches } from "../app/projectDataRevision";
+import { transitionToWorkspaceMode } from "../app/useWorkspaceMode";
 import { clearTextureDocuments } from "../features/editor/textureDocument";
 import { useCatalogStore, snapshotCatalogState, restoreCatalogState } from "../features/catalog/catalogStore";
 import { clearTextureCache } from "../features/viewer3d/textureLoader";
@@ -16,6 +17,7 @@ import { useProjectStore } from "../state/projectStore";
 import { useSelectionStore } from "../state/selectionStore";
 import { useSettingsStore } from "../state/settingsStore";
 import { useUiStore } from "../state/uiStore";
+import { useViewerStore } from "../state/viewerStore";
 
 const OPEN_GRACE_MS = 5000;
 const RELOAD_DEBOUNCE_MS = 800;
@@ -24,13 +26,13 @@ const CACHE_INVALIDATE_DEBOUNCE_MS = 300;
 async function cleanupProjectHandle(handle: ProjectHandle): Promise<void> {
   try {
     await ipc.cancelIndex(handle);
-  } catch {
-    // ignore stale cancel errors
+  } catch (error) {
+    console.debug("[project] cancelIndex on stale handle", handle.id, error);
   }
   try {
     await ipc.closeSource(handle);
-  } catch {
-    // ignore stale close errors
+  } catch (error) {
+    console.debug("[project] closeSource on stale handle", handle.id, error);
   }
 }
 
@@ -102,7 +104,7 @@ export function useProjectSource(onBeforeOpen?: () => void) {
     async (path: string) => {
       const previousInFlight = inFlightOpenHandleRef.current;
       if (previousInFlight) {
-        void cleanupProjectHandle(previousInFlight);
+        await cleanupProjectHandle(previousInFlight);
         inFlightOpenHandleRef.current = null;
       }
 
@@ -155,6 +157,12 @@ export function useProjectSource(onBeforeOpen?: () => void) {
         openedHandle = result.handle;
         inFlightOpenHandleRef.current = result.handle;
 
+        const currentMode = useSettingsStore.getState().workspaceMode;
+        if (result.sourceKind === "folder" && currentMode === "studio") {
+          transitionToWorkspaceMode("classic");
+          pushToast("Folder sources open in Classic mode. Switched automatically.", "info");
+        }
+
         if (isStale()) {
           await cleanupProjectHandle(result.handle);
           inFlightOpenHandleRef.current = null;
@@ -166,8 +174,8 @@ export function useProjectSource(onBeforeOpen?: () => void) {
           try {
             await ipc.cancelIndex(previousHandle);
             await ipc.closeSource(previousHandle);
-          } catch {
-            // ignore stale handle cleanup errors
+          } catch (error) {
+            console.warn("[project] failed to close previous handle", error);
           }
           clearTextureCache(previousHandle);
           onBeforeOpen?.();
@@ -187,6 +195,7 @@ export function useProjectSource(onBeforeOpen?: () => void) {
         useSettingsStore.getState().setStudioSelectedCatalogId(null);
         useEditorStore.getState().resetEditorSession();
         useInteractionStore.getState().resetInteractionState();
+        useViewerStore.getState().clearActiveTextureMeta();
 
         setHandle(result);
         finishOpen(result);
@@ -273,6 +282,7 @@ export function useProjectSource(onBeforeOpen?: () => void) {
           clearTextureDocuments();
           useEditorStore.getState().resetEditorSession();
           useInteractionStore.getState().resetInteractionState();
+          useViewerStore.getState().clearActiveTextureMeta();
           setIndexStatus("error");
         }
         pushToast(`Failed to open: ${formatIpcError(error)}`, "error");
@@ -325,8 +335,8 @@ export function useProjectSource(onBeforeOpen?: () => void) {
           }
           assign(unlisten);
         })
-        .catch(() => {
-          // listener registration failed — ignore
+        .catch((error) => {
+          console.warn("[project] source event listener registration failed", error);
         });
     };
 
@@ -410,7 +420,12 @@ export function useProjectSource(onBeforeOpen?: () => void) {
             if (!disposed && generation === reindexGeneration) {
               useCatalogStore.getState().selectEntry(entry);
             }
-          } catch {
+          } catch (error) {
+            console.warn(
+              "[project] failed to refresh catalog selection after reindex",
+              selectedId,
+              error,
+            );
             useCatalogStore.getState().clearSelection();
           }
         }
@@ -428,7 +443,8 @@ export function useProjectSource(onBeforeOpen?: () => void) {
           "success",
         );
         return true;
-      } catch {
+      } catch (error) {
+        console.warn("[project] reindex failed", { incremental, pathCount: changedPaths?.length }, error);
         if (disposed || generation !== reindexGeneration) return false;
         const stillOpen = useProjectStore.getState().handle;
         if (stillOpen && stillOpen.id === currentHandle.id) {
@@ -454,6 +470,7 @@ export function useProjectSource(onBeforeOpen?: () => void) {
 
     const scheduleReload = (path: string) => {
       if (disposed) return;
+      console.debug("[project] source changed, scheduling reindex", path);
       pendingPaths.add(path.replace(/\\/g, "/"));
       if (!reloadPending) {
         reloadPending = true;
@@ -496,6 +513,7 @@ export function useProjectSource(onBeforeOpen?: () => void) {
           cacheInvalidateTimer = setTimeout(() => {
             if (disposed) return;
             cacheInvalidateTimer = undefined;
+            console.debug("[project] cache-invalidated — clearing viewer textures and thumbnails");
             clearTextureCache();
             invalidateProjectCaches({ thumbnails: true });
           }, CACHE_INVALIDATE_DEBOUNCE_MS);
@@ -540,6 +558,10 @@ export function useProjectSource(onBeforeOpen?: () => void) {
   }, [openSource]);
 
   const openFolder = useCallback(async () => {
+    if (useSettingsStore.getState().workspaceMode === "studio") {
+      transitionToWorkspaceMode("classic");
+      pushToast("Studio supports JAR only. Switching to Classic for folder source.", "info");
+    }
     const selected = await open({
       multiple: false,
       directory: true,
@@ -547,13 +569,14 @@ export function useProjectSource(onBeforeOpen?: () => void) {
     if (typeof selected === "string") {
       await openSource(selected);
     }
-  }, [openSource]);
+  }, [openSource, pushToast]);
 
   const openDemoPack = useCallback(async () => {
     try {
       const path = await ipc.getSamplePackPath();
       await openSource(path);
-    } catch {
+    } catch (error) {
+      console.warn("[project] demo pack not found", error);
       pushToast("Demo pack not found", "error");
     }
   }, [openSource, pushToast]);

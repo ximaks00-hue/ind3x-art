@@ -1,5 +1,6 @@
 import {
   AlertTriangle,
+  Box,
   FileImage,
   FolderSearch,
   MessageSquareWarning,
@@ -17,6 +18,7 @@ interface ViewerErrorStateProps {
   hasLinkedModels?: boolean;
   studioMode?: boolean;
   onShowFlatPreview?: () => void;
+  onWrapInCube?: () => void;
   onPickModel?: () => void;
   onReportIssue?: () => void;
   onRetry?: () => void;
@@ -30,6 +32,7 @@ export function ViewerErrorState({
   hasLinkedModels = false,
   studioMode = false,
   onShowFlatPreview,
+  onWrapInCube,
   onPickModel,
   onReportIssue,
   onRetry,
@@ -62,6 +65,12 @@ export function ViewerErrorState({
             Show flat preview
           </Button>
         )}
+        {isTexture && onWrapInCube ? (
+          <Button size="sm" onClick={onWrapInCube}>
+            <Icon icon={Box} size={16} />
+            Wrap in cube
+          </Button>
+        ) : null}
         {hasLinkedModels && (
           <Button size="sm" onClick={onPickModel} disabled={!onPickModel}>
             <Icon icon={FolderSearch} size={16} />

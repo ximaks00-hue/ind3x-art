@@ -10,7 +10,7 @@ export interface OnboardingStep {
 export const CLASSIC_ONBOARDING_STEPS: OnboardingStep[] = [
   {
     title: "Open a project",
-    body: "Open a mod JAR, resource folder, or try the bundled demo pack to index textures and models.",
+    body: "Classic mode supports mod JAR and resource folders. Open a source or try the bundled demo pack.",
     target: "tour-open",
   },
   {
@@ -33,7 +33,7 @@ export const CLASSIC_ONBOARDING_STEPS: OnboardingStep[] = [
 export const STUDIO_ONBOARDING_STEPS: OnboardingStep[] = [
   {
     title: "Creative catalog",
-    body: "Browse blocks like Minecraft's creative inventory. Press / to search, arrow keys to move the grid.",
+    body: "Studio mode is JAR-only. Browse blocks like Minecraft's creative inventory with fast keyboard search.",
     target: "tour-catalog",
   },
   {

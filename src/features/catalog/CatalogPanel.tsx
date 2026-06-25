@@ -5,6 +5,7 @@ import { useProjectStore } from "../../state/projectStore";
 import { useSettingsStore } from "../../state/settingsStore";
 import { useUiStore } from "../../state/uiStore";
 import { CatalogCategoryTabs } from "./CatalogCategoryTabs";
+import { CatalogGridToolbar } from "./CatalogGridToolbar";
 import { CatalogQuickRow } from "./CatalogQuickRow";
 import { refreshCatalogCaches } from "../../app/projectDataRevision";
 import { CatalogSearch } from "./CatalogSearch";
@@ -35,6 +36,8 @@ export function CatalogPanel() {
   const sourcePath = useProjectStore((s) => s.sourcePath);
   const fuzzySearch = useProjectStore((s) => s.fuzzySearch);
   const setFuzzySearch = useProjectStore((s) => s.setFuzzySearch);
+  const namespaceFilter = useProjectStore((s) => s.namespaceFilter);
+  const setNamespaceFilter = useProjectStore((s) => s.setNamespaceFilter);
   const workspaceMode = useSettingsStore((s) => s.workspaceMode);
   const pinnedCatalogIds = useSettingsStore((s) => s.pinnedCatalogIds);
   const recentCatalogIds = useSettingsStore((s) => s.recentCatalogIds);
@@ -193,6 +196,8 @@ export function CatalogPanel() {
       <CatalogSearch
         value={search}
         onChange={setSearch}
+        namespace={namespaceFilter}
+        onNamespaceChange={setNamespaceFilter}
         disabled={!handle}
         inputRef={searchRef}
         fuzzySearch={fuzzySearch}
@@ -205,6 +210,8 @@ export function CatalogPanel() {
         active={category}
         onSelect={setCategory}
       />
+
+      {handle && indexStatus === "done" ? <CatalogGridToolbar /> : null}
 
       {pinnedEntries.length > 0 ? (
         <CatalogQuickRow

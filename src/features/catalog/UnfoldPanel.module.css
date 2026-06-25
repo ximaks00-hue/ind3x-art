@@ -71,6 +71,18 @@
   border-color: color-mix(in srgb, #4aa3ff 55%, var(--color-border));
 }
 
+.panelEditable {
+  max-height: none;
+}
+
+.faceEditable {
+  cursor: crosshair;
+}
+
+.previewEditable {
+  cursor: crosshair;
+}
+
 .preview {
   position: absolute;
   inset: 2px;
@@ -80,7 +92,6 @@
   image-rendering: pixelated;
   pointer-events: none;
 }
-
 .placeholder {
   position: absolute;
   inset: 8px;

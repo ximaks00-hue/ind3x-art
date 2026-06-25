@@ -28,17 +28,6 @@ export function buildMoveSelectionChanges(
   readPixel: ReadLayerPixel,
   bounds: DocumentBounds,
 ): PixelChange[] {
-  for (let y = 0; y < buffer.h; y++) {
-    for (let x = 0; x < buffer.w; x++) {
-      if (!buffer.pixels.get(`${x},${y}`)) continue;
-      const dstX = buffer.x0 + dx + x;
-      const dstY = buffer.y0 + dy + y;
-      if (dstX < 0 || dstY < 0 || dstX >= bounds.width || dstY >= bounds.height) {
-        return [];
-      }
-    }
-  }
-
   const transparent: Rgba = [0, 0, 0, 0];
   const combined = new Map<string, CombinedPixelChange>();
   const read = (x: number, y: number) => readPixel(x, y) ?? transparent;
@@ -57,6 +46,7 @@ export function buildMoveSelectionChanges(
 
   for (let y = 0; y < buffer.h; y++) {
     for (let x = 0; x < buffer.w; x++) {
+      if (!buffer.pixels.has(`${x},${y}`)) continue;
       const srcX = buffer.x0 + x;
       const srcY = buffer.y0 + y;
       put(srcX, srcY, transparent);
@@ -65,10 +55,13 @@ export function buildMoveSelectionChanges(
 
   for (let y = 0; y < buffer.h; y++) {
     for (let x = 0; x < buffer.w; x++) {
-      const dstX = buffer.x0 + dx + x;
-      const dstY = buffer.y0 + dy + y;
       const after = buffer.pixels.get(`${x},${y}`);
       if (!after) continue;
+      const dstX = buffer.x0 + dx + x;
+      const dstY = buffer.y0 + dy + y;
+      if (dstX < 0 || dstY < 0 || dstX >= bounds.width || dstY >= bounds.height) {
+        continue;
+      }
       put(dstX, dstY, after);
     }
   }

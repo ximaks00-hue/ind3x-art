@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 
+import { canvasToPngBase64Async } from "../editor/textureEncodeWorkerClient";
 import { getTexturePreview } from "../../app/services/textureService";
 import type { CatalogEntry, ProjectHandle } from "../../ipc/types";
 import {
@@ -43,11 +44,18 @@ export function StudioTexturePreview({
 
     const dirtyCanvas = getTextureCanvas(texturePath);
     if (dirtyCanvas && isTextureDirty(texturePath)) {
-      setSrc(dirtyCanvas.toDataURL("image/png"));
-      setError(null);
-      setLoading(false);
-      onTexturePath?.(texturePath);
-      return;
+      let cancelled = false;
+      setLoading(true);
+      void canvasToPngBase64Async(dirtyCanvas).then((pngBase64) => {
+        if (cancelled) return;
+        setSrc(`data:image/png;base64,${pngBase64}`);
+        setError(null);
+        setLoading(false);
+        onTexturePath?.(texturePath);
+      });
+      return () => {
+        cancelled = true;
+      };
     }
 
     let cancelled = false;

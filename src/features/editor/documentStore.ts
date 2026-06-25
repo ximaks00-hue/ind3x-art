@@ -13,10 +13,11 @@ import { useProjectStore } from "../../state/projectStore";
 import {
   activeLayer,
   applyChangesToDoc,
+  boundsFromChanges,
   compositeDocument,
   getLayer,
   inBounds,
-  readRgba,
+  readCompositeRgba,
   readLayerRgba,
   writeLayerRgba,
   invalidateLayerPixelCache,
@@ -26,6 +27,7 @@ import {
   type TextureDoc,
   type TextureLayer,
 } from "./textureDocumentCore";
+import { acquireCropCanvas, clearCropCanvasPool, releaseCropCanvas } from "./cropCanvasPool";
 import { canvasToPngBase64Async } from "./textureEncodeWorkerClient";
 
 export type { BlendMode, PixelChange, Rgba, TextureLayer } from "./textureDocumentCore";
@@ -72,14 +74,18 @@ export function flushIconInvalidations(handle?: ProjectHandle | null): void {
   if (handle) {
     const paths = pendingIconPaths.get(String(handle.id));
     if (paths && paths.size > 0) {
-      void invalidateCatalogIconsForTextures(handle, [...paths]);
+      void invalidateCatalogIconsForTextures(handle, [...paths]).catch((error) => {
+        console.warn("[catalog] icon invalidation failed", error);
+      });
       pendingIconPaths.delete(String(handle.id));
     }
     return;
   }
   for (const [key, paths] of pendingIconPaths) {
     if (paths.size === 0) continue;
-    void invalidateCatalogIconsForTextures({ id: Number(key) }, [...paths]);
+    void invalidateCatalogIconsForTextures({ id: Number(key) }, [...paths]).catch((error) => {
+      console.warn("[catalog] icon invalidation failed", error);
+    });
   }
   pendingIconPaths.clear();
 }
@@ -108,25 +114,53 @@ function touchDocAccess(path: string): void {
 }
 
 function evictCleanTextureDocuments(): void {
-  const docs = docsMap();
-  while (docs.size > docLimit) {
-    let evicted = false;
-    const nextOrder: string[] = [];
-    for (const path of docAccessOrder) {
-      const doc = docs.get(path);
-      if (!doc) continue;
-      if (!evicted && !doc.dirty) {
+  mutateDocs((docs) => {
+    while (docs.size > docLimit) {
+      let evicted = false;
+      const nextOrder: string[] = [];
+      for (const path of docAccessOrder) {
+        const doc = docs.get(path);
+        if (!doc) continue;
+        if (!evicted && !doc.dirty) {
+          disposeTextureDoc(path, doc);
+          docs.delete(path);
+          pendingLoads.delete(path);
+          evicted = true;
+          continue;
+        }
+        nextOrder.push(path);
+      }
+      docAccessOrder = nextOrder;
+      if (evicted) continue;
+
+      for (const path of docAccessOrder) {
+        if (docs.size <= docLimit) break;
+        const doc = docs.get(path);
+        if (!doc || doc.revision !== doc.savedRevision) continue;
         disposeTextureDoc(path, doc);
         docs.delete(path);
         pendingLoads.delete(path);
+        docAccessOrder = docAccessOrder.filter((entry) => entry !== path);
         evicted = true;
-        continue;
+        break;
       }
-      nextOrder.push(path);
+      if (evicted) continue;
+
+      if (docs.size > docLimit) {
+        const path = docAccessOrder[0];
+        const doc = path ? docs.get(path) : undefined;
+        if (path && doc) {
+          console.warn("[texture] cache hard-evicting document (may drop unsaved edits):", path);
+          disposeTextureDoc(path, doc);
+          docs.delete(path);
+          pendingLoads.delete(path);
+          docAccessOrder = docAccessOrder.filter((entry) => entry !== path);
+          continue;
+        }
+      }
+      break;
     }
-    docAccessOrder = nextOrder;
-    if (!evicted) break;
-  }
+  });
 }
 
 interface DocumentStoreState {
@@ -143,8 +177,16 @@ function docsMap(): Map<string, TextureDoc> {
   return useDocumentStore.getState().docs;
 }
 
+function mutateDocs(mutator: (docs: Map<string, TextureDoc>) => void): void {
+  useDocumentStore.setState((state) => {
+    const docs = new Map(state.docs);
+    mutator(docs);
+    return { docs, revision: state.revision + 1 };
+  });
+}
+
 function notify(): void {
-  useDocumentStore.setState((state) => ({ revision: state.revision + 1 }));
+  mutateDocs(() => {});
 }
 
 export function useDocumentRevision(): number {
@@ -211,17 +253,16 @@ export function subscribeTextureDocuments(listener: () => void): () => void {
 export function clearTextureDocuments(): void {
   lifecycleVersion += 1;
   clipboard = null;
-  const docs = docsMap();
-  for (const [path, doc] of docs) {
+  for (const [path, doc] of docsMap()) {
     disposeTextureDoc(path, doc);
   }
-  docs.clear();
   pendingLoads.clear();
   docAccessOrder = [];
+  clearCropCanvasPool();
   if (iconInvalidateTimer) clearTimeout(iconInvalidateTimer);
   iconInvalidateTimer = undefined;
   pendingIconPaths.clear();
-  notify();
+  useDocumentStore.setState({ docs: new Map(), revision: useDocumentStore.getState().revision + 1 });
 }
 
 export function isTextureDirty(path: string): boolean {
@@ -269,7 +310,7 @@ export function getActiveLayerIndex(
   const doc = docsMap().get(path);
   if (!doc) return null;
   const index = doc.layers.findIndex((layer) => layer.id === doc.activeLayerId);
-  if (index < 0) return { index: 1, total: doc.layers.length };
+  if (index < 0) return null;
   return { index: index + 1, total: doc.layers.length };
 }
 
@@ -333,6 +374,8 @@ export function updateTextureLayer(
   if (patch.locked !== undefined) layer.locked = patch.locked;
   if (patch.blendMode !== undefined) layer.blendMode = patch.blendMode;
   compositeDocument(doc);
+  doc.dirty = doc.revision !== doc.savedRevision;
+  doc.revision += 1;
   notify();
 }
 
@@ -354,7 +397,7 @@ export function reorderTextureLayer(
   notify();
 }
 
-/** Copy a rectangular region of the composite to clipboard. */
+/** Copy a rectangular region of the flattened composite (what the user sees). */
 export function copyRegion(
   path: string,
   x: number,
@@ -363,13 +406,22 @@ export function copyRegion(
   height: number,
 ): boolean {
   const doc = docsMap().get(path);
-  if (!doc) return false;
-  const data = doc.compositeCtx.getImageData(x, y, width, height);
-  clipboard = { texturePath: path, width, height, data };
+  if (!doc || width <= 0 || height <= 0) return false;
+  const x0 = Math.max(0, Math.floor(x));
+  const y0 = Math.max(0, Math.floor(y));
+  const x1 = Math.min(doc.width, x0 + Math.ceil(width));
+  const y1 = Math.min(doc.height, y0 + Math.ceil(height));
+  const w = x1 - x0;
+  const h = y1 - y0;
+  if (w <= 0 || h <= 0) return false;
+  const maxClipboardPixels = 4096 * 4096;
+  if (w * h > maxClipboardPixels) return false;
+  const data = doc.compositeCtx.getImageData(x0, y0, w, h);
+  clipboard = { texturePath: path, width: w, height: h, data };
   return true;
 }
 
-/** Paste clipboard content at (x, y) on the active layer. */
+/** Paste clipboard pixels onto the active layer (composite updates on commit). */
 export function pasteRegion(path: string, x: number, y: number): PixelChange[] {
   const doc = docsMap().get(path);
   if (!doc || !clipboard || clipboard.texturePath !== path) return [];
@@ -390,6 +442,7 @@ export function pasteRegion(path: string, x: number, y: number): PixelChange[] {
         clipboard.data.data[si + 3],
       ];
       const before = readLayerRgba(layer, px, py);
+      if (!before) continue;
       changes.push({ x: px, y: py, before, after, layerId: layer.id });
     }
   }
@@ -423,7 +476,8 @@ async function loadImageForEditor(
       img.src = url;
     });
     return { image, width: image.naturalWidth, height: image.naturalHeight };
-  } catch {
+  } catch (error) {
+    console.warn("[texture] binary load failed, falling back to preview", path, error);
     const preview = await ipc.getTexture(handle, path);
     const image = await loadImage(preview);
     return { image, width: preview.width, height: preview.height };
@@ -485,10 +539,11 @@ export async function ensureTextureDocument(
     if (versionAtStart !== lifecycleVersion) {
       throw new Error("texture document lifecycle invalidated before commit");
     }
-    docsMap().set(path, doc);
+    mutateDocs((docs) => {
+      docs.set(path, doc);
+    });
     touchDocAccess(path);
     evictCleanTextureDocuments();
-    notify();
     return doc;
   })();
 
@@ -505,7 +560,7 @@ export async function ensureTextureDocument(
 export function getPixel(path: string, x: number, y: number): Rgba | null {
   const doc = docsMap().get(path);
   if (!doc || !inBounds(doc, x, y)) return null;
-  return readRgba(doc.compositeCtx, x, y);
+  return readCompositeRgba(doc.compositeCtx, x, y, doc.width, doc.height);
 }
 
 export function getLayerPixel(
@@ -608,9 +663,15 @@ export function undoTexture(handle: ProjectHandle | null, path: string): boolean
     writeRgba(layer, change.x, change.y, change.after);
   }
 
-  compositeDocument(doc);
+  compositeDocument(doc, boundsFromChanges(entry.changes));
   doc.revision = Math.max(0, doc.revision - 1);
-  doc.redo.push({ changes: entry.changes, label: entry.label });
+  doc.redo.push({ changes: entry.changes.map((change) => ({
+    x: change.x,
+    y: change.y,
+    before: [...change.before] as Rgba,
+    after: [...change.after] as Rgba,
+    layerId: change.layerId,
+  })), label: entry.label });
   doc.dirty = doc.revision !== doc.savedRevision;
   if (handle) {
     refreshTextureFromCanvas(handle, path, doc.compositeCanvas);
@@ -685,40 +746,44 @@ export function markTexturesSaved(
   const committedPaths = new Set<string>();
 
   if (originalPaths && originalPaths.length === savedPaths.length) {
-    for (let i = 0; i < savedPaths.length; i++) {
-      const original = originalPaths[i];
-      const saved = savedPaths[i];
-      if (original !== saved && docsMap().has(original)) {
-        const doc = docsMap().get(original)!;
-        if (!isSameRevision(original, doc)) {
-          continue;
-        }
-        docsMap().delete(original);
-        doc.savedRevision = doc.revision;
-        doc.dirty = false;
-        doc.dirtyBox = null;
-        docsMap().set(saved, doc);
-        committedPaths.add(saved);
-      } else {
-        const doc = docsMap().get(saved);
-        if (doc && isSameRevision(saved, doc)) {
+    mutateDocs((docs) => {
+      for (let i = 0; i < savedPaths.length; i++) {
+        const original = originalPaths[i];
+        const saved = savedPaths[i];
+        if (original !== saved && docs.has(original)) {
+          const doc = docs.get(original)!;
+          if (!isSameRevision(original, doc)) {
+            continue;
+          }
+          docs.delete(original);
           doc.savedRevision = doc.revision;
           doc.dirty = false;
           doc.dirtyBox = null;
+          docs.set(saved, doc);
           committedPaths.add(saved);
+        } else {
+          const doc = docs.get(saved);
+          if (doc && isSameRevision(saved, doc)) {
+            doc.savedRevision = doc.revision;
+            doc.dirty = false;
+            doc.dirtyBox = null;
+            committedPaths.add(saved);
+          }
         }
       }
-    }
+    });
   } else {
-    for (const path of savedPaths) {
-      const doc = docsMap().get(path);
-      if (doc && isSameRevision(path, doc)) {
-        doc.savedRevision = doc.revision;
-        doc.dirty = false;
-        doc.dirtyBox = null;
-        committedPaths.add(path);
+    mutateDocs((docs) => {
+      for (const path of savedPaths) {
+        const doc = docs.get(path);
+        if (doc && isSameRevision(path, doc)) {
+          doc.savedRevision = doc.revision;
+          doc.dirty = false;
+          doc.dirtyBox = null;
+          committedPaths.add(path);
+        }
       }
-    }
+    });
   }
 
   for (const path of committedPaths) {
@@ -790,12 +855,12 @@ export async function collectDeltaTextureEntries(): Promise<
     const { x0, y0, x1, y1 } = doc.dirtyBox;
     const w = x1 - x0 + 1;
     const h = y1 - y0 + 1;
-    const crop = document.createElement("canvas");
-    crop.width = w;
-    crop.height = h;
+    const crop = acquireCropCanvas(w, h);
     const ctx = crop.getContext("2d")!;
     ctx.drawImage(canvas, x0, y0, w, h, 0, 0, w, h);
-    entries.push({ path, pngBase64: await canvasToPngBase64Async(crop), x: x0, y: y0, w, h });
+    const pngBase64 = await canvasToPngBase64Async(crop);
+    releaseCropCanvas(crop);
+    entries.push({ path, pngBase64, x: x0, y: y0, w, h });
   }
   return entries;
 }

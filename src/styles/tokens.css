@@ -9,15 +9,19 @@
   --text-sm: 0.8125rem;
   --text-md: 0.875rem;
   --text-lg: 1rem;
+  --text-xl: 1.125rem;
+  --text-panel-title: 0.8125rem;
+  --text-caption: 0.6875rem;
   --font-weight-normal: 400;
   --font-weight-medium: 500;
   --font-weight-semibold: 600;
 
-  --color-bg-base: #0c0d10;
-  --color-bg-elevated: #12141a;
-  --color-bg-panel: #161922;
-  --color-bg-panel-hover: #1c2030;
-  --color-bg-input: #0f1117;
+  --color-bg-base: #090a0d;
+  --color-bg-elevated: #101218;
+  --color-bg-panel: #14161e;
+  --color-bg-panel-hover: #1a1e2a;
+  --color-bg-input: #0c0e14;
+  --color-bg-canvas: #0e1016;
   --color-bg-accent-subtle: rgba(99, 140, 255, 0.12);
   --color-bg-success-subtle: rgba(45, 212, 191, 0.12);
 
@@ -44,10 +48,15 @@
 
   --focus-ring: 0 0 0 2px var(--color-bg-base), 0 0 0 4px var(--color-accent);
 
-  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.35);
-  --shadow-md: 0 8px 24px rgba(0, 0, 0, 0.45);
-  --shadow-panel: inset 0 1px 0 rgba(255, 255, 255, 0.04);
-  --shadow-panel-outer: 0 1px 0 rgba(0, 0, 0, 0.35);
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --shadow-md: 0 12px 32px rgba(0, 0, 0, 0.5);
+  --shadow-lg: 0 20px 48px rgba(0, 0, 0, 0.55);
+  --shadow-inset: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  --shadow-panel: inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  --shadow-panel-outer: 0 1px 0 rgba(0, 0, 0, 0.45);
+  --panel-header-bg: color-mix(in srgb, var(--color-bg-panel) 88%, transparent);
+  --panel-header-padding-x: var(--space-4);
+  --panel-header-padding-y: var(--space-3);
 
   --radius-sm: 6px;
   --radius-md: 10px;
@@ -63,8 +72,8 @@
   --transition-fast: 120ms ease;
   --transition-normal: 200ms ease;
 
-  --titlebar-height: 44px;
-  --statusbar-height: 28px;
+  --titlebar-height: 48px;
+  --statusbar-height: 30px;
   --panel-width-left: 280px;
   --panel-width-right: 300px;
   --panel-rail-width: 28px;
@@ -103,9 +112,13 @@
   --focus-ring: 0 0 0 2px var(--color-bg-elevated), 0 0 0 4px var(--color-accent);
 
   --shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.06);
-  --shadow-md: 0 8px 28px rgba(15, 23, 42, 0.1);
+  --shadow-md: 0 12px 32px rgba(15, 23, 42, 0.12);
+  --shadow-lg: 0 20px 48px rgba(15, 23, 42, 0.14);
+  --shadow-inset: inset 0 1px 0 rgba(255, 255, 255, 0.9);
   --shadow-panel: inset 0 1px 0 rgba(255, 255, 255, 0.95);
   --shadow-panel-outer: 0 1px 0 rgba(15, 23, 42, 0.06), 0 4px 16px rgba(15, 23, 42, 0.04);
+  --panel-header-bg: color-mix(in srgb, var(--color-bg-panel) 95%, transparent);
+  --color-bg-canvas: #f4f6fb;
 }
 
 [data-theme="high-contrast"] {
@@ -143,6 +156,10 @@
 
   --shadow-sm: none;
   --shadow-md: 0 0 0 1px rgba(255, 255, 255, 0.2);
+  --shadow-lg: 0 0 0 2px rgba(255, 255, 255, 0.25);
+  --shadow-inset: inset 0 0 0 1px rgba(255, 255, 255, 0.08);
   --shadow-panel: inset 0 0 0 1px rgba(255, 255, 255, 0.12);
   --shadow-panel-outer: 0 0 0 1px rgba(255, 255, 255, 0.2);
+  --panel-header-bg: var(--color-bg-panel);
+  --color-bg-canvas: #000000;
 }

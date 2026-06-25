@@ -18,11 +18,11 @@ use crate::model::types::{
 };
 use crate::resolve::{collect_variant_models, ModelRegistry};
 use crate::source::safe_join_under_root;
-use crate::state::{lock_model_cache, SharedState};
+use crate::state::{lock_model_cache, read_project, write_project, SharedState};
 
 use super::helpers::{
-    indexed_texture_paths, pack_for_project, project_for_handle, rebuild_texture_model_index,
-    require_indexed_texture,
+    finish_ipc_request_opt, indexed_texture_paths, pack_for_project, project_for_handle,
+    rebuild_texture_model_index, require_indexed_texture, touch_ipc_request,
 };
 
 #[tauri::command]
@@ -59,8 +59,9 @@ pub fn get_asset_entry(
     state: State<'_, SharedState>,
 ) -> CoreResult<crate::dto::AssetEntry> {
     let app = state.read()?;
-    let project = app.projects.get(&handle.id).ok_or(CoreError::ProjectNotFound)?;
-    crate::asset_details::find_entry_by_id(project, &asset_id)
+    let arc = project_for_handle(&app, handle)?;
+    let project = read_project(&arc)?;
+    crate::asset_details::find_entry_by_id(&project, &asset_id)
 }
 
 #[tauri::command]
@@ -71,9 +72,10 @@ pub fn get_asset_details(
     state: State<'_, SharedState>,
 ) -> CoreResult<AssetDetails> {
     let app = state.read()?;
-    let project = app.projects.get(&handle.id).ok_or(CoreError::ProjectNotFound)?;
-    let entry = crate::asset_details::find_entry_by_id(project, &asset_id)?;
-    crate::asset_details::build_asset_details(project, &entry)
+    let arc = project_for_handle(&app, handle)?;
+    let project = read_project(&arc)?;
+    let entry = crate::asset_details::find_entry_by_id(&project, &asset_id)?;
+    crate::asset_details::build_asset_details(&project, &entry)
 }
 
 #[tauri::command]
@@ -82,8 +84,10 @@ pub fn get_texture_previews_batch(
     handle: ProjectHandle,
     asset_paths: Vec<String>,
     max_size: Option<u32>,
+    ipc_request_id: Option<u64>,
     state: State<'_, SharedState>,
 ) -> CoreResult<Vec<TexturePreviewBatch>> {
+    touch_ipc_request(&state, ipc_request_id)?;
     if asset_paths.len() > MAX_TEXTURE_PREVIEW_BATCH {
         return Err(CoreError::InvalidInput(format!(
             "batch size {} exceeds limit of {}",
@@ -92,11 +96,13 @@ pub fn get_texture_previews_batch(
         )));
     }
     let app = state.read()?;
-    let project = app.projects.get(&handle.id).ok_or(CoreError::ProjectNotFound)?;
-    let valid_textures = indexed_texture_paths(project);
+    let arc = project_for_handle(&app, handle)?;
+    let project = read_project(&arc)?;
+    let valid_textures = indexed_texture_paths(&project);
     let size = clamp_texture_preview_size(max_size);
     let mut out = Vec::with_capacity(asset_paths.len());
     for path in asset_paths {
+        touch_ipc_request(&state, ipc_request_id)?;
         let preview = if valid_textures.contains(path.as_str()) {
             match project.source.read(&path) {
                 Ok(bytes) => match decode_texture_preview(&bytes, size) {
@@ -116,6 +122,8 @@ pub fn get_texture_previews_batch(
         };
         out.push(TexturePreviewBatch { path, preview });
     }
+    touch_ipc_request(&state, ipc_request_id)?;
+    finish_ipc_request_opt(&state, ipc_request_id);
     Ok(out)
 }
 
@@ -128,10 +136,8 @@ pub fn reveal_asset_in_folder(
     state: State<'_, SharedState>,
 ) -> CoreResult<()> {
     let app_state = state.read()?;
-    let project = app_state
-        .projects
-        .get(&handle.id)
-        .ok_or(CoreError::ProjectNotFound)?;
+    let arc = project_for_handle(&app_state, handle)?;
+    let project = read_project(&arc)?;
 
     match project.source_kind {
         crate::dto::SourceKind::Folder => {
@@ -171,8 +177,9 @@ pub fn get_texture_preview(
     state: State<'_, SharedState>,
 ) -> CoreResult<TexturePreview> {
     let app = state.read()?;
-    let project = project_for_handle(&app, handle)?;
-    require_indexed_texture(project, &asset_path)?;
+    let arc = project_for_handle(&app, handle)?;
+    let project = read_project(&arc)?;
+    require_indexed_texture(&project, &asset_path)?;
 
     let bytes = project.source.read(&asset_path)?;
     decode_texture_preview(&bytes, clamp_texture_preview_size(max_size))
@@ -186,8 +193,9 @@ pub fn get_texture(
     state: State<'_, SharedState>,
 ) -> CoreResult<TexturePreview> {
     let app = state.read()?;
-    let project = project_for_handle(&app, handle)?;
-    require_indexed_texture(project, &texture_path)?;
+    let arc = project_for_handle(&app, handle)?;
+    let project = read_project(&arc)?;
+    require_indexed_texture(&project, &texture_path)?;
 
     let bytes = project.source.read(&texture_path)?;
     encode_texture_full(&bytes)
@@ -201,11 +209,12 @@ pub fn get_texture_binary(
     state: State<'_, SharedState>,
 ) -> CoreResult<String> {
     let app = state.read()?;
-    let project = project_for_handle(&app, handle)?;
-    require_indexed_texture(project, &texture_path)?;
+    let arc = project_for_handle(&app, handle)?;
+    let project = read_project(&arc)?;
+    require_indexed_texture(&project, &texture_path)?;
 
     let bytes = project.source.read(&texture_path)?;
-    crate::save::validate_png(&bytes)?;
+    crate::save::validate_png_header(&bytes)?;
     Ok(STANDARD.encode(bytes))
 }
 
@@ -214,23 +223,26 @@ pub fn get_texture_binary(
 pub fn list_variants(
     handle: ProjectHandle,
     asset_path: String,
+    ipc_request_id: Option<u64>,
     state: State<'_, SharedState>,
 ) -> CoreResult<Vec<VariantKey>> {
+    touch_ipc_request(&state, ipc_request_id)?;
     let app = state.read()?;
-    let project = app
-        .projects
-        .get(&handle.id)
-        .ok_or(CoreError::ProjectNotFound)?;
+    let arc = project_for_handle(&app, handle)?;
+    let project = read_project(&arc)?;
 
     let (namespace, block_name) = blockstate_id_from_asset_path(&asset_path)
         .ok_or_else(|| CoreError::InvalidInput("not a blockstate path".to_string()))?;
 
     let source = project.source.as_ref();
-    let pack = pack_for_project(project);
+    let pack = pack_for_project(&project);
     let mut cache = lock_model_cache(&project.index.model_cache)?;
     let registry = ModelRegistry::new(source, &mut cache, pack);
     let blockstate = registry.load_blockstate(&namespace, &block_name)?;
-    Ok(list_variant_keys(&blockstate))
+    let variants = list_variant_keys(&blockstate);
+    touch_ipc_request(&state, ipc_request_id)?;
+    finish_ipc_request_opt(&state, ipc_request_id);
+    Ok(variants)
 }
 
 #[tauri::command]
@@ -242,7 +254,8 @@ pub async fn models_for_texture(
 ) -> CoreResult<Vec<ModelRefInfo>> {
     let indexed = {
         let app = state.read()?;
-        let project = app.projects.get(&handle.id).ok_or(CoreError::ProjectNotFound)?;
+        let arc = project_for_handle(&app, handle.clone())?;
+        let project = read_project(&arc)?;
         texture_index::models_for_texture_path(&project.index.texture_model_index, &asset_path)
     };
     if !indexed.is_empty() {
@@ -254,20 +267,16 @@ pub async fn models_for_texture(
     let asset_path_for_task = asset_path.clone();
 
     tauri::async_runtime::spawn_blocking(move || {
-        let mut project = {
-            let mut app = shared.write()?;
-            app.projects
-                .remove(&handle_id)
-                .ok_or(CoreError::ProjectNotFound)?
+        let project_arc = {
+            let app = shared.read()?;
+            super::helpers::project_for_handle(&app, ProjectHandle { id: handle_id })?
         };
+        let mut project = write_project(&project_arc)?;
         super::helpers::rebuild_texture_model_index(&mut project)?;
-        let models = texture_index::models_for_texture_path(
+        Ok(texture_index::models_for_texture_path(
             &project.index.texture_model_index,
             &asset_path_for_task,
-        );
-        let mut app = shared.write()?;
-        app.projects.insert(handle_id, project);
-        Ok(models)
+        ))
     })
     .await
     .map_err(|e| CoreError::Internal(format!("models_for_texture task failed: {e}")))?
@@ -285,7 +294,8 @@ pub async fn resolve_renderable(
     let resolve_path = linked_model_path.as_deref().unwrap_or(asset_path.as_str());
     let needs_texture_index_rebuild = {
         let app = state.read()?;
-        let project = app.projects.get(&handle.id).ok_or(CoreError::ProjectNotFound)?;
+        let arc = project_for_handle(&app, handle.clone())?;
+        let project = read_project(&arc)?;
         let entry = project
             .index
             .entries
@@ -303,15 +313,12 @@ pub async fn resolve_renderable(
         let shared = state.inner().clone();
         let handle_id = handle.id;
         tauri::async_runtime::spawn_blocking(move || {
-            let mut project = {
-                let mut app = shared.write()?;
-                app.projects
-                    .remove(&handle_id)
-                    .ok_or(CoreError::ProjectNotFound)?
+            let project_arc = {
+                let app = shared.read()?;
+                super::helpers::project_for_handle(&app, ProjectHandle { id: handle_id })?
             };
+            let mut project = write_project(&project_arc)?;
             rebuild_texture_model_index(&mut project)?;
-            let mut app = shared.write()?;
-            app.projects.insert(handle_id, project);
             Ok::<(), CoreError>(())
         })
         .await
@@ -319,7 +326,8 @@ pub async fn resolve_renderable(
     }
 
     let app = state.read()?;
-    let project = app.projects.get(&handle.id).ok_or(CoreError::ProjectNotFound)?;
+    let arc = project_for_handle(&app, handle)?;
+    let project = read_project(&arc)?;
 
     let entry = project
         .index
@@ -329,7 +337,7 @@ pub async fn resolve_renderable(
         .ok_or_else(|| CoreError::AssetNotFound(resolve_path.to_string()))?;
 
     let source = project.source.as_ref();
-    let pack = pack_for_project(project);
+    let pack = pack_for_project(&project);
     let mut cache = lock_model_cache(&project.index.model_cache)?;
     let mut registry = ModelRegistry::new(source, &mut cache, pack);
 

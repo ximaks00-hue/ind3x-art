@@ -136,8 +136,13 @@ export function TitleBar({
           variant="ghost"
           className={styles.iconAction}
           onClick={onOpenFolder}
-          disabled={opening || saving}
+          disabled={opening || saving || workspaceMode === "studio"}
           aria-label="Open folder"
+          title={
+            workspaceMode === "studio"
+              ? "Folder sources are available in Classic mode only"
+              : "Open folder"
+          }
         >
           <Icon icon={FolderOpen} size={16} />
           Folder

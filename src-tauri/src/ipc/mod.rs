@@ -29,6 +29,8 @@ pub fn builder() -> Builder<tauri::Wry> {
         invalidate_project_index,
         close_source,
         cancel_index,
+        cancel_ipc_request,
+        finish_ipc_request,
         query_assets,
         get_asset_facets,
         query_catalog,

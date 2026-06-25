@@ -1,0 +1,25 @@
+{
+  "version": 1,
+  "description": "Shared fuzzy_score golden vectors — consumed by src/features/explorer/fuzzy.golden.test.ts and src-tauri/src/search/golden_tests.rs. Keep TS (fuzzy.ts) and Rust (search/mod.rs) algorithms in sync.",
+  "cases": [
+    { "query": "", "text": "stone", "match": false },
+    { "query": "   ", "text": "stone", "match": false },
+    {
+      "query": "stone",
+      "text": "assets/minecraft/textures/block/stone.png",
+      "match": true,
+      "score": 995
+    },
+    { "query": "stn", "text": "stone", "match": true, "score": 28 },
+    { "query": "xyz", "text": "stone", "match": false },
+    { "query": "STN", "text": "Stone", "match": true, "score": 28 },
+    { "query": "sbrk", "text": "stone_brick", "match": true, "score": 26 },
+    {
+      "query": "grass",
+      "text": "assets/minecraft/textures/block/grass.png",
+      "match": true,
+      "score": 995
+    },
+    { "query": "brk", "text": "stone_brick", "match": true, "score": 26 }
+  ]
+}

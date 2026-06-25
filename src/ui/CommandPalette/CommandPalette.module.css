@@ -5,16 +5,17 @@
   display: grid;
   place-content: start center;
   padding-top: 12vh;
-  background: rgba(0, 0, 0, 0.55);
-  backdrop-filter: blur(4px);
+  background: color-mix(in srgb, var(--color-bg-base) 55%, transparent);
+  backdrop-filter: blur(8px) saturate(1.1);
 }
 
 .dialog {
   width: min(560px, calc(100vw - 32px));
   border-radius: var(--radius-lg);
   border: 1px solid var(--color-border-strong);
-  background: var(--color-bg-panel);
-  box-shadow: var(--shadow-md);
+  background: color-mix(in srgb, var(--color-bg-panel) 96%, transparent);
+  backdrop-filter: blur(16px);
+  box-shadow: var(--shadow-lg);
   overflow: hidden;
 }
 

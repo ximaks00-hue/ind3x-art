@@ -98,7 +98,7 @@ export function StudioAnimationPreview({
         value={activeFrame}
         onChange={(e) => {
           setPlaying(false);
-          setActiveFrame(Number(e.target.value));
+          setActiveFrame(Number(e.target.value), total);
         }}
         aria-label="Animation frame"
       />

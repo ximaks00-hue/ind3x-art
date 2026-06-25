@@ -105,7 +105,10 @@ export const useCatalogStore = create<CatalogState>((set) => ({
   bumpQueryRevision: () => set((s) => ({ queryRevision: s.queryRevision + 1 })),
   setSessionRestorePending: (sessionRestorePending) => set({ sessionRestorePending }),
   reset: () => {
-    if (searchDebounceTimer) clearTimeout(searchDebounceTimer);
+    if (searchDebounceTimer) {
+      clearTimeout(searchDebounceTimer);
+      searchDebounceTimer = undefined;
+    }
     set({ ...initialState });
   },
 }));
@@ -191,7 +194,10 @@ export function restoreCatalogState(snapshot: CatalogSnapshot): void {
 
 /** Flush debounced search immediately (tests). */
 export function flushCatalogSearchDebounce(): void {
-  if (searchDebounceTimer) clearTimeout(searchDebounceTimer);
+  if (searchDebounceTimer) {
+    clearTimeout(searchDebounceTimer);
+    searchDebounceTimer = undefined;
+  }
   const search = useCatalogStore.getState().search;
   useCatalogStore.setState({ debouncedSearch: search });
 }

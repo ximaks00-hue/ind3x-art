@@ -1,10 +1,9 @@
 import type { ProjectHandle } from "../../ipc/types";
-import type { EditorTool } from "../../state/editorStore";
+import type { EditorTool, BrushBlendMode } from "../../state/editorStore";
 import { TOOL_LABELS } from "../../state/editorStore";
 import {
   collectStrokeChanges,
   ellipseToolChanges,
-  floodFillChanges,
   linePixels,
   lineToolChanges,
   pixelPerfectFilter,
@@ -12,6 +11,9 @@ import {
   rectToolChanges,
 } from "./tools";
 import { applyPatch, commitChanges, ensureTextureDocument } from "./documentStore";
+import { applyBrushChanges } from "./paintStrokeCommit";
+
+export { beginBrushStroke, cancelBrushStroke, endBrushStroke } from "./paintStrokeCommit";
 
 export interface PaintPoint {
   x: number;
@@ -27,6 +29,7 @@ export interface PaintStrokeContext {
   symmetryY: boolean;
   brushSize: number;
   brushOpacity: number;
+  brushMode?: BrushBlendMode;
   fillTolerance?: number;
   pixelPerfectLine?: boolean;
   rectFilled?: boolean;
@@ -57,19 +60,7 @@ export async function paintStroke(
 
   if (tool === "picker") return point;
 
-  if (tool === "fill") {
-    const changes = floodFillChanges(
-      texturePath,
-      point.x,
-      point.y,
-      color,
-      ctx.fillTolerance ?? 0,
-    );
-    commitChanges(handle, texturePath, changes, true, "Fill", true);
-    return point;
-  }
-
-  if (tool === "line" || tool === "rect" || tool === "ellipse") return point;
+  if (tool === "fill" || tool === "line" || tool === "rect" || tool === "ellipse") return point;
 
   let points: [number, number][] =
     options.isStroke && options.lastPixel
@@ -89,8 +80,9 @@ export async function paintStroke(
     ctx.symmetryY,
     ctx.brushSize,
     ctx.brushOpacity,
+    ctx.brushMode ?? "normal",
   );
-  commitChanges(handle, texturePath, changes, true, strokeLabel(tool));
+  applyBrushChanges(handle, texturePath, changes, strokeLabel(tool));
   return point;
 }
 
@@ -106,6 +98,7 @@ export async function paintLine(
     | "symmetryY"
     | "brushSize"
     | "brushOpacity"
+    | "brushMode"
     | "pixelPerfectLine"
   >,
 ): Promise<void> {
@@ -122,6 +115,7 @@ export async function paintLine(
     ctx.symmetryY,
     ctx.brushSize,
     ctx.brushOpacity,
+    ctx.brushMode ?? "normal",
     ctx.pixelPerfectLine ?? false,
   );
   commitChanges(handle, texturePath, changes, true, "Line", true);
@@ -162,8 +156,9 @@ export function applyBrushAt(
     ctx.symmetryY,
     ctx.brushSize,
     ctx.brushOpacity,
+    ctx.brushMode ?? "normal",
   );
-  commitChanges(handle, texturePath, changes, true, strokeLabel(tool));
+  applyBrushChanges(handle, texturePath, changes, strokeLabel(tool));
   return { x: tx, y: ty };
 }
 
@@ -181,6 +176,7 @@ export function commitShapeAt(
     symmetryY,
     brushSize,
     brushOpacity,
+    brushMode,
     rectFilled,
     pixelPerfectLine,
   } = ctx;
@@ -198,6 +194,7 @@ export function commitShapeAt(
           symmetryY,
           brushSize,
           brushOpacity,
+          brushMode ?? "normal",
           pixelPerfectLine ?? false,
         )
       : tool === "rect"
@@ -214,6 +211,7 @@ export function commitShapeAt(
             symmetryY,
             brushSize,
             brushOpacity,
+            brushMode ?? "normal",
           )
         : ellipseToolChanges(
             texturePath,
@@ -227,6 +225,7 @@ export function commitShapeAt(
             symmetryY,
             brushSize,
             brushOpacity,
+            brushMode ?? "normal",
           );
   commitChanges(handle, texturePath, changes, true, TOOL_LABELS[tool], true);
 }

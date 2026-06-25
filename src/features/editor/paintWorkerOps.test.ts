@@ -43,10 +43,10 @@ describe("paintWorkerOps", () => {
   });
 
   it("maps worker pixel changes onto the active layer", () => {
-    vi.mocked(getActiveLayerId).mockReturnValue("layer-a");
-    const mapped = workerChangesToPixelChanges("tex.png", [
-      { x: 1, y: 2, before: [0, 0, 0, 0], after: [1, 2, 3, 255] },
-    ]);
+    const mapped = workerChangesToPixelChanges(
+      [{ x: 1, y: 2, before: [0, 0, 0, 0], after: [1, 2, 3, 255] }],
+      "layer-a",
+    );
     expect(mapped).toEqual<PixelChange[]>([
       { x: 1, y: 2, before: [0, 0, 0, 0], after: [1, 2, 3, 255], layerId: "layer-a" },
     ]);

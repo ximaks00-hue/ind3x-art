@@ -138,7 +138,8 @@ pub fn patch_project_catalog(
     if !rebuild_assets.is_empty() {
         let source = project.source.as_ref();
         let language = project.catalog.language.clone();
-        let ctx = CatalogBuildCtx::new(&rebuild_assets, Some(source), &language);
+        let tab_order = &project.catalog.creative_tab_order;
+        let ctx = CatalogBuildCtx::new(&rebuild_assets, Some(source), &language, Some(tab_order));
         let new_slice = build_deduped_catalog(&ctx);
         project.catalog.entries.append(&mut arc_catalog(new_slice));
         let deduped = arc_catalog(dedup_catalog(

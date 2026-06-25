@@ -4,9 +4,7 @@ import type { CatalogEntry, RenderableModel } from "../../ipc/types";
 import { useProjectStore } from "../../state/projectStore";
 import { useCatalogStore } from "./catalogStore";
 import { useSettingsStore } from "../../state/settingsStore";
-import { useSelectionStore } from "../../state/selectionStore";
 import { useViewerStore } from "../../state/viewerStore";
-import { pickPreferredStudioFace } from "./modelFaceNav";
 import {
   defaultStudioItemView,
   entryPresentation,
@@ -16,7 +14,7 @@ import {
   type StudioItemView,
 } from "./studioPresentation";
 
-/** Studio mode: paint interaction + default face when model/variant/item view changes. */
+/** Studio: camera/display framing when catalog selection or variant changes (browse-first, no forced paint). */
 export function useStudioFaceBootstrap(
   model: RenderableModel | null,
   entry: CatalogEntry | null,
@@ -26,9 +24,6 @@ export function useStudioFaceBootstrap(
   const workspaceMode = useSettingsStore((s) => s.workspaceMode);
   const handle = useProjectStore((s) => s.handle);
   const catalogSelectedId = useCatalogStore((s) => s.selectedId);
-  const setRightPanelCollapsed = useSettingsStore((s) => s.setRightPanelCollapsed);
-  const setInteractionMode = useSelectionStore((s) => s.setInteractionMode);
-  const setSelectedFace = useSelectionStore((s) => s.setSelectedFace);
   const setCameraPreset = useViewerStore((s) => s.setCameraPreset);
   const setDisplaySlot = useViewerStore((s) => s.setDisplaySlot);
   const bootstrappedCatalogIdRef = useRef<string | null>(null);
@@ -45,20 +40,12 @@ export function useStudioFaceBootstrap(
     if (bootstrappedCatalogIdRef.current === bootstrapKey) return;
     bootstrappedCatalogIdRef.current = bootstrapKey;
 
-    setRightPanelCollapsed(false);
-    setInteractionMode("paint");
-
     const view = isItemPresentation(presentation)
       ? itemView
       : defaultStudioItemView(presentation);
     setCameraPreset(studioCameraFor(presentation, view));
     const slot = studioDisplaySlotFor(presentation, view);
     if (slot) setDisplaySlot(slot);
-
-    const preferred = pickPreferredStudioFace(model);
-    if (preferred) {
-      setSelectedFace(preferred);
-    }
   }, [
     workspaceMode,
     model,
@@ -66,9 +53,6 @@ export function useStudioFaceBootstrap(
     bootstrapKey,
     presentation,
     itemView,
-    setRightPanelCollapsed,
-    setInteractionMode,
-    setSelectedFace,
     setCameraPreset,
     setDisplaySlot,
   ]);

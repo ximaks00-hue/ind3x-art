@@ -7,7 +7,8 @@ import { loadTexture } from "./textureLoader";
 const ITEM_DISPLAY_SCALE = 0.9;
 const EXTRUSION_DEPTH = 1 / 16;
 /** Cap extrusion grid resolution — side walls scale with pixel count squared. */
-const EXTRUSION_GRID_MAX = 128;
+const EXTRUSION_GRID_MAX = 64;
+const MAX_SIDE_WALL_PIXELS = 48 * 48;
 
 type AlphaGrid = {
   width: number;
@@ -165,7 +166,9 @@ export async function buildItemExtrusion(
   ];
   addQuad(positions, normals, uvs, indices, backCorners, [0, 0, -1], [0, 0, 1, 1]);
 
-  // Side walls along alpha edges
+  // Side walls along alpha edges (skip for large sprites — front/back only)
+  const buildSideWalls = width * height <= MAX_SIDE_WALL_PIXELS;
+  if (buildSideWalls) {
   for (let y = 0; y < height; y += 1) {
     for (let x = 0; x < width; x += 1) {
       if (!grid.opaque(x, y)) continue;
@@ -237,6 +240,7 @@ export async function buildItemExtrusion(
         );
       }
     }
+  }
   }
 
   const group = new THREE.Group();

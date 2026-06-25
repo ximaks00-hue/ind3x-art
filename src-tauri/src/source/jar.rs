@@ -10,12 +10,30 @@ use crate::dto::SourceKind;
 use crate::error::{CoreError, CoreResult};
 use crate::source::{normalize_zip_path, AssetSource};
 
+/// Max decompressed bytes per zip entry (zip-bomb guard for models, lang, blockstates, etc.).
+pub const MAX_ZIP_ENTRY_DECOMPRESSED_BYTES: usize = 32 * 1024 * 1024;
+
 pub struct JarSource {
     path: PathBuf,
     archive: Mutex<Option<(SystemTime, ZipArchive<File>)>>,
 }
 
+/// Read one zip entry with a decompressed-size cap.
+pub fn read_zip_entry_limited<R: Read>(entry: &mut R) -> CoreResult<Vec<u8>> {
+    let limit = MAX_ZIP_ENTRY_DECOMPRESSED_BYTES as u64;
+    let mut limited = entry.take(limit.saturating_add(1));
+    let mut buf = Vec::new();
+    limited.read_to_end(&mut buf).map_err(CoreError::from)?;
+    if buf.len() > MAX_ZIP_ENTRY_DECOMPRESSED_BYTES {
+        return Err(CoreError::InvalidInput(format!(
+            "zip entry exceeds max decompressed size of {MAX_ZIP_ENTRY_DECOMPRESSED_BYTES} bytes"
+        )));
+    }
+    Ok(buf)
+}
+
 /// Read one zip entry without holding the shared archive mutex (parallel-safe).
+#[allow(dead_code)]
 pub fn read_zip_entry(jar_path: &Path, entry_path: &str) -> CoreResult<Vec<u8>> {
     let needle = normalize_zip_path(entry_path);
     let file = File::open(jar_path)?;
@@ -24,9 +42,7 @@ pub fn read_zip_entry(jar_path: &Path, entry_path: &str) -> CoreResult<Vec<u8>> 
     let mut entry = archive
         .by_name(&needle)
         .map_err(|_| CoreError::AssetNotFound(needle))?;
-    let mut buf = Vec::new();
-    entry.read_to_end(&mut buf)?;
-    Ok(buf)
+    read_zip_entry_limited(&mut entry)
 }
 
 impl JarSource {
@@ -177,6 +193,42 @@ impl AssetSource for JarSource {
     }
 
     fn read(&self, path: &str) -> CoreResult<Vec<u8>> {
-        read_zip_entry(&self.path, path)
+        let needle = normalize_zip_path(path);
+        self.with_archive(|archive| {
+            let mut entry = archive
+                .by_name(&needle)
+                .map_err(|_| CoreError::AssetNotFound(needle.clone()))?;
+            read_zip_entry_limited(&mut entry)
+        })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::Write;
+    use zip::write::SimpleFileOptions;
+    use zip::ZipWriter;
+
+    #[test]
+    fn read_zip_entry_rejects_oversized_decompressed_payload() {
+        let dir = std::env::temp_dir().join(format!("ind3x-zip-bomb-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let jar_path = dir.join("bomb.jar");
+
+        let file = File::create(&jar_path).unwrap();
+        let mut writer = ZipWriter::new(file);
+        let options = SimpleFileOptions::default();
+        writer.start_file("assets/minecraft/lang/en_us.json", options).unwrap();
+        let oversized = vec![b'x'; MAX_ZIP_ENTRY_DECOMPRESSED_BYTES + 1];
+        writer.write_all(&oversized).unwrap();
+        writer.finish().unwrap();
+
+        let err = read_zip_entry(&jar_path, "assets/minecraft/lang/en_us.json")
+            .expect_err("oversized entry");
+        assert!(matches!(err, CoreError::InvalidInput(_)));
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

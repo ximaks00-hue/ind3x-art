@@ -3,7 +3,7 @@ import { Raycaster, Vector2 } from "three";
 import { useThree } from "@react-three/fiber";
 
 import type { ProjectHandle, RenderableModel } from "../../ipc/types";
-import { useEditorStore } from "../../state/editorStore";
+import { useEditorStore, TOOL_LABELS } from "../../state/editorStore";
 import {
   FACE_PICK_KEY,
   type FacePickData,
@@ -19,6 +19,7 @@ import {
   paintAtTexturePixel,
 } from "../editor/paintInteraction";
 import { ensureTextureDocument } from "../editor/textureDocument";
+import { beginBrushStroke, endBrushStroke } from "../editor/paintEngine";
 import { isFacePickData } from "./buildMesh";
 import { hitUvToPixel } from "./uvMapping";
 
@@ -178,6 +179,7 @@ export function FaceRaycaster({ model, handle, studioMode = false }: FaceRaycast
         return;
       }
 
+      beginBrushStroke(texturePath);
       enqueuePaint(texturePath, pixel[0], pixel[1], false);
       event.stopPropagation();
     };
@@ -242,6 +244,9 @@ export function FaceRaycaster({ model, handle, studioMode = false }: FaceRaycast
           });
           bumpRevision();
         }
+      } else if (texturePath && !isClickOnlyTool(tool) && !isShapeTool(tool)) {
+        endBrushStroke(handle, texturePath, `${TOOL_LABELS[tool]} stroke`, true);
+        bumpRevision();
       }
 
       paintingRef.current = false;
@@ -262,6 +267,7 @@ export function FaceRaycaster({ model, handle, studioMode = false }: FaceRaycast
     canvas.addEventListener("pointerup", endStroke);
     canvas.addEventListener("pointerleave", onPointerLeave);
     return () => {
+      paintGenRef.current += 1;
       if (hoverRafRef.current !== null) {
         cancelAnimationFrame(hoverRafRef.current);
         hoverRafRef.current = null;

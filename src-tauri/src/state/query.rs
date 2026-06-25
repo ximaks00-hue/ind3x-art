@@ -22,7 +22,8 @@ impl super::AppState {
 
     ) -> Option<AssetPage> {
 
-        let project = self.projects.get(&handle)?;
+        let arc = self.projects.get(&handle)?;
+        let project = super::read_project(arc).ok()?;
 
         let search = filter
 
@@ -144,7 +145,8 @@ impl super::AppState {
 
     pub fn asset_facets(&self, handle: u64) -> Option<AssetFacets> {
 
-        let project = self.projects.get(&handle)?;
+        let arc = self.projects.get(&handle)?;
+        let project = super::read_project(arc).ok()?;
 
         let mut kind_counts: HashMap<&'static str, u64> = HashMap::new();
 
@@ -330,7 +332,7 @@ mod query_bench {
 
             handle,
 
-            crate::state::Project {
+            std::sync::Arc::new(std::sync::RwLock::new(crate::state::Project {
 
                 source_path: std::path::PathBuf::from("."),
 
@@ -376,7 +378,7 @@ mod query_bench {
 
                 },
 
-            },
+            })),
 
         );
 

@@ -110,7 +110,7 @@ describe("studio catalog scale (mock IPC)", () => {
 
   it("studio select wires catalog to project store", async () => {
     const { handle } = await openFixtureProject();
-    useSettingsStore.getState().setWorkspaceModeState("classic");
+    useSettingsStore.setState({ workspaceMode: "classic" });
     transitionToWorkspaceMode("studio");
 
     const page = await queryCatalog(

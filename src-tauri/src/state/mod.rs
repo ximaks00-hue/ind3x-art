@@ -20,6 +20,9 @@ use crate::source::AssetSource;
 /// Bump when on-disk sled layout or cache semantics change.
 pub const CACHE_SCHEMA_VERSION: &str = "v2";
 
+/// Projects remain in `AppState.projects` as `Arc<RwLock<Project>>` for their lifetime.
+/// Blocking IPC takes a per-project write lock instead of removing the project from the map.
+
 pub struct Project {
     pub source_path: PathBuf,
     pub source_kind: crate::dto::SourceKind,
@@ -30,10 +33,50 @@ pub struct Project {
     pub save: SaveState,
 }
 
+pub fn project_arc(
+    projects: &HashMap<u64, Arc<RwLock<Project>>>,
+    handle: u64,
+) -> CoreResult<Arc<RwLock<Project>>> {
+    projects
+        .get(&handle)
+        .cloned()
+        .ok_or(CoreError::ProjectNotFound)
+}
+
+pub fn read_project(
+    arc: &Arc<RwLock<Project>>,
+) -> CoreResult<std::sync::RwLockReadGuard<'_, Project>> {
+    match arc.read() {
+        Ok(guard) => Ok(guard),
+        Err(poisoned) => {
+            tracing::error!(
+                "recovering poisoned project read lock — state may be inconsistent; consider reopening the pack"
+            );
+            Ok(poisoned.into_inner())
+        }
+    }
+}
+
+pub fn write_project(
+    arc: &Arc<RwLock<Project>>,
+) -> CoreResult<std::sync::RwLockWriteGuard<'_, Project>> {
+    match arc.write() {
+        Ok(guard) => Ok(guard),
+        Err(poisoned) => {
+            tracing::error!(
+                "recovering poisoned project write lock — state may be inconsistent; consider reopening the pack"
+            );
+            Ok(poisoned.into_inner())
+        }
+    }
+}
+
 pub struct AppState {
     next_handle: AtomicU64,
-    pub projects: HashMap<u64, Project>,
+    pub projects: HashMap<u64, Arc<RwLock<Project>>>,
     pub cancel_flags: HashMap<u64, Arc<AtomicBool>>,
+    /// Per-request cancel flags keyed by frontend-allocated IPC request id.
+    pub ipc_requests: HashMap<u64, Arc<AtomicBool>>,
     pub db: Db,
     pub watcher: crate::watcher::SharedWatcher,
 }
@@ -46,6 +89,7 @@ impl AppState {
             next_handle: AtomicU64::new(1),
             projects: HashMap::new(),
             cancel_flags: HashMap::new(),
+            ipc_requests: HashMap::new(),
             db,
             watcher: std::sync::Arc::new(std::sync::Mutex::new(HashMap::new())),
         })
@@ -86,6 +130,29 @@ impl AppState {
     pub fn clear_cancel(&mut self, handle: u64) {
         self.cancel_flags.remove(&handle);
     }
+
+    pub fn register_ipc_request(&mut self, request_id: u64) {
+        self.ipc_requests
+            .entry(request_id)
+            .or_insert_with(|| Arc::new(AtomicBool::new(false)));
+    }
+
+    pub fn cancel_ipc_request_flag(&mut self, request_id: u64) {
+        self.ipc_requests
+            .entry(request_id)
+            .or_insert_with(|| Arc::new(AtomicBool::new(true)))
+            .store(true, Ordering::Relaxed);
+    }
+
+    pub fn finish_ipc_request(&mut self, request_id: u64) {
+        self.ipc_requests.remove(&request_id);
+    }
+
+    pub fn is_ipc_request_cancelled(&self, request_id: u64) -> bool {
+        self.ipc_requests
+            .get(&request_id)
+            .is_some_and(|flag| flag.load(Ordering::Relaxed))
+    }
 }
 
 #[cfg(test)]
@@ -98,6 +165,7 @@ pub fn test_app_state() -> CoreResult<AppState> {
         next_handle: AtomicU64::new(1),
         projects: HashMap::new(),
         cancel_flags: HashMap::new(),
+        ipc_requests: HashMap::new(),
         db,
         watcher: Arc::new(std::sync::Mutex::new(HashMap::new())),
     })
@@ -111,7 +179,38 @@ pub fn open_cache_db(app_cache_root: &Path) -> CoreResult<Db> {
     std::fs::create_dir_all(&cache_root).map_err(CoreError::from)?;
     note_legacy_temp_cache();
     let db_path = cache_root.join("sled");
-    sled::open(db_path).map_err(CoreError::from)
+    match sled::open(&db_path) {
+        Ok(db) => Ok(db),
+        Err(err) if cache_db_lock_conflict(&err) => {
+            tracing::warn!(
+                path = %db_path.display(),
+                %err,
+                "persistent cache locked by another instance — using in-memory session cache"
+            );
+            sled::Config::new()
+                .temporary(true)
+                .open()
+                .map_err(CoreError::from)
+        }
+        Err(err) => Err(err.into()),
+    }
+}
+
+fn cache_db_lock_conflict(err: &sled::Error) -> bool {
+    match err {
+        sled::Error::Io(io) => {
+            matches!(
+                io.kind(),
+                std::io::ErrorKind::AlreadyExists
+                    | std::io::ErrorKind::PermissionDenied
+                    | std::io::ErrorKind::WouldBlock
+            ) || io
+                .to_string()
+                .to_ascii_lowercase()
+                .contains("lock")
+        }
+        _ => false,
+    }
 }
 
 fn note_legacy_temp_cache() {
@@ -130,7 +229,9 @@ pub fn lock_model_cache(
     match cache.lock() {
         Ok(guard) => Ok(guard),
         Err(poisoned) => {
-            tracing::warn!("recovering poisoned model cache mutex");
+            tracing::error!(
+                "recovering poisoned model cache mutex — cached models may be inconsistent"
+            );
             Ok(poisoned.into_inner())
         }
     }

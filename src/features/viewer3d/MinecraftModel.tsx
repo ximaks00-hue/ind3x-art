@@ -1,9 +1,14 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type * as THREE from "three";
 
 import type { ProjectHandle, RenderableModel } from "../../ipc/types";
 import { useViewerStore } from "../../state/viewerStore";
-import { buildModelGroup, disposeObject3D } from "./buildMesh";
+import {
+  buildModelGroup,
+  disposeObject3D,
+  syncBiomeTints,
+  syncModelGroupTextures,
+} from "./buildMesh";
 import { modelTexturePaths, refreshDirtyTexturesForViewer } from "./viewerTextureSync";
 
 export type MeshBuildState = "loading" | "ready" | "error";
@@ -24,13 +29,17 @@ export function MinecraftModel({
   onMeshState,
 }: MinecraftModelProps) {
   const [group, setGroup] = useState<THREE.Group | null>(null);
+  const groupRef = useRef<THREE.Group | null>(null);
+  const onMeshStateRef = useRef(onMeshState);
+  onMeshStateRef.current = onMeshState;
+
   const storeDisplaySlot = useViewerStore((s) => s.displaySlot);
   const textureReloadTick = useViewerStore((s) => s.textureReloadTick);
   const displaySlot = studioMode ? preferredDisplaySlot : (preferredDisplaySlot ?? storeDisplaySlot);
 
   useEffect(() => {
     let cancelled = false;
-    onMeshState?.("loading", null);
+    onMeshStateRef.current?.("loading", null);
     refreshDirtyTexturesForViewer(handle, modelTexturePaths(model));
 
     void buildModelGroup(model, handle, displaySlot, studioMode)
@@ -39,32 +48,42 @@ export function MinecraftModel({
           disposeObject3D(built);
           return;
         }
-        setGroup((prev) => {
-          if (prev) disposeObject3D(prev);
-          return built;
-        });
-        onMeshState?.("ready", null);
+        if (groupRef.current) disposeObject3D(groupRef.current);
+        groupRef.current = built;
+        setGroup(built);
+        onMeshStateRef.current?.("ready", null);
       })
       .catch((error: unknown) => {
         if (cancelled) return;
-        setGroup((prev) => {
-          if (prev) disposeObject3D(prev);
-          return null;
-        });
+        if (groupRef.current) {
+          disposeObject3D(groupRef.current);
+          groupRef.current = null;
+        }
+        setGroup(null);
         const message =
           error instanceof Error ? error.message : "Failed to build 3D preview";
-        onMeshState?.("error", message);
+        onMeshStateRef.current?.("error", message);
       });
 
     return () => {
       cancelled = true;
-      setGroup((prev) => {
-        if (prev) disposeObject3D(prev);
-        return null;
-      });
+      if (groupRef.current) {
+        disposeObject3D(groupRef.current);
+        groupRef.current = null;
+      }
+      setGroup(null);
     };
-  }, [model, handle, displaySlot, studioMode, textureReloadTick, onMeshState]);
+  }, [model, handle, displaySlot, studioMode]);
+
+  useEffect(() => {
+    const root = groupRef.current;
+    if (!root) return;
+    refreshDirtyTexturesForViewer(handle, modelTexturePaths(model));
+    syncBiomeTints(root);
+    void syncModelGroupTextures(root, handle, model);
+  }, [textureReloadTick, handle, model]);
 
   if (!group) return null;
   return <primitive object={group} />;
 }
+

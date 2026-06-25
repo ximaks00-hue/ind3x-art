@@ -1,4 +1,5 @@
 import { invalidateCatalogIconCacheForHandle, resetCatalogIconCache } from "../features/catalog/catalogIconCache";
+import { resetCatalogIconPipeline } from "../features/catalog/catalogIconPipeline";
 import { useCatalogStore } from "../features/catalog/catalogStore";
 import {
   clearStudioResolveCache,
@@ -10,12 +11,6 @@ import { useProjectStore } from "../state/projectStore";
 export type ProjectCacheScope = "explorer" | "catalog" | "icons" | "studio" | "thumbnails";
 
 export type InvalidateProjectCachesOptions = Partial<Record<ProjectCacheScope, boolean>>;
-
-function resetCatalogIconPipeline(): void {
-  void import("../features/catalog/catalogIconPipeline").then((m) =>
-    m.resetCatalogIconPipeline(),
-  );
-}
 
 function hasExplicitScope(options: InvalidateProjectCachesOptions): boolean {
   return Object.values(options).some(Boolean);
@@ -47,6 +42,7 @@ export function invalidateProjectCaches(
       resetCatalogIconCache();
     }
     resetCatalogIconPipeline();
+    console.debug("[project] invalidated icon caches", { handleId: handle?.id ?? null });
   }
 
   if (scopes.studio) {
@@ -63,10 +59,20 @@ export function invalidateProjectCaches(
 
   if (scopes.catalog) {
     if (handle) {
-      invalidateCatalogIconCacheForHandle(handle.id);
-      clearStudioResolveCacheForHandle(handle.id);
+      // APP-009: icons/studio scopes may have already cleared these in the same call.
+      if (!scopes.icons) {
+        invalidateCatalogIconCacheForHandle(handle.id);
+      }
+      if (!scopes.studio) {
+        clearStudioResolveCacheForHandle(handle.id);
+      }
     }
     useCatalogStore.setState((s) => ({ queryRevision: s.queryRevision + 1 }));
+    console.debug("[project] bumped catalog query revision", {
+      handleId: handle?.id ?? null,
+      skippedIconInvalidation: scopes.icons,
+      skippedStudioInvalidation: scopes.studio,
+    });
   }
 }
 

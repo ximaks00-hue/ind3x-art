@@ -1,5 +1,8 @@
 //! Fuzzy subsequence matching for asset search.
 
+#[cfg(test)]
+mod golden_tests;
+
 pub fn fuzzy_score(query: &str, text: &str) -> Option<u32> {
     let q = query.trim().to_ascii_lowercase();
     if q.is_empty() {
@@ -52,4 +55,6 @@ mod tests {
         assert!(fuzzy_score("", "stone").is_none());
         assert!(fuzzy_score("   ", "stone").is_none());
     }
+
+    // Detailed vectors live in golden_tests.rs + tests/fixtures/fuzzy_golden.json
 }

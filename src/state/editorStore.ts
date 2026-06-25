@@ -1,6 +1,12 @@
 import { create } from "zustand";
 
-import type { TextureAnimationMeta } from "../ipc/types";
+import type { TextureAnimationMeta, ProjectHandle } from "../ipc/types";
+import {
+  deleteAnimationFramePixels,
+  duplicateAnimationFramePixels,
+  metaAfterDelete,
+  metaAfterDuplicate,
+} from "../features/editor/animationFrameOps";
 
 export interface FaceShapeDraft {
   cuboidIndex: number;
@@ -27,6 +33,27 @@ export type EditorTool =
 
 export type BrushBlendMode = "normal" | "replace";
 
+const DEFAULT_RECENT_COLORS = [
+  "#ffffff",
+  "#000000",
+  "#c6c6c6",
+  "#8b8b8b",
+  "#7f7f7f",
+  "#555555",
+] as const;
+
+function normalizeHexColor(color: string): string {
+  return color.toLowerCase();
+}
+
+function pushRecentColorList(colors: string[], color: string): string[] {
+  const normalized = normalizeHexColor(color);
+  return [normalized, ...colors.filter((c) => normalizeHexColor(c) !== normalized)].slice(
+    0,
+    16,
+  );
+}
+
 interface EditorState {
   tool: EditorTool;
   color: string;
@@ -47,6 +74,7 @@ interface EditorState {
   activeFrame: number;
   selection: [number, number, number, number] | null;
   onionSkin: boolean;
+  atlasGuide: boolean;
   pickFrom3dHighlight: boolean;
   faceShapeDraft: FaceShapeDraft | null;
   animationOverrides: Record<string, TextureAnimationMeta>;
@@ -65,11 +93,12 @@ interface EditorState {
   pushRecentColor: (color: string) => void;
   setCursor: (x: number | null, y: number | null) => void;
   setZoom: (zoom: number) => void;
-  setActiveFrame: (frame: number) => void;
+  setActiveFrame: (activeFrame: number, total?: number) => void;
   stepFrame: (delta: number, total: number) => void;
   setSelection: (sel: [number, number, number, number] | null) => void;
   importPalette: (colors: string[]) => void;
   setOnionSkin: (enabled: boolean) => void;
+  setAtlasGuide: (enabled: boolean) => void;
   setPickFrom3dHighlight: (enabled: boolean) => void;
   setFaceShapeDraft: (draft: FaceShapeDraft | null) => void;
   setAnimationOverride: (path: string, meta: TextureAnimationMeta | null) => void;
@@ -81,17 +110,19 @@ interface EditorState {
     path: string,
     frameIndex: number,
     baseMeta?: TextureAnimationMeta,
+    handle?: ProjectHandle | null,
   ) => void;
   deleteAnimationFrame: (
     path: string,
     frameIndex: number,
     baseMeta?: TextureAnimationMeta,
+    handle?: ProjectHandle | null,
   ) => void;
   /** Reset per-session state (animation overrides, face draft, selection) on project open/close. */
   resetEditorSession: () => void;
 }
 
-const DEFAULT_RECENT = ["#ffffff", "#000000", "#c6c6c6", "#8b8b8b", "#7f7f7f", "#555555"];
+const DEFAULT_RECENT = [...DEFAULT_RECENT_COLORS];
 
 export const useEditorStore = create<EditorState>((set, get) => ({
   tool: "pencil",
@@ -113,18 +144,16 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   activeFrame: 0,
   selection: null,
   onionSkin: false,
+  atlasGuide: false,
   pickFrom3dHighlight: true,
   faceShapeDraft: null,
   animationOverrides: {},
   setTool: (tool) => set({ tool }),
   setColor: (color) => {
-    const normalized = color.toLowerCase();
+    const normalized = normalizeHexColor(color);
     set((s) => ({
-      color,
-      recentColors: [
-        normalized,
-        ...s.recentColors.filter((c) => c.toLowerCase() !== normalized),
-      ].slice(0, 16),
+      color: normalized,
+      recentColors: pushRecentColorList(s.recentColors, normalized),
     }));
   },
   bumpRevision: () => set((s) => ({ revision: s.revision + 1 })),
@@ -141,16 +170,17 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   setPixelPerfectLine: (pixelPerfectLine) => set({ pixelPerfectLine }),
   setRectFilled: (rectFilled) => set({ rectFilled }),
   pushRecentColor: (color) => {
-    const normalized = color.toLowerCase();
-    const next = [
-      normalized,
-      ...get().recentColors.filter((c) => c.toLowerCase() !== normalized),
-    ].slice(0, 16);
-    set({ recentColors: next });
+    set({ recentColors: pushRecentColorList(get().recentColors, color) });
   },
   setCursor: (x, y) => set({ cursorX: x, cursorY: y }),
   setZoom: (zoom) => set({ zoom: Math.max(1, Math.min(64, zoom)) }),
-  setActiveFrame: (activeFrame) => set({ activeFrame }),
+  setActiveFrame: (activeFrame: number, total?: number) =>
+    set({
+      activeFrame:
+        total && total > 0
+          ? Math.max(0, Math.min(activeFrame, total - 1))
+          : Math.max(0, activeFrame),
+    }),
   stepFrame: (delta, total) =>
     set((s) => ({
       activeFrame: total > 0 ? (s.activeFrame + delta + total) % total : 0,
@@ -158,6 +188,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   setSelection: (selection) => set({ selection }),
   importPalette: (colors) => set({ recentColors: colors.slice(0, 32) }),
   setOnionSkin: (onionSkin) => set({ onionSkin }),
+  setAtlasGuide: (atlasGuide) => set({ atlasGuide }),
   setPickFrom3dHighlight: (pickFrom3dHighlight) => set({ pickFrom3dHighlight }),
   setFaceShapeDraft: (faceShapeDraft) => set({ faceShapeDraft }),
   setAnimationOverride: (path, meta) =>
@@ -168,29 +199,32 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       return { animationOverrides: next };
     }),
   getAnimationMeta: (path, fallback) => get().animationOverrides[path] ?? fallback,
-  duplicateAnimationFrame: (path, frameIndex, baseMeta) => {
+  duplicateAnimationFrame: (path, frameIndex, baseMeta, handle = null) => {
     const meta = get().animationOverrides[path] ?? baseMeta;
     if (!meta || meta.frames.length === 0) return;
     if (frameIndex < 0 || frameIndex >= meta.frames.length) return;
-    const frames = [...meta.frames];
-    frames.splice(frameIndex + 1, 0, frames[frameIndex]!);
+    duplicateAnimationFramePixels(handle, path, frameIndex, meta);
+    const nextMeta = metaAfterDuplicate(meta, frameIndex);
     set((s) => ({
       animationOverrides: {
         ...s.animationOverrides,
-        [path]: { ...meta, frames },
+        [path]: nextMeta,
       },
+      activeFrame: frameIndex + 1,
     }));
   },
-  deleteAnimationFrame: (path, frameIndex, baseMeta) => {
+  deleteAnimationFrame: (path, frameIndex, baseMeta, handle = null) => {
     const meta = get().animationOverrides[path] ?? baseMeta;
     if (!meta || meta.frames.length <= 1) return;
-    const frames = meta.frames.filter((_, i) => i !== frameIndex);
+    if (frameIndex < 0 || frameIndex >= meta.frames.length) return;
+    deleteAnimationFramePixels(handle, path, frameIndex, meta);
+    const nextMeta = metaAfterDelete(meta, frameIndex);
     set((s) => ({
       animationOverrides: {
         ...s.animationOverrides,
-        [path]: { ...meta, frames },
+        [path]: nextMeta,
       },
-      activeFrame: Math.min(s.activeFrame, frames.length - 1),
+      activeFrame: Math.min(s.activeFrame, nextMeta.frames.length - 1),
     }));
   },
   resetEditorSession: () =>
@@ -199,6 +233,11 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       faceShapeDraft: null,
       selection: null,
       activeFrame: 0,
+      zoom: 8,
+      brushSize: 1,
+      brushOpacity: 1,
+      brushMode: "normal",
+      revision: 0,
     }),
 }));
 

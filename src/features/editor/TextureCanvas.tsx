@@ -1,11 +1,16 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import type { ProjectHandle } from "../../ipc/types";
+import type { ProjectHandle, RenderableModel } from "../../ipc/types";
 import type { SelectedFace } from "../../state/selectionStore";
-import { useEditorStore } from "../../state/editorStore";
+import { useEditorStore, TOOL_LABELS } from "../../state/editorStore";
 import { faceUvRegion } from "../viewer3d/uvMapping";
+import {
+  collectAtlasFaceRegions,
+  drawAtlasGuide,
+  pointInRegion,
+} from "./atlasOverlay";
 import { pickColor } from "./tools";
-import { applyBrushAt, commitShapeAt } from "./paintEngine";
+import { beginBrushStroke, commitShapeAt, endBrushStroke } from "./paintEngine";
 import {
   buildPaintStrokeContext,
   isShapeTool as isShapeToolShared,
@@ -35,6 +40,7 @@ import type { Rgba } from "./textureDocument";
 interface TextureCanvasProps {
   handle: ProjectHandle;
   selectedFace: SelectedFace;
+  atlasModel?: RenderableModel | null;
 }
 
 function canvasToTexture(
@@ -61,7 +67,7 @@ export function TextureCanvas(props: TextureCanvasProps) {
   return <TextureCanvasInner key={props.selectedFace.texturePath} {...props} />;
 }
 
-function TextureCanvasInner({ handle, selectedFace }: TextureCanvasProps) {
+function TextureCanvasInner({ handle, selectedFace, atlasModel = null }: TextureCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const overlayRef = useRef<HTMLCanvasElement>(null);
   const cursorRef = useRef<HTMLCanvasElement>(null);
@@ -77,6 +83,7 @@ function TextureCanvasInner({ handle, selectedFace }: TextureCanvasProps) {
   const brushSize = useEditorStore((s) => s.brushSize);
   const stabilizer = useEditorStore((s) => s.stabilizer);
   const onionSkin = useEditorStore((s) => s.onionSkin);
+  const atlasGuide = useEditorStore((s) => s.atlasGuide);
   const rectFilled = useEditorStore((s) => s.rectFilled);
   const revision = useEditorStore((s) => s.revision);
   const bumpRevision = useEditorStore((s) => s.bumpRevision);
@@ -116,17 +123,22 @@ function TextureCanvasInner({ handle, selectedFace }: TextureCanvasProps) {
     [selectedFace],
   );
 
+  const useAtlasView = Boolean(atlasGuide && atlasModel);
+
   const renderCanvas = useCallback(() => {
     const view = canvasRef.current;
     const source = getTextureCanvas(selectedFace.texturePath);
     if (!view || !source) return;
 
-    const region = faceUvRegion(faceForRegion(), source.width, source.height);
+    const faceRegion = faceUvRegion(faceForRegion(), source.width, source.height);
+    const region = useAtlasView
+      ? { x: 0, y: 0, width: source.width, height: source.height }
+      : faceRegion;
 
     // For animated textures, clamp region to the correct frame strip
     const animMeta = activeTextureMeta[selectedFace.texturePath]?.animation;
     let srcRegion = region;
-    if (animMeta && animMeta.frames.length > 0) {
+    if (!useAtlasView && animMeta && animMeta.frames.length > 0) {
       const frameH = animMeta.frameHeight || source.height / animMeta.frames.length;
       const frameIdx = Math.min(activeFrame, animMeta.frames.length - 1);
       const frameRow = animMeta.frames[frameIdx] ?? frameIdx;
@@ -181,7 +193,7 @@ function TextureCanvasInner({ handle, selectedFace }: TextureCanvasProps) {
       ctx.restore();
     };
 
-    if (animMeta && animMeta.frames.length > 0 && onionSkin) {
+    if (!useAtlasView && animMeta && animMeta.frames.length > 0 && onionSkin) {
       const frameH = animMeta.frameHeight || source.height / animMeta.frames.length;
       const prevIdx = (activeFrame - 1 + animMeta.frames.length) % animMeta.frames.length;
       const nextIdx = (activeFrame + 1) % animMeta.frames.length;
@@ -192,10 +204,10 @@ function TextureCanvasInner({ handle, selectedFace }: TextureCanvasProps) {
         const row = animMeta.frames[idx] ?? idx;
         drawRegion(
           {
-            x: region.x,
-            y: row * frameH + region.y,
-            width: region.width,
-            height: Math.min(region.height, frameH),
+            x: faceRegion.x,
+            y: row * frameH + faceRegion.y,
+            width: faceRegion.width,
+            height: Math.min(faceRegion.height, frameH),
           },
           alpha,
         );
@@ -204,7 +216,7 @@ function TextureCanvasInner({ handle, selectedFace }: TextureCanvasProps) {
 
     drawRegion(srcRegion, 1);
 
-    if (scale >= 4) {
+    if (!useAtlasView && scale >= 4) {
       ctx.strokeStyle = "rgba(255,255,255,0.08)";
       ctx.beginPath();
       for (let x = 0; x <= srcRegion.width; x += 1) {
@@ -219,13 +231,32 @@ function TextureCanvasInner({ handle, selectedFace }: TextureCanvasProps) {
       }
       ctx.stroke();
     }
+
+    if (useAtlasView && atlasModel) {
+      const overlay = overlayRef.current;
+      const octx = overlay?.getContext("2d");
+      if (overlay && octx) {
+        octx.clearRect(0, 0, overlay.width, overlay.height);
+        const regions = collectAtlasFaceRegions(
+          atlasModel,
+          selectedFace.texturePath,
+          source.width,
+          source.height,
+          selectedFace,
+        );
+        drawAtlasGuide(octx, regions, view.width, view.height, source.width, source.height);
+      }
+    }
   }, [
     selectedFace.texturePath,
+    selectedFace,
     zoom,
     faceForRegion,
     activeFrame,
     activeTextureMeta,
     onionSkin,
+    useAtlasView,
+    atlasModel,
   ]);
 
   const drawBrushCursor = useCallback(
@@ -239,11 +270,13 @@ function TextureCanvasInner({ handle, selectedFace }: TextureCanvasProps) {
 
       const source = getTextureCanvas(selectedFace.texturePath);
       if (!source) return;
-      const region = faceUvRegion(faceForRegion(), source.width, source.height);
+      const region = useAtlasView
+        ? { x: 0, y: 0, width: source.width, height: source.height }
+        : faceUvRegion(faceForRegion(), source.width, source.height);
       const scaleX = cursor.width / region.width;
       const scaleY = cursor.height / region.height;
-      const lx = (point[0] - region.x) * scaleX;
-      const ly = (point[1] - region.y) * scaleY;
+      const lx = useAtlasView ? (point[0] / source.width) * cursor.width : (point[0] - region.x) * scaleX;
+      const ly = useAtlasView ? (point[1] / source.height) * cursor.height : (point[1] - region.y) * scaleY;
       const r = (brushSize / 2) * scaleX;
       ctx.strokeStyle = "rgba(99, 140, 255, 0.85)";
       ctx.lineWidth = 1;
@@ -251,7 +284,7 @@ function TextureCanvasInner({ handle, selectedFace }: TextureCanvasProps) {
       ctx.arc(lx, ly, Math.max(1, r), 0, Math.PI * 2);
       ctx.stroke();
     },
-    [brushSize, faceForRegion, selectedFace.texturePath],
+    [brushSize, faceForRegion, selectedFace.texturePath, useAtlasView],
   );
 
   const scheduleBrushCursor = useCallback(
@@ -294,7 +327,10 @@ function TextureCanvasInner({ handle, selectedFace }: TextureCanvasProps) {
 
       const source = getTextureCanvas(selectedFace.texturePath);
       if (!source) return;
-      const region = faceUvRegion(faceForRegion(), source.width, source.height);
+      const faceRegion = faceUvRegion(faceForRegion(), source.width, source.height);
+      const region = useAtlasView
+        ? { x: 0, y: 0, width: source.width, height: source.height }
+        : faceRegion;
       const scaleX = overlay.width / region.width;
       const scaleY = overlay.height / region.height;
 
@@ -304,8 +340,8 @@ function TextureCanvasInner({ handle, selectedFace }: TextureCanvasProps) {
         Math.max(sel[0], sel[2]),
         Math.max(sel[1], sel[3]),
       ];
-      const rx = (x0 - region.x) * scaleX;
-      const ry = (y0 - region.y) * scaleY;
+      const rx = useAtlasView ? x0 * scaleX : (x0 - region.x) * scaleX;
+      const ry = useAtlasView ? y0 * scaleY : (y0 - region.y) * scaleY;
       const rw = (x1 - x0 + 1) * scaleX;
       const rh = (y1 - y0 + 1) * scaleY;
 
@@ -317,7 +353,7 @@ function TextureCanvasInner({ handle, selectedFace }: TextureCanvasProps) {
       ctx.fillRect(rx, ry, rw, rh);
       ctx.setLineDash([]);
     },
-    [selectedFace.texturePath, faceForRegion],
+    [selectedFace.texturePath, faceForRegion, useAtlasView],
   );
 
   const drawShapePreview = useCallback(
@@ -328,7 +364,10 @@ function TextureCanvasInner({ handle, selectedFace }: TextureCanvasProps) {
       const source = getTextureCanvas(selectedFace.texturePath);
       if (!start || !overlay || !view || !source || !isShapeTool(tool)) return;
 
-      const region = faceUvRegion(faceForRegion(), source.width, source.height);
+      const faceRegion = faceUvRegion(faceForRegion(), source.width, source.height);
+      const region = useAtlasView
+        ? { x: 0, y: 0, width: source.width, height: source.height }
+        : faceRegion;
       const ctx = overlay.getContext("2d");
       if (!ctx) return;
 
@@ -344,18 +383,25 @@ function TextureCanvasInner({ handle, selectedFace }: TextureCanvasProps) {
         view.height,
       );
     },
-    [color, faceForRegion, rectFilled, selectedFace.texturePath, tool],
+    [color, faceForRegion, rectFilled, selectedFace.texturePath, tool, useAtlasView],
   );
 
   useEffect(() => {
     let cancelled = false;
     setReady(false);
-    void ensureTextureDocument(handle, selectedFace.texturePath).then(() => {
-      if (!cancelled) {
-        setReady(true);
-        bumpRevision();
-      }
-    });
+    void ensureTextureDocument(handle, selectedFace.texturePath)
+      .then(() => {
+        if (!cancelled) {
+          setReady(true);
+          bumpRevision();
+        }
+      })
+      .catch((error) => {
+        if (!cancelled) {
+          console.warn("[TextureCanvas] failed to load texture document", error);
+          setReady(false);
+        }
+      });
     return () => {
       cancelled = true;
     };
@@ -398,16 +444,19 @@ function TextureCanvasInner({ handle, selectedFace }: TextureCanvasProps) {
       if (isShapeTool(tool)) return;
 
       const last = lastPixelRef.current;
-      const next = applyBrushAt(
-        handle,
+      void paintAtTexturePixel(
         paintCtx(),
         tx,
         ty,
         isStroke,
         last ? { x: last[0], y: last[1] } : null,
-      );
-      lastPixelRef.current = [next.x, next.y];
-      bumpRevision();
+        {
+          pixelWorker: pixelWorkerRef.current,
+          callbacks: { onComplete: () => bumpRevision() },
+        },
+      ).then((next) => {
+        if (next) lastPixelRef.current = [next.x, next.y];
+      });
     },
     [
       handle,
@@ -450,11 +499,18 @@ function TextureCanvasInner({ handle, selectedFace }: TextureCanvasProps) {
       const localX = ((event.clientX - rect.left) / rect.width) * view.width;
       const localY = ((event.clientY - rect.top) / rect.height) * view.height;
 
-      const region = faceUvRegion(faceForRegion(), source.width, source.height);
+      if (useAtlasView) {
+        const tx = Math.floor((localX / view.width) * source.width);
+        const ty = Math.floor((localY / view.height) * source.height);
+        const faceRegion = faceUvRegion(faceForRegion(), source.width, source.height);
+        if (!pointInRegion(tx, ty, faceRegion)) return null;
+        return [tx, ty];
+      }
 
+      const region = faceUvRegion(faceForRegion(), source.width, source.height);
       return canvasToTexture(localX, localY, region, view.width, view.height);
     },
-    [selectedFace.texturePath, faceForRegion],
+    [selectedFace.texturePath, faceForRegion, useAtlasView],
   );
 
   const onPointerDown = (event: React.PointerEvent<HTMLCanvasElement>) => {
@@ -514,6 +570,14 @@ function TextureCanvasInner({ handle, selectedFace }: TextureCanvasProps) {
     if (isShapeTool(tool)) {
       shapeStartRef.current = point;
       return;
+    }
+
+    if (
+      tool !== "fill" &&
+      tool !== "wand" &&
+      tool !== "picker"
+    ) {
+      beginBrushStroke(selectedFace.texturePath);
     }
 
     applyAt(point[0], point[1], false);
@@ -629,6 +693,13 @@ function TextureCanvasInner({ handle, selectedFace }: TextureCanvasProps) {
       if (point && shapeStartRef.current) commitShape(point);
       else clearOverlay();
       shapeStartRef.current = null;
+    } else if (
+      tool !== "fill" &&
+      tool !== "wand" &&
+      tool !== "picker" &&
+      !isSelectionTool(tool)
+    ) {
+      endBrushStroke(handle, selectedFace.texturePath, `${TOOL_LABELS[tool]} stroke`, true);
     }
 
     event.currentTarget.releasePointerCapture(event.pointerId);

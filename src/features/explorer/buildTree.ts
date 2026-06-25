@@ -94,22 +94,20 @@ export function buildFlatRows(assets: AssetEntry[]): ExplorerRow[] {
   return assets.map((entry) => ({ type: "asset" as const, entry, depth: 0 }));
 }
 
-/**
- * Filesystem-like tree: splits each asset's path by "/" and creates intermediate
- * directory group rows, e.g. assets/minecraft/textures/block/ as nesting levels.
- * Collapsed groups suppress children.
- */
-export function buildFilesystemRows(
-  assets: AssetEntry[],
-  collapsed: ReadonlySet<string>,
-): ExplorerRow[] {
-  type TrieNode = {
-    children: Map<string, TrieNode>;
-    entry?: AssetEntry;
-  };
+type FilesystemTrieNode = {
+  children: Map<string, FilesystemTrieNode>;
+  entry?: AssetEntry;
+};
 
-  const root: TrieNode = { children: new Map() };
+let cachedTrieAssets: AssetEntry[] | null = null;
+let cachedTrieRoot: FilesystemTrieNode | null = null;
 
+function buildFilesystemTrie(assets: AssetEntry[]): FilesystemTrieNode {
+  if (cachedTrieAssets === assets && cachedTrieRoot) {
+    return cachedTrieRoot;
+  }
+
+  const root: FilesystemTrieNode = { children: new Map() };
   for (const entry of assets) {
     const parts = entry.path.split("/");
     let node = root;
@@ -125,9 +123,24 @@ export function buildFilesystemRows(
     }
   }
 
+  cachedTrieAssets = assets;
+  cachedTrieRoot = root;
+  return root;
+}
+
+/**
+ * Filesystem-like tree: splits each asset's path by "/" and creates intermediate
+ * directory group rows, e.g. assets/minecraft/textures/block/ as nesting levels.
+ * Collapsed groups suppress children.
+ */
+export function buildFilesystemRows(
+  assets: AssetEntry[],
+  collapsed: ReadonlySet<string>,
+): ExplorerRow[] {
+  const root = buildFilesystemTrie(assets);
   const rows: ExplorerRow[] = [];
 
-  function sortedChildKeys(node: TrieNode): string[] {
+  function sortedChildKeys(node: FilesystemTrieNode): string[] {
     return [...node.children.keys()].sort((a, b) => {
       const aChild = node.children.get(a)!;
       const bChild = node.children.get(b)!;
@@ -138,7 +151,7 @@ export function buildFilesystemRows(
     });
   }
 
-  function countLeaves(node: TrieNode): number {
+  function countLeaves(node: FilesystemTrieNode): number {
     if (node.entry && node.children.size === 0) return 1;
     let count = node.entry ? 1 : 0;
     for (const child of node.children.values()) {
@@ -147,7 +160,7 @@ export function buildFilesystemRows(
     return count;
   }
 
-  function countChildLeaves(node: TrieNode): number {
+  function countChildLeaves(node: FilesystemTrieNode): number {
     let count = 0;
     for (const child of node.children.values()) {
       count += countLeaves(child);
@@ -155,13 +168,13 @@ export function buildFilesystemRows(
     return count;
   }
 
-  function visitChildren(node: TrieNode, pathSoFar: string, depth: number) {
+  function visitChildren(node: FilesystemTrieNode, pathSoFar: string, depth: number) {
     for (const key of sortedChildKeys(node)) {
       emitNode(node.children.get(key)!, pathSoFar ? `${pathSoFar}/${key}` : key, key, depth);
     }
   }
 
-  function emitNode(node: TrieNode, id: string, label: string, depth: number) {
+  function emitNode(node: FilesystemTrieNode, id: string, label: string, depth: number) {
     const hasChildren = node.children.size > 0;
 
     if (node.entry) {

@@ -14,12 +14,8 @@ vi.mock("./StudioTexturePreview", () => ({
   StudioTexturePreview: () => <div data-testid="studio-texture-preview" />,
 }));
 
-vi.mock("./TextureNavigator", () => ({
-  TextureNavigator: () => <nav data-testid="texture-navigator" />,
-}));
-
-vi.mock("./UnfoldPanel", () => ({
-  UnfoldPanel: () => null,
+vi.mock("../viewer3d/ModelFaceChrome", () => ({
+  ModelFaceChrome: () => <nav data-testid="texture-navigator" />,
 }));
 
 vi.mock("./StudioAnimationPreview", () => ({
@@ -28,10 +24,6 @@ vi.mock("./StudioAnimationPreview", () => ({
 
 vi.mock("./useStudioFaceBootstrap", () => ({
   useStudioFaceBootstrap: vi.fn(),
-}));
-
-vi.mock("./useStudioFaceHotkeys", () => ({
-  useStudioFaceHotkeys: vi.fn(),
 }));
 
 vi.mock("../viewer3d/viewerTextureSync", () => ({
@@ -146,7 +138,7 @@ describe("BlockStudioViewport", () => {
     expect(screen.queryByTestId("scene3d")).toBeNull();
   });
 
-  it("shows resolve error and switches interaction mode buttons", () => {
+  it("shows resolve error and biome controls", () => {
     const onBiomeChange = vi.fn();
     render(
       <BlockStudioViewport
@@ -163,8 +155,6 @@ describe("BlockStudioViewport", () => {
     );
 
     expect(screen.getByRole("alert").textContent).toContain("Model missing");
-    fireEvent.click(screen.getAllByRole("button", { name: "Orbit" })[0]!);
-    expect(useSelectionStore.getState().interactionMode).toBe("orbit");
     fireEvent.click(screen.getByRole("button", { name: "plains" }));
     expect(onBiomeChange).toHaveBeenCalledWith("plains");
   });

@@ -5,6 +5,68 @@ All notable changes to **inD3X Art** are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.5] - 2026-06-26
+
+### Added
+
+#### Block Studio & catalog
+
+- **Vanilla creative data** — bundled `en_us` / `ru_ru` lang and creative category order; catalog labels and tabs align with in-game creative inventory.
+- **Studio face workflow** — `ModelFaceChrome`, mini-scene tiles, cube-wrap preview for texture entries; paint-on-mesh as primary studio flow.
+- **Catalog grid toolbar** — language switch, namespace filter, shared-texture banner, unfold face editing guide.
+- **Compare 3D** — single live `Scene3D` + static before snapshot (`Compare3DViewport`) instead of dual WebGL contexts.
+- **Tier-1 icon batch prefetch** — `getTexturePreviewsBatch` wired into `catalogIconPipeline` for visible grid misses.
+- **Abortable catalog IPC** — `cancel_ipc_request` / `finish_ipc_request` in Rust; `withAbortableIpc` on session restore and catalog query.
+- **Studio asset loader** — parallel `listVariants` + `resolveCatalogEntry`; `variantLoadError` surfaced in UI.
+
+#### Editor & paint engine
+
+- **Lazy layer pixel cache** — 1×1 `getImageData` for single pixels; full cache only for flood fill / magic wand.
+- **Regional composite** — stroke segments composite only changed bounds (≤256×256) for live preview.
+- **Immutable document store** — `Map` cloned on each mutation for safe React subscriptions.
+- **Stroke batching** — segmented commits, paint operation generation, reusable crop canvas pool.
+- **Face UV transfer** — copy/paste between faces; atlas overlay; animation frame ops.
+
+#### Viewer3D & explorer
+
+- **Texture cache byte budget** — LRU eviction for viewer and catalog icon caches; shared `MeshLambertMaterial` per texture/tint.
+- **Global texture animation loop** — one rAF driver instead of per-mesh timers.
+- **Thumbnail batch prefetch** — explorer uses `getTexturePreviewsBatch` with inflight dedup.
+- **Fuzzy golden vectors** — `tests/fixtures/fuzzy_golden.json` shared by vitest and `cargo test` (EXP-007).
+
+#### Rust backend
+
+- **IPC request cancellation** — optional `ipc_request_id` on catalog query, entry resolve, variants, preview batch.
+- **Catalog patch pipeline** — vanilla category/lang modules; incremental catalog rebuild hooks.
+- **Save & security hardening** — zip entry limits, backup prune tests, poison-lock recovery regression vectors.
+
+#### Tests & CI
+
+- **Parallel CI jobs** — frontend, Rust, E2E split in `.github/workflows/ci.yml` with summary gate.
+- **`ci:regression`** — backup prune, project poison survival, watcher debouncer, layer pinning, paint regression.
+- **`.gitignore`** — `target/` excluded from accidental commits.
+
+### Changed
+
+- **Classic / Studio modes** — folder sources open in Classic; Studio gated to JAR; workspace transition orchestrator.
+- **Catalog icon renderer** — shared WebGL queue (serial 3D bakes by design); `preserveDrawingBuffer: false`.
+- **Project cache invalidation** — deduplicated icon/studio scopes; synchronous pipeline reset; debug logging on reindex/listeners.
+- **Export path** — unified folder export; dirty state preserved correctly after export-to-folder.
+- **Status bar** — `useDocumentRevision` drives studio dirty indicator after save.
+
+### Fixed
+
+- **Paint engine** — per-pixel reads without full-layer cache on first stroke; undo uses regional composite bounds.
+- **Copy/paste** — reads composite, writes active layer (documented + tested).
+- **Viewer** — texture reload sync in-place; selection/hover cleanup on unmount; extrusion grid cap.
+- **Catalog** — icon cache metadata eviction; debounced query; session restore abort on project switch.
+- **App shell** — onboarding Rules of Hooks; failed open restores catalog snapshot; zoom slider matches canvas scale (32×).
+
+### Upgrade notes
+
+- No settings migration. Reopen projects once after upgrade if catalog labels look stale (language rebuild is automatic).
+- Fuzzy search TS/Rust parity: empty query no longer scores as `0` in frontend helpers (aligned with backend `None`).
+
 ## [0.3.4] - 2026-06-25
 
 ### Added
@@ -258,6 +320,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Initial release: asset indexer, explorer, 3D viewer, texture editor, save pipeline, Tauri 2 desktop shell.
 
+[0.3.5]: https://github.com/ximaks00-hue/ind3x-art/compare/v0.3.4...v0.3.5
 [0.3.4]: https://github.com/ximaks00-hue/ind3x-art/compare/v0.3.2...v0.3.4
 [0.3.2]: https://github.com/ximaks00-hue/ind3x-art/compare/v0.3.1...v0.3.2
 [0.3.1]: https://github.com/ximaks00-hue/ind3x-art/compare/v0.3.0...v0.3.1

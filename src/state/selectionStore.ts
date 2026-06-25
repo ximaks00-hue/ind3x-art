@@ -51,5 +51,6 @@ export const useSelectionStore = create<SelectionState>((set, get) => ({
     set({
       interactionMode: get().interactionMode === "orbit" ? "paint" : "orbit",
     }),
-  clearSelection: () => set({ selectedFace: null, hoveredFace: null }),
+  clearSelection: () =>
+    set({ selectedFace: null, hoveredFace: null, interactionMode: "orbit" }),
 }));

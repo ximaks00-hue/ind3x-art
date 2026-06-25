@@ -10,7 +10,7 @@ import { catalogTotalCount } from "./catalogUtils";
  * Clears stale category/search filters when the pack has entries but the current filter hides them.
  * Initial catalog selection is owned by CatalogPanel session-restore orchestration.
  */
-export function useCatalogFilterRecovery() {
+export function useCatalogFilterRecovery(enabled = true) {
   const handle = useProjectStore((s) => s.handle);
   const indexStatus = useProjectStore((s) => s.indexStatus);
   const workspaceMode = useSettingsStore((s) => s.workspaceMode);
@@ -34,14 +34,14 @@ export function useCatalogFilterRecovery() {
   }, [handle?.id]);
 
   useEffect(() => {
-    if (workspaceMode !== "studio") return;
+    if (!enabled || workspaceMode !== "studio") return;
     if (!studioSelectedCatalogId && !studioCatalogCategory) {
       useCatalogStore.getState().setSessionRestorePending(false);
     }
-  }, [workspaceMode, studioSelectedCatalogId, studioCatalogCategory]);
+  }, [enabled, workspaceMode, studioSelectedCatalogId, studioCatalogCategory]);
 
   useEffect(() => {
-    if (workspaceMode !== "studio" || !handle || indexStatus !== "done" || loading) {
+    if (!enabled || workspaceMode !== "studio" || !handle || indexStatus !== "done" || loading) {
       return;
     }
 
@@ -69,6 +69,7 @@ export function useCatalogFilterRecovery() {
       refreshCatalogCaches();
     }
   }, [
+    enabled,
     workspaceMode,
     handle,
     indexStatus,

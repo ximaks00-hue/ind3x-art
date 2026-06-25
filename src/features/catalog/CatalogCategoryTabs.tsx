@@ -49,7 +49,7 @@ export function CatalogCategoryTabs({
             role="tab"
             aria-selected={active === category}
             className={active === category ? styles.tabActive : styles.tab}
-            onClick={() => onSelect(active === category ? null : category)}
+            onClick={() => onSelect(category)}
           >
             {CATALOG_CATEGORY_LABELS[category]}
             {count > 0 ? (
