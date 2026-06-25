@@ -9,12 +9,14 @@ import { buildCubeAllPreviewModel } from "../viewer3d/cubeWrapPreview";
 import { catalogVariantKeysToPicker } from "./catalogUtils";
 import { useCatalogStore } from "./catalogStore";
 import {
+  clearStudioResolveCacheForHandle,
   getStudioResolveCache,
   setStudioResolveCache,
   setStudioResolveCacheLimit,
   studioResolveKey,
 } from "./studioResolveCache";
 import { modelTexturePaths, refreshDirtyTexturesForViewer } from "../viewer3d/viewerTextureSync";
+import { resolveWithTimeout } from "../../lib/resolveWithTimeout";
 
 export interface StudioAssetState {
   renderable: RenderableModel | null;
@@ -24,6 +26,8 @@ export interface StudioAssetState {
   error: string | null;
   variantLoadError: string | null;
 }
+
+const RESOLVE_TIMEOUT_MS = 45_000;
 
 const EMPTY: StudioAssetState = {
   renderable: null,
@@ -56,10 +60,11 @@ export function useStudioAssetLoader(
   const setActiveTextureMeta = useViewerStore((s) => s.setActiveTextureMeta);
 
   const entryId = entry?.id ?? null;
+  const variantKeysFingerprint = entry?.variantKeys?.join("\0") ?? "";
   const fallbackVariants = useMemo(
     () =>
       entry?.variantKeys?.length ? catalogVariantKeysToPicker(entry.variantKeys) : [],
-    [entry?.variantKeys],
+    [variantKeysFingerprint],
   );
   const variants = resolvedVariants.length > 0 ? resolvedVariants : fallbackVariants;
   const resolvedVariantKey =
@@ -68,6 +73,11 @@ export function useStudioAssetLoader(
   useEffect(() => {
     setStudioResolveCacheLimit(modelCacheLimit);
   }, [modelCacheLimit]);
+
+  useEffect(() => {
+    if (!handle) return;
+    clearStudioResolveCacheForHandle(handle.id);
+  }, [handle?.id, queryRevision]);
 
   useEffect(() => {
     variantsAbortRef.current?.abort();
@@ -181,12 +191,17 @@ export function useStudioAssetLoader(
 
     void (async () => {
       try {
-        const model = await resolveCatalogEntry(
-          handle,
-          entryId,
-          "placed",
-          resolvedVariantKey ?? null,
-          { signal: abort.signal },
+        const model = await resolveWithTimeout(
+          resolveCatalogEntry(
+            handle,
+            entryId,
+            "placed",
+            resolvedVariantKey ?? null,
+            { signal: abort.signal },
+          ),
+          abort.signal,
+          RESOLVE_TIMEOUT_MS,
+          "Model resolve timed out — try another entry or reopen the pack",
         );
         if (abort.signal.aborted) return;
         if (cacheKey) setStudioResolveCache(cacheKey, model);
@@ -221,10 +236,9 @@ export function useStudioAssetLoader(
     entryId,
     resolvedVariantKey,
     reloadTick,
-    queryRevision,
     setActiveTextureMeta,
     entry?.resolveKind,
-    fallbackVariants,
+    variantKeysFingerprint,
   ]);
 
   return { ...state, variants, variantKey: resolvedVariantKey, variantLoadError };

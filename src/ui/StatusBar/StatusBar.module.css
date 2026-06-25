@@ -7,6 +7,8 @@
   padding: 0 var(--space-4);
   font-size: var(--text-caption);
   font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  line-height: var(--leading-snug);
   color: var(--color-text-secondary);
   white-space: nowrap;
   overflow: hidden;
@@ -28,27 +30,58 @@
   opacity: 0.6;
 }
 
+.dirty,
+.catalogError,
+.ipcStatus,
+.indexing {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.ipcStatus[data-healthy="true"] {
+  color: var(--color-success);
+}
+
+.ipcStatus[data-healthy="false"] {
+  color: var(--color-danger);
+}
+
+.indexing {
+  color: var(--color-accent);
+}
+
 .dirty {
   color: var(--color-warning);
   font-weight: var(--font-weight-semibold);
 }
 
+.statusIcon {
+  flex-shrink: 0;
+  opacity: 0.9;
+}
+
 .modeBadge {
   display: inline-flex;
   align-items: center;
-  padding: 1px 7px;
+  padding: 2px var(--space-2);
   border-radius: 999px;
   border: 1px solid color-mix(in srgb, var(--color-accent) 35%, transparent);
   background: var(--color-bg-accent-subtle);
   color: var(--color-accent);
+  font-size: var(--text-2xs);
   font-weight: var(--font-weight-semibold);
   font-family: var(--font-sans);
-  letter-spacing: 0.03em;
+  letter-spacing: var(--tracking-wide);
 }
 
 .catalogError {
   color: var(--color-danger);
   font-weight: var(--font-weight-medium);
+}
+
+.metric {
+  font-variant-numeric: tabular-nums;
 }
 
 .studioBar {
@@ -68,7 +101,7 @@
 }
 
 .saveFlash {
-  animation: statusSaveFlash 600ms ease;
+  animation: statusSaveFlash var(--dur-slow) var(--ease-decelerate);
 }
 
 @keyframes statusSaveFlash {

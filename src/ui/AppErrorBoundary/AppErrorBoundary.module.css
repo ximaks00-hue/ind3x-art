@@ -54,8 +54,8 @@
   border-radius: var(--radius-md);
   background: var(--color-bg-panel);
   font-family: var(--font-mono);
-  font-size: 11px;
-  line-height: 1.45;
+  font-size: var(--text-xs);
+  line-height: var(--leading-snug);
   white-space: pre-wrap;
   word-break: break-word;
 }

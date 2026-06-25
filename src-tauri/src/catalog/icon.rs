@@ -1,11 +1,12 @@
 use crate::compile::vanilla_gui_display;
-use crate::compile::compile_renderable;
+use crate::compile::{compile_multipart_renderable, compile_renderable};
 use crate::compile::compile_texture_block_preview;
 use crate::compile::compile_texture_preview;
 use crate::dto::{
     CatalogEntry, CatalogResolveKind, RenderableKind, RenderableModel,
 };
 use crate::error::{CoreError, CoreResult};
+use crate::model::multipart::{parse_variant_state, resolve_multipart_models};
 use crate::model::normalize::PackInfo;
 use crate::model::types::{
     blockstate_id_from_asset_path, model_id_from_asset_path, normalize_model_ref,
@@ -79,6 +80,21 @@ fn compile_blockstate_placed(
     let (ns, block_name) = blockstate_id_from_asset_path(&entry.studio_model_path)
         .ok_or_else(|| CoreError::InvalidInput("invalid blockstate path".to_string()))?;
     let blockstate = registry.load_blockstate(&ns, &block_name)?;
+
+    if blockstate.multipart.is_some() && blockstate.variants.is_empty() {
+        let state = variant_key
+            .or(entry.default_variant_key.as_deref())
+            .map(parse_variant_state)
+            .unwrap_or_default();
+        let variants = resolve_multipart_models(&blockstate, &state);
+        if variants.is_empty() {
+            return Err(CoreError::InvalidInput(
+                "no multipart models matched".to_string(),
+            ));
+        }
+        return compile_multipart_renderable(registry, &ns, &variants, pack);
+    }
+
     let variants = collect_variant_models(&blockstate);
     let preferred = variant_key.or(entry.default_variant_key.as_deref());
     let (variant, _) = pick_variant(&variants, preferred)
@@ -199,6 +215,32 @@ mod tests {
             !model.cuboids.is_empty() || model.kind == RenderableKind::ItemGenerated,
             "block icons use 3D cube or item/generated extrusion"
         );
+    }
+
+    #[test]
+    fn placed_multipart_fence_assembles_parts() {
+        use crate::dto::RenderableKind;
+
+        let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../tests/fixtures/multipart_pack");
+        let source = FolderSource::new(&path).expect("source");
+        let entries: Vec<_> = source
+            .list_entries()
+            .expect("list")
+            .into_iter()
+            .filter_map(|p| classify_path(&p))
+            .collect();
+        let catalog = build_from_entries(&entries, Some(&source));
+        let fence = catalog
+            .iter()
+            .find(|e| e.id.contains("test_fence"))
+            .expect("fence");
+        let pack = PackInfo::default();
+        let mut cache = std::collections::HashMap::new();
+        let mut registry = ModelRegistry::new(&source, &mut cache, pack);
+        let model = compile_catalog_placed_model(fence, &mut registry, &pack, Some("north=true"))
+            .expect("placed multipart");
+        assert_eq!(model.kind, RenderableKind::Multipart);
+        assert!(model.cuboids.len() >= 2);
     }
 
     #[test]

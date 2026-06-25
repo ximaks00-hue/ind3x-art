@@ -5,23 +5,19 @@ import type { RenderableModel } from "../../ipc/types";
 import { useEditorStore } from "../../state/editorStore";
 import { useSelectionStore } from "../../state/selectionStore";
 import { useViewerStore } from "../../state/viewerStore";
-import { buildFaceHighlight, buildFaceOverlayNode, disposeObject3D } from "./buildMesh";
+import { buildFaceHighlight, buildFaceOverlayNode, disposeObject3D, wrapModelPresentation } from "./buildMesh";
 
 interface FaceHighlightProps {
   model: RenderableModel;
   studioMode?: boolean;
+  preferredDisplaySlot?: string;
 }
 
-function wrapHighlight(faceNode: THREE.Object3D, model: RenderableModel): THREE.Group {
-  const root = new THREE.Group();
-  root.add(faceNode);
-  root.rotation.x = THREE.MathUtils.degToRad(model.modelRotation.x);
-  root.rotation.y = THREE.MathUtils.degToRad(model.modelRotation.y);
-  root.rotation.z = THREE.MathUtils.degToRad(model.modelRotation.z);
-  return root;
-}
-
-export function FaceHighlight({ model, studioMode = false }: FaceHighlightProps) {
+export function FaceHighlight({
+  model,
+  studioMode = false,
+  preferredDisplaySlot,
+}: FaceHighlightProps) {
   const selectedFace = useSelectionStore((s) => s.selectedFace);
   const hoveredFace = useSelectionStore((s) => s.hoveredFace);
   const interactionMode = useSelectionStore((s) => s.interactionMode);
@@ -46,8 +42,8 @@ export function FaceHighlight({ model, studioMode = false }: FaceHighlightProps)
       });
     }
 
-    return wrapHighlight(faceNode, model);
-  }, [model, selectedFace, pickHighlight]);
+    return wrapModelPresentation(faceNode, model, preferredDisplaySlot);
+  }, [model, selectedFace, pickHighlight, preferredDisplaySlot]);
 
   const hoverHighlight = useMemo(() => {
     if (!studioMode || !hoveredFace || model.cuboids.length === 0) return null;
@@ -83,8 +79,8 @@ export function FaceHighlight({ model, studioMode = false }: FaceHighlightProps)
       }
     });
 
-    return wrapHighlight(faceNode, model);
-  }, [model, studioMode, hoveredFace, selectedFace]);
+    return wrapModelPresentation(faceNode, model, preferredDisplaySlot);
+  }, [model, studioMode, hoveredFace, selectedFace, preferredDisplaySlot]);
 
   const pixelGridOverlay = useMemo(() => {
     if (!studioMode || interactionMode !== "paint") return null;
@@ -150,8 +146,8 @@ export function FaceHighlight({ model, studioMode = false }: FaceHighlightProps)
       map.dispose();
       return null;
     }
-    return wrapHighlight(node, model);
-  }, [studioMode, interactionMode, selectedFace, hoveredFace, model, activeTextureMeta]);
+    return wrapModelPresentation(node, model, preferredDisplaySlot);
+  }, [studioMode, interactionMode, selectedFace, hoveredFace, model, activeTextureMeta, preferredDisplaySlot]);
 
   useEffect(() => {
     return () => {

@@ -5,12 +5,12 @@
 
 .label {
   display: block;
-  font-size: 10px;
-  font-weight: 600;
+  font-size: var(--text-2xs);
+  font-weight: var(--font-weight-strong);
   color: var(--color-text-muted);
   margin-bottom: 4px;
   text-transform: uppercase;
-  letter-spacing: 0.04em;
+  letter-spacing: var(--tracking-wide);
 }
 
 .chips {
@@ -28,7 +28,7 @@
   border-radius: var(--radius-sm);
   background: var(--color-bg-input);
   color: var(--color-text-secondary);
-  font-size: 10px;
+  font-size: var(--text-2xs);
   cursor: pointer;
   max-width: 140px;
 }
@@ -42,6 +42,13 @@
   border-color: color-mix(in srgb, var(--color-accent) 50%, transparent);
   background: var(--color-bg-accent-subtle);
   color: var(--color-accent);
+}
+
+.chip:focus-visible,
+.chipActive:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring-inset);
+  transition: box-shadow var(--transition-focus);
 }
 
 .chipPinned {
@@ -66,6 +73,6 @@
 
 .pinMark {
   flex-shrink: 0;
-  font-size: 9px;
+  font-size: var(--text-3xs);
   color: var(--color-warning);
 }

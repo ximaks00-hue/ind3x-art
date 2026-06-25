@@ -10,13 +10,12 @@ export function ViewerLoadingState({
 }: ViewerLoadingStateProps) {
   return (
     <div className={styles.wrap}>
-      <div className={styles.skeletonMesh} aria-hidden>
-        <div className={styles.block} />
-        <div className={styles.block} data-offset />
-        <div className={styles.block} data-small />
+      <div className={styles.voxelCube} aria-hidden>
+        <span className={styles.face} data-face="top" />
+        <span className={styles.face} data-face="front" />
+        <span className={styles.face} data-face="side" />
       </div>
       <Spinner label={label} />
-      <p className={styles.label}>{label}</p>
     </div>
   );
 }

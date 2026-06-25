@@ -20,7 +20,7 @@ export function buildCubeAllPreviewModel(
 ): RenderableModel {
   const w = meta?.width && meta.width > 0 ? meta.width : 16;
   const h = meta?.height && meta.height > 0 ? meta.height : 16;
-  const uv: [number, number, number, number] = [0, 0, w, h];
+  const uv: [number, number, number, number] = [0, 0, 16, 16];
   const textureMeta: TextureMetaInfo = {
     width: w,
     height: h,

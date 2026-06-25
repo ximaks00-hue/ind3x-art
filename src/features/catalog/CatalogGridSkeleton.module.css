@@ -1,0 +1,46 @@
+.skeleton {
+  display: grid;
+  grid-template-columns: repeat(9, minmax(0, 1fr));
+  gap: var(--space-1);
+  width: 100%;
+}
+
+.cell {
+  width: 100%;
+  max-width: 40px;
+  justify-self: center;
+  border-radius: var(--radius-sm);
+  border: 1px solid color-mix(in srgb, var(--color-border) 60%, transparent);
+  background: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--color-bg-input) 92%, transparent) 0%,
+    color-mix(in srgb, var(--color-text-muted) 12%, transparent) 50%,
+    color-mix(in srgb, var(--color-bg-input) 92%, transparent) 100%
+  );
+  background-size: 200% 100%;
+  animation: catalogSkeletonShimmer 1.4s ease-in-out infinite;
+}
+
+.cellLabeled {
+  min-height: 54px;
+}
+
+.cellCompact {
+  min-height: 40px;
+}
+
+@keyframes catalogSkeletonShimmer {
+  0% {
+    background-position: 100% 0;
+  }
+  100% {
+    background-position: -100% 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cell {
+    animation: none;
+    background: color-mix(in srgb, var(--color-bg-input) 88%, transparent);
+  }
+}

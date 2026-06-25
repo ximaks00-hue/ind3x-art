@@ -53,6 +53,8 @@ export const STUDIO_ONBOARDING_STEPS: OnboardingStep[] = [
   },
 ];
 
+export const STUDIO_IN_APP_ONBOARDING_STEPS: OnboardingStep[] = STUDIO_ONBOARDING_STEPS.slice(1);
+
 /** Onboarding dims the whole window — hide it while a pack is open or loading. */
 export function shouldShowOnboardingTour(opts: {
   workspaceMode: WorkspaceMode;
@@ -68,4 +70,16 @@ export function shouldShowOnboardingTour(opts: {
   return opts.workspaceMode === "studio"
     ? !opts.studioOnboardingCompleted
     : !opts.onboardingCompleted;
+}
+
+/** Post-open Studio tour — viewport, editor, save — after catalog is ready. */
+export function shouldShowStudioInAppOnboarding(opts: {
+  workspaceMode: WorkspaceMode;
+  studioInAppOnboardingCompleted: boolean;
+  hasOpenProject: boolean;
+  indexStatus: IndexStatus;
+}): boolean {
+  if (opts.workspaceMode !== "studio") return false;
+  if (!opts.hasOpenProject || opts.indexStatus !== "done") return false;
+  return !opts.studioInAppOnboardingCompleted;
 }

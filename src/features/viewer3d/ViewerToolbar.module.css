@@ -5,7 +5,9 @@
   gap: var(--space-3);
   padding: var(--space-2) var(--space-4);
   border-bottom: 1px solid var(--color-border);
-  background: color-mix(in srgb, var(--color-bg-panel) 75%, transparent);
+  background: var(--glass-panel-bg);
+  backdrop-filter: var(--glass-panel-blur);
+  -webkit-backdrop-filter: var(--glass-panel-blur);
 }
 
 .group,
@@ -24,20 +26,20 @@
 }
 
 .groupLabel {
-  font-size: 9px;
-  font-weight: 650;
-  letter-spacing: 0.06em;
+  font-size: var(--text-3xs);
+  font-weight: var(--font-weight-strong);
+  letter-spacing: var(--tracking-caps);
   text-transform: uppercase;
   color: var(--color-text-muted);
 }
 
 .select {
   max-width: 140px;
-  font-size: 11px;
+  font-size: var(--text-xs);
 }
 
 .muted {
-  font-size: 11px;
+  font-size: var(--text-xs);
   color: var(--color-text-muted);
   padding: 4px 0;
 }
@@ -50,7 +52,7 @@
 
 .btn,
 .btnActive {
-  font-size: 10px !important;
+  font-size: var(--text-2xs) !important;
   min-width: 28px;
   padding: 2px 6px !important;
 }
@@ -61,9 +63,9 @@
 }
 
 .modeBadge {
-  font-size: 10px;
-  font-weight: 600;
-  letter-spacing: 0.04em;
+  font-size: var(--text-2xs);
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: var(--tracking-wide);
   text-transform: uppercase;
   padding: 2px 8px;
   border-radius: var(--radius-sm);

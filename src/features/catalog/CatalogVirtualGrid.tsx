@@ -2,12 +2,12 @@ import { useEffect, useMemo, useRef } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 
 import type { CatalogEntry } from "../../ipc/types";
+import { useSettingsStore } from "../../state/settingsStore";
 import { CatalogCell } from "./CatalogCell";
 import styles from "./CatalogPanel.module.css";
-import { CATALOG_GRID_COLS, catalogRowCount } from "./catalogUtils";
+import { CATALOG_GRID_COLS, catalogRowCount, catalogRowHeight } from "./catalogUtils";
 import { useCatalogIconPipeline } from "./useCatalogIconPipeline";
 
-const ROW_HEIGHT = 48;
 const ICON_PREFETCH_ROWS = 1;
 
 interface CatalogVirtualGridProps {
@@ -35,23 +35,29 @@ export function CatalogVirtualGrid({
   onTogglePin,
   loadMore,
 }: CatalogVirtualGridProps) {
+  const showLabels = useSettingsStore((s) => s.catalogShowCellLabels);
+  const rowHeight = catalogRowHeight(showLabels);
   const rowCount = catalogRowCount(entries.length);
 
   const virtualizer = useVirtualizer({
     count: rowCount,
     getScrollElement: () => scrollRef.current,
-    estimateSize: () => ROW_HEIGHT,
+    estimateSize: () => rowHeight,
     overscan: ICON_PREFETCH_ROWS,
   });
+
+  useEffect(() => {
+    virtualizer.measure();
+  }, [showLabels, rowHeight, virtualizer]);
 
   const scrollOffset = virtualizer.scrollOffset;
   const virtualRangeKey = useMemo(() => {
     const items = virtualizer.getVirtualItems();
-    if (items.length === 0) return `${rowCount}:empty`;
+    if (items.length === 0) return `${rowCount}:${rowHeight}:empty`;
     const first = items[0]!.index;
     const last = items[items.length - 1]!.index;
-    return `${rowCount}:${first}:${last}`;
-  }, [virtualizer, rowCount, scrollOffset]);
+    return `${rowCount}:${rowHeight}:${first}:${last}`;
+  }, [virtualizer, rowCount, rowHeight, scrollOffset]);
 
   const virtualItems = virtualizer.getVirtualItems();
 
@@ -77,19 +83,26 @@ export function CatalogVirtualGrid({
   useCatalogIconPipeline(visibleEntries, selectedId, entries);
 
   const loadingMoreRef = useRef(false);
+  const loadMoreRowRef = useRef(-1);
 
   useEffect(() => {
-    if (!loading) loadingMoreRef.current = false;
+    if (!loading) {
+      loadingMoreRef.current = false;
+      loadMoreRowRef.current = -1;
+    }
   }, [loading]);
 
   useEffect(() => {
-    const last = virtualItems[virtualItems.length - 1];
+    const items = virtualizer.getVirtualItems();
+    const last = items[items.length - 1];
     if (!last || !hasMore || loading || loadingMoreRef.current) return;
     if (last.index >= rowCount - ICON_PREFETCH_ROWS) {
+      if (loadMoreRowRef.current === last.index) return;
+      loadMoreRowRef.current = last.index;
       loadingMoreRef.current = true;
       loadMore();
     }
-  }, [virtualItems, hasMore, loading, loadMore, rowCount]);
+  }, [virtualRangeKey, hasMore, loading, loadMore, rowCount, virtualizer]);
 
   return (
     <div
@@ -102,6 +115,8 @@ export function CatalogVirtualGrid({
           <div
             key={virtualRow.key}
             className={styles.row}
+            role="row"
+            aria-rowindex={virtualRow.index + 1}
             style={{
               transform: `translateY(${virtualRow.start}px)`,
               height: virtualRow.size,
@@ -111,12 +126,15 @@ export function CatalogVirtualGrid({
               const index = rowStart + col;
               const entry = entries[index];
               if (!entry) {
-                return <span key={col} className={styles.cellGap} />;
+                return <span key={col} className={styles.cellGap} role="presentation" />;
               }
               return (
                 <CatalogCell
                   key={entry.id}
                   entry={entry}
+                  columnIndex={col}
+                  rowIndex={virtualRow.index}
+                  showLabels={showLabels}
                   selected={selectedId === entry.id}
                   focused={focusIndex === index}
                   pinned={pinnedIdSet.has(entry.id)}

@@ -18,9 +18,10 @@ import {
   isShapeTool,
   paintAtTexturePixel,
 } from "../editor/paintInteraction";
-import { ensureTextureDocument } from "../editor/textureDocument";
+import { safeVoid } from "../../lib/safeVoid";
+import { ensureTextureDocument, getActiveLayerId } from "../editor/textureDocument";
 import { beginBrushStroke, endBrushStroke } from "../editor/paintEngine";
-import { isFacePickData } from "./buildMesh";
+import { isFacePickData, isMiniSceneObject } from "./buildMesh";
 import { hitUvToPixel } from "./uvMapping";
 
 interface FaceRaycasterProps {
@@ -86,6 +87,8 @@ export function FaceRaycaster({ model, handle, studioMode = false }: FaceRaycast
       const hits = raycasterRef.current.intersectObjects(scene.children, true);
 
       for (const hit of hits) {
+        if (isMiniSceneObject(hit.object)) continue;
+
         const pick = hit.object.userData[FACE_PICK_KEY];
         if (!isFacePickData(pick)) continue;
 
@@ -145,6 +148,16 @@ export function FaceRaycaster({ model, handle, studioMode = false }: FaceRaycast
       });
     };
 
+    const sameActivePick = (pick: FacePickData) => {
+      const active = activePickRef.current;
+      if (!active) return true;
+      return (
+        active.cuboidIndex === pick.cuboidIndex &&
+        active.faceIndex === pick.faceIndex &&
+        active.face.texture === pick.face.texture
+      );
+    };
+
     const onPointerDown = (event: PointerEvent) => {
       if (interactionMode !== "paint" || event.button !== 0) return;
 
@@ -158,9 +171,12 @@ export function FaceRaycaster({ model, handle, studioMode = false }: FaceRaycast
       activePickRef.current = pick;
 
       if (tool === "picker") {
-        void ensureTextureDocument(handle, texturePath).then(() => {
-          enqueuePaint(texturePath, pixel[0], pixel[1], false);
-        });
+        safeVoid(
+          ensureTextureDocument(handle, texturePath).then(() => {
+            enqueuePaint(texturePath, pixel[0], pixel[1], false);
+          }),
+          "FaceRaycaster.picker",
+        );
         return;
       }
 
@@ -179,8 +195,9 @@ export function FaceRaycaster({ model, handle, studioMode = false }: FaceRaycast
         return;
       }
 
-      beginBrushStroke(texturePath);
+      beginBrushStroke(texturePath, getActiveLayerId(texturePath) ?? undefined);
       enqueuePaint(texturePath, pixel[0], pixel[1], false);
+      canvas.setPointerCapture(event.pointerId);
       event.stopPropagation();
     };
 
@@ -216,20 +233,33 @@ export function FaceRaycaster({ model, handle, studioMode = false }: FaceRaycast
 
       if (isShapeTool(tool) && shapeStartRef.current) {
         const result = castHit(event);
-        if (result) updateShapeDraft(result.pick, result.pixel);
+        if (result && sameActivePick(result.pick)) {
+          updateShapeDraft(result.pick, result.pixel);
+        }
         return;
       }
 
       if (!paintingRef.current || isClickOnlyTool(tool)) return;
 
-      const result = castHit(event);
-      if (!result) return;
+      const texturePath = activeTextureRef.current;
+      const activePick = activePickRef.current;
+      if (!texturePath || !activePick) return;
 
-      const { pick, pixel } = result;
-      enqueuePaint(pick.face.texture, pixel[0], pixel[1], true);
+      const result = castHit(event);
+      if (!result || !sameActivePick(result.pick)) return;
+
+      enqueuePaint(texturePath, result.pixel[0], result.pixel[1], true);
     };
 
     const endStroke = (event: PointerEvent) => {
+      if (canvas.hasPointerCapture(event.pointerId)) {
+        canvas.releasePointerCapture(event.pointerId);
+      }
+
+      const wasPainting = paintingRef.current;
+      const wasShape = Boolean(shapeStartRef.current && isShapeTool(tool));
+      if (!wasPainting && !wasShape) return;
+
       paintGenRef.current += 1;
       const texturePath = activeTextureRef.current;
       const shapeStart = shapeStartRef.current;
@@ -246,7 +276,6 @@ export function FaceRaycaster({ model, handle, studioMode = false }: FaceRaycast
         }
       } else if (texturePath && !isClickOnlyTool(tool) && !isShapeTool(tool)) {
         endBrushStroke(handle, texturePath, `${TOOL_LABELS[tool]} stroke`, true);
-        bumpRevision();
       }
 
       paintingRef.current = false;
@@ -259,7 +288,9 @@ export function FaceRaycaster({ model, handle, studioMode = false }: FaceRaycast
 
     const onPointerLeave = (event: PointerEvent) => {
       if (studioMode) setHoveredFace(null);
-      endStroke(event);
+      if (paintingRef.current || shapeStartRef.current) {
+        endStroke(event);
+      }
     };
 
     canvas.addEventListener("pointerdown", onPointerDown);

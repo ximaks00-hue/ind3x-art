@@ -17,7 +17,8 @@ use crate::source::{prepare_file_write_under_root, validate_relative_asset_path}
 use crate::state::{read_project, write_project, SharedState};
 
 use super::helpers::{
-    full_resync_project_on_project, invalidate_jar_cache_if_needed, project_for_handle,
+    clone_project_for_off_lock_work, full_resync_project_on_project,
+    invalidate_jar_cache_if_needed, project_for_handle, publish_project_work_result,
     refresh_project_for_paths_on_project,
 };
 
@@ -34,11 +35,16 @@ async fn refresh_paths_off_lock(
     let project_arc_for_task = Arc::clone(&project_arc);
 
     tauri::async_runtime::spawn_blocking(move || {
-        let mut project = write_project(&project_arc_for_task)?;
-        refresh_project_for_paths_on_project(&mut project, &db, &changed_paths)?;
+        let mut scratch = {
+            let project = read_project(&project_arc_for_task)?;
+            clone_project_for_off_lock_work(&project)?
+        };
+        refresh_project_for_paths_on_project(&mut scratch, &db, &changed_paths)?;
         if let Some(entry) = journal_entry {
-            project.save.journal.push(entry);
+            scratch.save.journal.push(entry);
         }
+        let mut project = write_project(&project_arc_for_task)?;
+        publish_project_work_result(&mut project, scratch);
         Ok::<_, CoreError>(())
     })
     .await
@@ -59,8 +65,13 @@ async fn full_resync_off_lock(
     let project_arc_for_task = Arc::clone(&project_arc);
 
     tauri::async_runtime::spawn_blocking(move || {
+        let mut scratch = {
+            let project = read_project(&project_arc_for_task)?;
+            clone_project_for_off_lock_work(&project)?
+        };
+        full_resync_project_on_project(&mut scratch, &db)?;
         let mut project = write_project(&project_arc_for_task)?;
-        full_resync_project_on_project(&mut project, &db)?;
+        publish_project_work_result(&mut project, scratch);
         Ok::<_, CoreError>(())
     })
     .await

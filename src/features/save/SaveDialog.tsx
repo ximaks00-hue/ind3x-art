@@ -118,7 +118,7 @@ function SaveDialogForm({
   return (
     <>
       <header className={styles.header}>
-        <h2 id="save-dialog-title">Save textures</h2>
+        <h2 id="save-dialog-title" className={styles.dialogTitle}>Save textures</h2>
         <p>{dirtyCount} unsaved texture(s)</p>
       </header>
 

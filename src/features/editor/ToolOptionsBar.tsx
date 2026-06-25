@@ -38,6 +38,7 @@ export function ToolOptionsBar() {
           Size
           <input
             type="range"
+            className="range-premium"
             min={1}
             max={32}
             value={brushSize}
@@ -51,6 +52,7 @@ export function ToolOptionsBar() {
           Opacity
           <input
             type="range"
+            className="range-premium"
             min={5}
             max={100}
             value={Math.round(brushOpacity * 100)}
@@ -64,8 +66,9 @@ export function ToolOptionsBar() {
           Tolerance
           <input
             type="range"
+            className="range-premium"
             min={0}
-            max={128}
+            max={255}
             value={fillTolerance}
             onChange={(e) => setFillTolerance(Number(e.target.value))}
           />
@@ -121,6 +124,7 @@ export function ToolOptionsBar() {
         Stabilizer
         <input
           type="range"
+          className="range-premium"
           min={0}
           max={8}
           value={stabilizer}

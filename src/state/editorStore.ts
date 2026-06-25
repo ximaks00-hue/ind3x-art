@@ -203,7 +203,8 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     const meta = get().animationOverrides[path] ?? baseMeta;
     if (!meta || meta.frames.length === 0) return;
     if (frameIndex < 0 || frameIndex >= meta.frames.length) return;
-    duplicateAnimationFramePixels(handle, path, frameIndex, meta);
+    const ok = duplicateAnimationFramePixels(handle, path, frameIndex, meta);
+    if (!ok) return;
     const nextMeta = metaAfterDuplicate(meta, frameIndex);
     set((s) => ({
       animationOverrides: {
@@ -217,7 +218,8 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     const meta = get().animationOverrides[path] ?? baseMeta;
     if (!meta || meta.frames.length <= 1) return;
     if (frameIndex < 0 || frameIndex >= meta.frames.length) return;
-    deleteAnimationFramePixels(handle, path, frameIndex, meta);
+    const ok = deleteAnimationFramePixels(handle, path, frameIndex, meta);
+    if (!ok) return;
     const nextMeta = metaAfterDelete(meta, frameIndex);
     set((s) => ({
       animationOverrides: {

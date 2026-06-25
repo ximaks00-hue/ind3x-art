@@ -45,6 +45,18 @@ export async function getCatalogEntry(
   );
 }
 
+export async function getCatalogEntriesBatch(
+  handle: ProjectHandle,
+  entryIds: string[],
+  options?: CatalogServiceOptions,
+) {
+  const ids = entryIds.map((id) => requireNonEmptyId(id, "entry id"));
+  if (ids.length === 0) return [];
+  return withAbortableIpc(options?.signal, (ipcRequestId) =>
+    ipc.getCatalogEntriesBatch(requireProjectHandle(handle), ids, ipcRequestId),
+  );
+}
+
 export async function getCatalogFacets(handle: ProjectHandle): Promise<CatalogFacets> {
   return ipc.getCatalogFacets(requireProjectHandle(handle));
 }
@@ -95,6 +107,18 @@ export async function getCatalogIconCache(
   return ipc.getCatalogIconCache(
     requireProjectHandle(handle),
     requireNonEmptyId(iconKey, "icon key"),
+  );
+}
+
+export async function getCatalogIconCacheBatch(
+  handle: ProjectHandle,
+  iconKeys: string[],
+  options?: { signal?: AbortSignal },
+): Promise<{ iconKey: string; pngBase64: string | null }[]> {
+  const keys = iconKeys.map((key) => requireNonEmptyId(key, "icon key"));
+  if (keys.length === 0) return [];
+  return withAbortableIpc(options?.signal, (ipcRequestId) =>
+    ipc.getCatalogIconCacheBatch(requireProjectHandle(handle), keys, ipcRequestId),
   );
 }
 

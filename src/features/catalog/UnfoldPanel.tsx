@@ -88,18 +88,42 @@ export function UnfoldPanel({
   const hoveredFace = useSelectionStore((s) => s.hoveredFace);
   const setHoveredFace = useSelectionStore((s) => s.setHoveredFace);
   const cuboidIndex = selectedFace?.cuboidIndex ?? 0;
+
+  const itemTexturePath =
+    model.cuboids.length === 0 && model.kind === "itemGenerated"
+      ? Object.values(model.textureRefs)[0]
+      : undefined;
+
+  const faces = useMemo(() => {
+    if (itemTexturePath) {
+      const syntheticFace: RenderFace = {
+        direction: "up",
+        uv: [0, 0, 16, 16],
+        texture: itemTexturePath,
+        rotation: 0,
+        tintindex: 0,
+        cullface: null,
+      };
+      const cell: FaceCell = {
+        direction: "up",
+        cuboidIndex: 0,
+        faceIndex: 0,
+        face: syntheticFace,
+      };
+      return CUBE_FACE_ORDER.map((direction) => ({
+        direction,
+        cell: direction === "up" ? cell : null,
+      }));
+    }
+    return CUBE_FACE_ORDER.map((direction) => ({
+      direction,
+      cell: findFaceByDirection(model, cuboidIndex, direction),
+    }));
+  }, [model, cuboidIndex, itemTexturePath]);
+
   const [debouncedRevision, setDebouncedRevision] = useState(revision);
 
   const cellPx = editable ? EDITABLE_CELL_PX : 44;
-
-  const faces = useMemo(
-    () =>
-      CUBE_FACE_ORDER.map((direction) => ({
-        direction,
-        cell: findFaceByDirection(model, cuboidIndex, direction),
-      })),
-    [model, cuboidIndex],
-  );
 
   useEffect(() => {
     const timer = window.setTimeout(

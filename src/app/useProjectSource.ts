@@ -9,6 +9,7 @@ import { clearTextureDocuments } from "../features/editor/textureDocument";
 import { useCatalogStore, snapshotCatalogState, restoreCatalogState } from "../features/catalog/catalogStore";
 import { clearTextureCache } from "../features/viewer3d/textureLoader";
 import { formatIpcError } from "../ipc/errors";
+import { subscribeIndexEvents } from "../ipc/indexEvents";
 import { ipc } from "../ipc/client";
 import type { IndexEvent, ProjectHandle } from "../ipc/types";
 import { useEditorStore } from "../state/editorStore";
@@ -118,6 +119,17 @@ export function useProjectSource(onBeforeOpen?: () => void) {
         ? useSettingsStore.getState().studioSelectedCatalogId
         : null;
 
+      const previousHandle = useProjectStore.getState().handle;
+      if (previousHandle) {
+        try {
+          await cleanupProjectHandle(previousHandle);
+        } catch (error) {
+          console.warn("[project] failed to close previous handle before open", error);
+        }
+        clearTextureCache(previousHandle);
+        onBeforeOpen?.();
+      }
+
       setOpening(true);
       setIndexStatus("running");
       setIndexProgress(0, 1, "starting");
@@ -151,6 +163,7 @@ export function useProjectSource(onBeforeOpen?: () => void) {
       };
 
       let openedHandle: ProjectHandle | null = null;
+      const unlistenIndex = await subscribeIndexEvents(applyIndexEvent);
 
       try {
         const result = await ipc.openSource(path, onEvent);
@@ -161,24 +174,6 @@ export function useProjectSource(onBeforeOpen?: () => void) {
         if (result.sourceKind === "folder" && currentMode === "studio") {
           transitionToWorkspaceMode("classic");
           pushToast("Folder sources open in Classic mode. Switched automatically.", "info");
-        }
-
-        if (isStale()) {
-          await cleanupProjectHandle(result.handle);
-          inFlightOpenHandleRef.current = null;
-          return false;
-        }
-
-        const previousHandle = useProjectStore.getState().handle;
-        if (previousHandle) {
-          try {
-            await ipc.cancelIndex(previousHandle);
-            await ipc.closeSource(previousHandle);
-          } catch (error) {
-            console.warn("[project] failed to close previous handle", error);
-          }
-          clearTextureCache(previousHandle);
-          onBeforeOpen?.();
         }
 
         if (isStale()) {
@@ -288,6 +283,7 @@ export function useProjectSource(onBeforeOpen?: () => void) {
         pushToast(`Failed to open: ${formatIpcError(error)}`, "error");
         return false;
       } finally {
+        unlistenIndex();
         if (openRequestIdRef.current === requestId) {
           setOpening(false);
         }
@@ -382,6 +378,12 @@ export function useProjectSource(onBeforeOpen?: () => void) {
         }
       };
 
+      const applyReindexEvent = (event: IndexEvent) => {
+        if (disposed || generation !== reindexGeneration) return;
+        onEvent.onmessage?.(event);
+      };
+      const unlistenIndex = await subscribeIndexEvents(applyReindexEvent);
+
       try {
         const reindex = await ipc.reindexProject(
           currentHandle,
@@ -455,6 +457,7 @@ export function useProjectSource(onBeforeOpen?: () => void) {
         pushToast(incremental ? "Failed to patch project" : "Failed to reindex project", "error");
         return false;
       } finally {
+        unlistenIndex();
         reindexInFlight = false;
         if (disposed) {
           reindexQueued = null;

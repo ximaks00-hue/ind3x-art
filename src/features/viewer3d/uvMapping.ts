@@ -146,6 +146,71 @@ export function hitUvToPixel(
   ];
 }
 
+/** Map 2D face-canvas coordinates to texture pixel (matches 3D hitUvToPixel). */
+export function faceCanvasToTexturePixel(
+  localX: number,
+  localY: number,
+  canvasW: number,
+  canvasH: number,
+  face: RenderFace,
+  modelRotation?: ModelRotation,
+): [number, number] {
+  const ms = localX / canvasW;
+  const mt = localY / canvasH;
+  const rotation = effectiveFaceRotation(face, modelRotation);
+  const [rs, rt] = inverseRotateST(ms, mt, rotation);
+
+  const [u1, v1, u2, v2] = face.uv;
+  const uMin = Math.min(u1, u2);
+  const uMax = Math.max(u1, u2);
+  const vMin = Math.min(v1, v2);
+  const vMax = Math.max(v1, v2);
+
+  const pixelU = uMin + rs * (uMax - uMin);
+  const pixelV = vMin + rt * (vMax - vMin);
+  const pxU = Math.floor(pixelU);
+  const pxV = Math.floor(pixelV);
+  return [
+    Math.min(Math.max(pxU, uMin), Math.max(uMin, uMax - 1)),
+    Math.min(Math.max(pxV, vMin), Math.max(vMin, vMax - 1)),
+  ];
+}
+
+/** Draw face UV region with rotation applied (matches 3D orientation). */
+export function drawRotatedFaceRegion(
+  ctx: CanvasRenderingContext2D,
+  source: CanvasImageSource,
+  face: RenderFace,
+  textureWidth: number,
+  textureHeight: number,
+  destW: number,
+  destH: number,
+  modelRotation?: ModelRotation,
+): void {
+  const region = faceUvRegion(face, textureWidth, textureHeight);
+  const rotation = effectiveFaceRotation(face, modelRotation);
+  const steps = (rotation % 360) / 90;
+
+  ctx.save();
+  ctx.translate(destW / 2, destH / 2);
+  ctx.rotate((steps * Math.PI) / 2);
+  const swap = steps % 2 === 1;
+  const drawW = swap ? destH : destW;
+  const drawH = swap ? destW : destH;
+  ctx.drawImage(
+    source,
+    region.x,
+    region.y,
+    region.width,
+    region.height,
+    -drawW / 2,
+    -drawH / 2,
+    drawW,
+    drawH,
+  );
+  ctx.restore();
+}
+
 export function faceUvRegion(
   face: RenderFace,
   textureWidth: number,

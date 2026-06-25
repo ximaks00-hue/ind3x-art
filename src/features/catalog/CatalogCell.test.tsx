@@ -76,6 +76,9 @@ describe("CatalogCell", () => {
     render(
       <CatalogCell
         entry={entry}
+        columnIndex={0}
+        rowIndex={0}
+        showLabels
         selected={false}
         focused={false}
         onClick={onClick}
@@ -91,7 +94,7 @@ describe("CatalogCell", () => {
   it("activates on Enter key", () => {
     const onClick = vi.fn();
     render(
-      <CatalogCell entry={entry} selected={false} focused onClick={onClick} />,
+      <CatalogCell entry={entry} columnIndex={0} rowIndex={0} showLabels selected={false} focused onClick={onClick} />,
     );
 
     fireEvent.keyDown(screen.getByRole("gridcell"), { key: "Enter" });
@@ -114,7 +117,7 @@ describe("CatalogCell", () => {
     ]);
 
     render(
-      <CatalogCell entry={entry} selected={false} focused={false} onClick={vi.fn()} />,
+      <CatalogCell entry={entry} columnIndex={0} rowIndex={0} showLabels={false} selected={false} focused={false} onClick={vi.fn()} />,
     );
 
     expect(screen.getByLabelText("Dirty")).toBeTruthy();
@@ -125,6 +128,9 @@ describe("CatalogCell", () => {
     render(
       <CatalogCell
         entry={entry}
+        columnIndex={0}
+        rowIndex={0}
+        showLabels={false}
         selected={false}
         focused={false}
         pinned

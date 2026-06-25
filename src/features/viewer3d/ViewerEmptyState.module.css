@@ -7,8 +7,14 @@
   flex: 1;
   min-height: 0;
   width: 100%;
+  max-width: 480px;
+  margin: auto;
   padding: var(--space-6);
   text-align: center;
+  border-radius: var(--radius-lg);
+  border: var(--border-hairline);
+  box-shadow: var(--elevation-1);
+  background: color-mix(in srgb, var(--color-bg-panel) 88%, transparent);
 }
 
 .illustration {
@@ -16,6 +22,7 @@
   height: 120px;
   display: grid;
   place-content: center;
+  perspective: 240px;
 }
 
 .cube {
@@ -24,6 +31,7 @@
   height: 64px;
   transform: rotateX(-28deg) rotateY(38deg);
   transform-style: preserve-3d;
+  animation: voxelSpin 8s linear infinite;
 }
 
 .face {
@@ -51,16 +59,16 @@
 
 .title {
   margin: 0;
-  font-size: 18px;
-  font-weight: 650;
+  font-size: var(--text-xl);
+  font-weight: var(--font-weight-strong);
   color: var(--color-text-primary);
 }
 
 .subtitle {
   margin: 0;
   max-width: 360px;
-  font-size: 13px;
-  line-height: 1.5;
+  font-size: var(--text-sm);
+  line-height: var(--leading-normal);
   color: var(--color-text-secondary);
 }
 
@@ -73,6 +81,18 @@
 
 .hint {
   margin: 0;
-  font-size: 11px;
+  font-size: var(--text-xs);
   color: var(--color-text-muted);
+}
+
+@keyframes voxelSpin {
+  to {
+    transform: rotateX(-28deg) rotateY(398deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cube {
+    animation: none;
+  }
 }

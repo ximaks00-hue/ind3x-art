@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState, type CSSProperties } from "react";
 import { Clock } from "lucide-react";
 
 import { useFocusTrap } from "../../hooks/useFocusTrap";
@@ -132,6 +132,7 @@ function CommandPaletteInner({ commands, onClose }: Omit<CommandPaletteProps, "o
   }, [filtered, activeIndex, onClose, runCommand]);
 
   let lastGroup: string | null = null;
+  let itemStagger = 0;
   const activeCommand = filtered[activeIndex];
   const activeOptionId = activeCommand ? `command-option-${activeCommand.id}` : undefined;
 
@@ -175,6 +176,7 @@ function CommandPaletteInner({ commands, onClose }: Omit<CommandPaletteProps, "o
               lastGroup = command.group;
               const GroupIcon = COMMAND_GROUP_ICONS[command.group];
               const isRecent = !query.trim() && recentIdSet.has(command.id);
+              const stagger = itemStagger++;
               return (
                 <li key={command.id}>
                   {showHeader && (
@@ -188,7 +190,8 @@ function CommandPaletteInner({ commands, onClose }: Omit<CommandPaletteProps, "o
                     role="option"
                     id={`command-option-${command.id}`}
                     aria-selected={index === activeIndex}
-                    className={index === activeIndex ? styles.itemActive : styles.item}
+                    className={`${index === activeIndex ? styles.itemActive : styles.item} ${styles.itemEnter}`}
+                    style={{ "--stagger": stagger } as CSSProperties}
                     onMouseEnter={() => setActiveIndex(index)}
                     onClick={() => runCommand(command)}
                   >

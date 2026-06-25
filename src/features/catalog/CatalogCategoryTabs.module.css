@@ -1,7 +1,7 @@
 .bar {
   display: flex;
   flex-wrap: nowrap;
-  gap: 6px;
+  gap: var(--space-1);
   padding: 0 var(--panel-header-padding-x) var(--space-3);
   border-bottom: 1px solid var(--color-border-panel);
   overflow-x: auto;
@@ -15,6 +15,7 @@
 
 .tab,
 .tabActive {
+  position: relative;
   display: inline-flex;
   align-items: center;
   gap: 5px;
@@ -28,10 +29,10 @@
   white-space: nowrap;
   flex-shrink: 0;
   transition:
-    background var(--transition-fast),
+    background var(--transition-normal),
     border-color var(--transition-fast),
     color var(--transition-fast),
-    box-shadow var(--transition-fast);
+    box-shadow var(--transition-focus);
 }
 
 .tab:hover {
@@ -47,10 +48,35 @@
   box-shadow: 0 0 0 1px color-mix(in srgb, var(--color-accent) 15%, transparent);
 }
 
+.tabActive::after {
+  content: "";
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  bottom: 4px;
+  height: 2px;
+  border-radius: 1px;
+  background: var(--color-accent);
+  opacity: 0.85;
+  transition: opacity var(--transition-normal);
+}
+
+.tab:focus-visible,
+.tabActive:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+.tabActive:focus-visible {
+  box-shadow:
+    var(--focus-ring),
+    0 0 0 1px color-mix(in srgb, var(--color-accent) 15%, transparent);
+}
+
 .count {
   opacity: 0.85;
   font-variant-numeric: tabular-nums;
-  font-size: 10px;
+  font-size: var(--text-2xs);
 }
 
 .facetsError {

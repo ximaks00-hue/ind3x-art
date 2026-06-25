@@ -41,6 +41,7 @@ export function useCatalogQuery(enabled = true) {
   const category = useCatalogStore((s) => s.category);
   const facets = useCatalogStore((s) => s.facets);
   const total = useCatalogStore((s) => s.total);
+  const entries = useCatalogStore((s) => s.entries);
   const debouncedSearch = useCatalogStore((s) => s.debouncedSearch);
   const search = useCatalogStore((s) => s.search);
   const loading = useCatalogStore((s) => s.loading);
@@ -116,10 +117,6 @@ export function useCatalogQuery(enabled = true) {
         }
         setQueryPage(page.entries, page.total, append, offset);
 
-        if (!append && page.entries.length > 0) {
-          useCatalogStore.getState().setSessionRestorePending(false);
-        }
-
         if (
           !append &&
           page.total === 0 &&
@@ -168,16 +165,6 @@ export function useCatalogQuery(enabled = true) {
     rebuildAttemptedRef.current = false;
   }, [enabled, handle?.id]);
 
-  // Facets can arrive after the first empty query (category restore / IPC ordering).
-  useEffect(() => {
-    if (!enabled || !handle || indexStatus !== "done" || total > 0 || loading) return;
-    if (category != null || debouncedSearch.trim()) return;
-    if (catalogTotalCount(facets) === 0) return;
-    // Primary query effect already owns the first fetch for this filter key.
-    if (lastQueryKeyRef.current !== null) return;
-    void fetchPageRef.current(0, false);
-  }, [enabled, handle, indexStatus, total, loading, facets, category, debouncedSearch]);
-
   useEffect(() => {
     if (!enabled || !handle || indexStatus !== "done") {
       if (!handle) {
@@ -195,8 +182,33 @@ export function useCatalogQuery(enabled = true) {
     void fetchPageRef.current(0, false);
   }, [enabled, handle, indexStatus, category, namespaceFilter, debouncedSearch, fuzzySearch, queryRevision, resetQuery]);
 
+  const facetsRetryRef = useRef<number | null>(null);
+  useEffect(() => {
+    facetsRetryRef.current = null;
+  }, [handle?.id]);
+
+  // Retry when facets arrive after an empty unfiltered query.
+  useEffect(() => {
+    if (!enabled || !handle || indexStatus !== "done" || total > 0 || loading) return;
+    if (category != null || debouncedSearch.trim()) return;
+    if (catalogTotalCount(facets) === 0) return;
+    if (lastQueryKeyRef.current === null) return;
+    if (entries.length > 0) return;
+    if (facetsRetryRef.current === handle.id) return;
+    facetsRetryRef.current = handle.id;
+    void fetchPageRef.current(0, false);
+  }, [enabled, handle, indexStatus, total, loading, facets, category, debouncedSearch, entries.length]);
+
   useEffect(() => {
     if (!enabled || !handle || indexStatus !== "done") {
+      const catalog = useCatalogStore.getState();
+      if (!handle) {
+        catalog.reset();
+        lastQueryKeyRef.current = null;
+      } else if (indexStatus === "running") {
+        resetQuery();
+      }
+      if (!catalog.facets && !catalog.facetsError) return;
       setFacets(null);
       setFacetsError(null);
       return;

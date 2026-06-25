@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { ProjectHandle } from "../../ipc/types";
 import type { SelectedFace } from "../../state/selectionStore";
 import { faceUvRegion } from "../viewer3d/uvMapping";
+import { safeVoid } from "../../lib/safeVoid";
 import {
   ensureTextureDocument,
   getOriginalTextureCanvas,
@@ -84,15 +85,17 @@ export function TextureComparator({ handle, selectedFace }: TextureComparatorPro
   }, [drawFaceRegion, faceForRegion, selectedFace.texturePath, zoom]);
 
   useEffect(() => {
-    let cancelled = false;
-    void ensureTextureDocument(handle, selectedFace.texturePath).then(() => {
-      if (!cancelled) {
+    const controller = new AbortController();
+    safeVoid(
+      ensureTextureDocument(handle, selectedFace.texturePath).then(() => {
+        if (controller.signal.aborted) return;
         setReady(true);
         render();
-      }
-    });
+      }),
+      "TextureComparator.load",
+    );
     return () => {
-      cancelled = true;
+      controller.abort();
     };
   }, [handle, selectedFace.texturePath, render]);
 

@@ -30,6 +30,7 @@ import { Scene3D } from "./Scene3D";
 import { ViewerEmptyState } from "./ViewerEmptyState";
 import { ViewerErrorState } from "./ViewerErrorState";
 import { ViewerLoadingState } from "./ViewerLoadingState";
+import { ViewerFloatingControls } from "./ViewerFloatingControls";
 import { ViewerToolbar } from "./ViewerToolbar";
 import { ModelFaceChrome } from "./ModelFaceChrome";
 import { buildCubeAllPreviewModel } from "./cubeWrapPreview";
@@ -112,7 +113,6 @@ function ViewerPanelBody({
   const miniSceneSize = useSettingsStore((s) => s.miniSceneSize);
 
   const showGrid = useViewerShowGrid();
-  const resetCamera = useViewerStore((s) => s.resetCamera);
   const setCurrentRenderable = useViewerStore((s) => s.setCurrentRenderable);
   const activeTextureMeta = useViewerStore((s) => s.activeTextureMeta);
 
@@ -155,11 +155,6 @@ function ViewerPanelBody({
   useEffect(() => {
     setActiveBiome(biome);
   }, [biome]);
-
-  useEffect(() => {
-    resetCamera();
-    setCurrentRenderable(null);
-  }, [resetCamera, setCurrentRenderable]);
 
   useEffect(() => {
     if (isStudio) {
@@ -316,6 +311,7 @@ function ViewerPanelBody({
         />
       )}
 
+      {(!isStudio || !catalogSelectedEntry) && (
       <div className={styles.header}>
         <span className={styles.badge}>{isStudio ? "Studio" : "3D Viewer"}</span>
         <span className={styles.hint}>
@@ -330,6 +326,7 @@ function ViewerPanelBody({
             : displayName}
         </span>
       </div>
+      )}
 
       {!isStudio ? (
         <ViewerToolbar
@@ -429,7 +426,6 @@ function ViewerPanelBody({
             <div className={styles.modelCanvas}>
               {comparatorMode === "3d" && viewerBeforeModel ? (
                 <Compare3DViewport
-                  className={styles.comparator3d}
                   beforeModel={viewerBeforeModel}
                   afterModel={displayRenderable}
                   handle={handle}
@@ -443,12 +439,13 @@ function ViewerPanelBody({
                   miniSceneSize={miniSceneSize}
                 />
               )}
-              <div className={styles.overlay}>
+              <ViewerFloatingControls />
+              <div className={styles.overlay} aria-live="off">
                 <p className={styles.overlayTitle}>
                   {displayRenderable.modelId} · {displayRenderable.kind}
                   {classicCubeWrap ? " · cube wrap" : ""}
                 </p>
-                <div className={styles.stats}>
+                <div className={`${styles.stats} tnum`}>
                   <span>{displayRenderable.cuboids.length} cuboids</span>
                   <span>{faceCount} faces</span>
                   <span>{Object.keys(displayRenderable.textureRefs).length} texture refs</span>

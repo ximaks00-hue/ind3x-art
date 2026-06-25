@@ -1,20 +1,11 @@
 .overlay {
-  position: fixed;
-  inset: 0;
+  composes: modal-overlay from global;
   z-index: 1000;
-  display: grid;
-  place-content: center;
-  padding: 24px;
-  background: rgba(0, 0, 0, 0.55);
-  backdrop-filter: blur(4px);
 }
 
 .dialog {
+  composes: modal-dialog from global;
   width: min(480px, calc(100vw - 32px));
-  border-radius: var(--radius-lg);
-  border: 1px solid var(--color-border-strong);
-  background: var(--color-bg-panel);
-  box-shadow: var(--shadow-md);
   overflow: hidden;
 }
 
@@ -22,16 +13,14 @@
   padding: var(--space-4) var(--space-4) var(--space-2);
 }
 
-.header h2 {
-  margin: 0;
-  font-size: 16px;
-  font-weight: 600;
+.dialogTitle {
+  composes: modal-title from global;
 }
 
 .header p {
   margin: var(--space-1) 0 0;
   color: var(--color-text-secondary);
-  font-size: 13px;
+  font-size: var(--text-sm);
 }
 
 .modes {
@@ -44,7 +33,7 @@
   display: flex;
   align-items: center;
   gap: var(--space-2);
-  font-size: 13px;
+  font-size: var(--text-sm);
   cursor: pointer;
 }
 
@@ -52,7 +41,7 @@
   display: grid;
   gap: var(--space-2);
   padding: 0 var(--space-4) var(--space-3);
-  font-size: 13px;
+  font-size: var(--text-sm);
 }
 
 .field input {
@@ -63,20 +52,27 @@
   color: var(--color-text-primary);
 }
 
+.field input:focus-visible {
+  outline: none;
+  border-color: var(--color-accent);
+  box-shadow: var(--focus-ring);
+  transition: box-shadow var(--transition-focus);
+}
+
 .field small {
   color: var(--color-text-secondary);
 }
 
 .fieldError {
-  color: var(--color-danger, #e05252);
+  color: var(--color-danger);
 }
 
 .hint {
   margin: 0;
   padding: 0 var(--space-4) var(--space-3);
   color: var(--color-text-secondary);
-  font-size: 12px;
-  line-height: 1.45;
+  font-size: var(--text-compact);
+  line-height: var(--leading-snug);
 }
 
 .footer {
@@ -92,7 +88,7 @@
   padding: var(--space-2) var(--space-4);
   border-radius: var(--radius-sm);
   border: 1px solid transparent;
-  font-size: 13px;
+  font-size: var(--text-sm);
   cursor: pointer;
 }
 
@@ -110,4 +106,10 @@
   background: transparent;
   border-color: var(--color-border);
   color: var(--color-text-primary);
+}
+
+.secondary:focus-visible,
+.primary:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
 }

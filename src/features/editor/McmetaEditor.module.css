@@ -7,10 +7,10 @@
 
 .title {
   display: block;
-  font-size: 10px;
-  font-weight: 650;
+  font-size: var(--text-2xs);
+  font-weight: var(--font-weight-strong);
   text-transform: uppercase;
-  letter-spacing: 0.05em;
+  letter-spacing: var(--tracking-wide);
   color: var(--color-text-muted);
   margin-bottom: var(--space-2);
 }
@@ -26,13 +26,13 @@
   display: flex;
   flex-direction: column;
   gap: 4px;
-  font-size: 10px;
+  font-size: var(--text-2xs);
   color: var(--color-text-muted);
 }
 
 .field input {
   width: 80px;
-  font-size: 12px;
+  font-size: var(--text-compact);
   padding: 4px 6px;
   border-radius: var(--radius-sm);
   border: 1px solid var(--color-border);
@@ -40,22 +40,29 @@
   color: var(--color-text);
 }
 
+.field input:focus-visible {
+  outline: none;
+  border-color: var(--color-accent);
+  box-shadow: var(--focus-ring);
+  transition: box-shadow var(--transition-focus);
+}
+
 .check {
   display: flex;
   align-items: center;
   gap: 6px;
-  font-size: 11px;
+  font-size: var(--text-xs);
   color: var(--color-text-secondary);
 }
 
 .hint {
   margin: var(--space-2) 0;
-  font-size: 10px;
+  font-size: var(--text-2xs);
   color: var(--color-text-muted);
 }
 
 .saveBtn {
-  font-size: 11px;
+  font-size: var(--text-xs);
   padding: 4px 10px;
   border-radius: var(--radius-sm);
   border: 1px solid var(--color-border);

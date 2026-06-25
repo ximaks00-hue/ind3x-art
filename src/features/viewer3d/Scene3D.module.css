@@ -1,11 +1,12 @@
 .canvasWrap {
   position: absolute;
   inset: 0;
+  box-shadow: inset 0 0 0 1px var(--color-border-panel);
   background:
     radial-gradient(
-      ellipse 75% 55% at 50% 38%,
-      color-mix(in srgb, var(--color-accent) 10%, transparent),
-      transparent 68%
+      ellipse 70% 50% at 50% 42%,
+      color-mix(in srgb, var(--color-accent) 14%, transparent),
+      transparent 72%
     ),
     linear-gradient(
       180deg,
@@ -41,9 +42,10 @@
   right: 8px;
   display: flex;
   gap: 10px;
-  font-size: 10px;
-  font-family: var(--font-mono, monospace);
-  color: rgba(255, 255, 255, 0.4);
+  font-size: var(--text-2xs);
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  color: var(--color-text-muted);
   pointer-events: none;
   user-select: none;
 }
@@ -59,16 +61,16 @@
   padding: var(--space-4);
   pointer-events: none;
   color: var(--color-text-secondary);
-  font-size: 12px;
+  font-size: var(--text-compact);
 }
 
 .meshError {
   color: var(--color-danger);
-  font-weight: 600;
+  font-weight: var(--font-weight-semibold);
 }
 
 .meshErrorDetail {
-  font-size: 11px;
+  font-size: var(--text-xs);
   color: var(--color-text-muted);
   max-width: 320px;
   word-break: break-word;
@@ -80,12 +82,15 @@
   left: 8px;
   z-index: 4;
   padding: 2px 8px;
-  font-size: 10px;
-  font-weight: 600;
-  letter-spacing: 0.03em;
+  font-size: var(--text-2xs);
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: var(--tracking-wide);
   color: var(--color-text-secondary);
-  background: color-mix(in srgb, var(--color-bg-elevated) 88%, transparent);
+  background: var(--glass-chip-bg);
+  backdrop-filter: var(--glass-chip-blur);
+  -webkit-backdrop-filter: var(--glass-chip-blur);
   border: 1px solid color-mix(in srgb, var(--color-border) 80%, transparent);
   border-radius: var(--radius-sm);
   pointer-events: none;
+  box-shadow: var(--elevation-1);
 }

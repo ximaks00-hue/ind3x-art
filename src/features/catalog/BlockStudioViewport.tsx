@@ -1,3 +1,4 @@
+import { Camera } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 
 import type { CatalogEntry, ProjectHandle, RenderableModel, VariantKey } from "../../ipc/types";
@@ -9,11 +10,11 @@ import { applyBiomeChange } from "../viewer3d/viewerTextureSync";
 import { Compare3DViewport } from "../viewer3d/Compare3DViewport";
 import { Scene3D } from "../viewer3d/Scene3D";
 import { MiniSceneControl } from "../viewer3d/MiniSceneControl";
+import { ViewerFloatingControls } from "../viewer3d/ViewerFloatingControls";
 import { ViewerLoadingState } from "../viewer3d/ViewerLoadingState";
 import { Select } from "../../ui/primitives/Select";
 import { IconButton } from "../../ui/primitives/IconButton";
 import { multipartSchematicLabel } from "./modelFaceNav";
-import { FACE_PICK_CENTER_HINT } from "./faceEditingGuide";
 import styles from "./BlockStudioViewport.module.css";
 import { variantPickerLabel } from "./catalogUtils";
 import { StudioTexturePreview } from "./StudioTexturePreview";
@@ -124,100 +125,121 @@ export function BlockStudioViewport({
 
   const linkedTexturePath = texturePathForEntry(entry);
   const hasLinkedTexture = Boolean(linkedTexturePath);
-  const showFlatTexturePreview =
-    isTextureEntry || (!model && hasLinkedTexture && !resolveLoading);
-  const flatPreviewReason = isTextureEntry
+  const showFlatTexturePreview = !model && hasLinkedTexture && !resolveLoading;
+  const flatPreviewReason = showFlatTexturePreview && isTextureEntry
     ? ("textureEntry" as const)
-    : !model && resolveError && hasLinkedTexture
+    : showFlatTexturePreview && resolveError
       ? ("resolveFailed" as const)
       : null;
-  const show3d = Boolean(model) && !isTextureEntry;
+  const show3d = Boolean(model);
   const showCenterPlaceholder =
     !show3d && !showFlatTexturePreview && !resolveLoading && !resolveError;
 
   return (
     <div className={styles.studio} data-tour="tour-studio-viewport">
-      <div className={styles.toolbar}>
+      <div className={styles.headerBar}>
         <span className={styles.title}>
           {entry.displayName}
           {schematicLabel ? (
             <span className={styles.schematic}> · {schematicLabel}</span>
           ) : null}
         </span>
+      </div>
+      <div className={styles.toolBar} role="toolbar" aria-label="Studio viewport controls">
         {variants.length > 1 ? (
-          <Select
-            className={styles.variantSelect}
-            value={variantKey ?? ""}
-            aria-label="Block variant"
-            onChange={(e) => onVariantChange(e.target.value)}
-          >
-            {variants.map((variant) => (
-              <option key={variant.key || "__default"} value={variant.key}>
-                {variantPickerLabel(variant)}
-              </option>
-            ))}
-          </Select>
+          <div className={styles.cluster}>
+            <Select
+              className={styles.variantSelect}
+              value={variantKey ?? ""}
+              aria-label="Block variant"
+              onChange={(e) => onVariantChange(e.target.value)}
+            >
+              {variants.map((variant) => (
+                <option key={variant.key || "__default"} value={variant.key}>
+                  {variantPickerLabel(variant)}
+                </option>
+              ))}
+            </Select>
+          </div>
         ) : null}
         {itemViewOptions && model ? (
-          <div className={styles.itemViews} role="group" aria-label="Item view">
-            {itemViewOptions.map((view) => (
-              <button
-                key={view}
-                type="button"
-                className={itemView === view ? styles.modeActive : styles.modeBtn}
-                onClick={() => setItemView(view)}
-                aria-pressed={itemView === view}
-              >
-                {STUDIO_ITEM_VIEW_LABELS[view]}
-              </button>
-            ))}
-          </div>
+          <>
+            {variants.length > 1 ? <span className={styles.toolbarSep} aria-hidden /> : null}
+            <div className={styles.cluster} role="group" aria-label="Item view">
+              {itemViewOptions.map((view) => (
+                <button
+                  key={view}
+                  type="button"
+                  className={itemView === view ? styles.modeActive : styles.modeBtn}
+                  onClick={() => setItemView(view)}
+                  aria-pressed={itemView === view}
+                >
+                  {STUDIO_ITEM_VIEW_LABELS[view]}
+                </button>
+              ))}
+            </div>
+          </>
         ) : null}
         {faceAnimMeta && faceAnimMeta.frames.length > 0 && selectedFace ? (
-          <StudioAnimationPreview
-            texturePath={selectedFace.texturePath}
-            animation={faceAnimMeta}
-            textureMeta={faceTextureMeta}
-          />
+          <>
+            <span className={styles.toolbarSep} aria-hidden />
+            <div className={styles.cluster}>
+              <StudioAnimationPreview
+                texturePath={selectedFace.texturePath}
+                animation={faceAnimMeta}
+                textureMeta={faceTextureMeta}
+              />
+            </div>
+          </>
         ) : null}
         {model ? (
-          <div className={styles.compareGroup} role="group" aria-label="Compare">
-            <IconButton
-              label="Cycle comparator: off → 2D editor → 3D split (C)"
-              className={comparatorMode != null ? styles.compareActive : styles.compareBtn}
-              onClick={() => cycleComparator(model)}
-            >
-              {compareLabel}
-            </IconButton>
-            <IconButton
-              label="Capture before snapshot for 3D compare"
-              className={styles.compareBtn}
-              onClick={() => captureCompareBefore(model)}
-            >
-              📷
-            </IconButton>
-          </div>
-        ) : null}
-        {model ? (
-          <div className={styles.miniScene} role="group" aria-label="Test scene">
-            <MiniSceneControl />
-          </div>
-        ) : null}
-        {model ? (
-          <div className={styles.biomes} role="group" aria-label="Biome tint">
-            {STUDIO_BIOMES.map((name) => (
-              <button
-                key={name}
-                type="button"
-                className={biome === name ? styles.biomeActive : styles.biomeBtn}
-                onClick={() => handleBiomeChange(name)}
-                aria-pressed={biome === name}
-                title={`Biome: ${name}`}
+          <>
+            <span className={styles.toolbarSep} aria-hidden />
+            <div className={styles.cluster} role="group" aria-label="Compare">
+              <IconButton
+                label="Cycle comparator: off → 2D editor → 3D split (C)"
+                className={comparatorMode != null ? styles.compareActive : styles.compareBtn}
+                onClick={() => cycleComparator(model)}
               >
-                {name}
-              </button>
-            ))}
-          </div>
+                {compareLabel}
+              </IconButton>
+              <IconButton
+                label="Capture before snapshot for 3D compare"
+                className={styles.compareBtn}
+                onClick={() => captureCompareBefore(model)}
+              >
+                <Camera size={14} aria-hidden />
+              </IconButton>
+            </div>
+          </>
+        ) : null}
+        {model ? (
+          <>
+            <span className={styles.toolbarSep} aria-hidden />
+            <div className={styles.cluster} role="group" aria-label="Test scene">
+              <MiniSceneControl />
+            </div>
+          </>
+        ) : null}
+        {model ? (
+          <>
+            <span className={styles.toolbarSep} aria-hidden />
+            <div className={styles.cluster} role="group" aria-label="Biome tint">
+              {STUDIO_BIOMES.map((name) => (
+                <button
+                  key={name}
+                  type="button"
+                  data-biome={name}
+                  className={biome === name ? styles.biomeActive : styles.biomeBtn}
+                  onClick={() => handleBiomeChange(name)}
+                  aria-pressed={biome === name}
+                  title={`Biome: ${name}`}
+                >
+                  {name}
+                </button>
+              ))}
+            </div>
+          </>
         ) : null}
       </div>
 
@@ -269,15 +291,9 @@ export function BlockStudioViewport({
             </span>
           </div>
         ) : null}
-        {show3d && model && interactionMode === "paint" ? (
-          <div className={styles.paintWorkflowBanner} role="status">
-            {FACE_PICK_CENTER_HINT}
-          </div>
-        ) : null}
         {show3d && model ? (
           comparatorMode === "3d" && viewerBeforeModel ? (
             <Compare3DViewport
-              className={styles.comparator3d}
               beforeModel={viewerBeforeModel}
               afterModel={model}
               handle={handle}
@@ -301,6 +317,7 @@ export function BlockStudioViewport({
             />
           )
         ) : null}
+        {show3d && model ? <ViewerFloatingControls /> : null}
       </div>
 
       {model ? <ModelFaceChrome model={model} /> : null}

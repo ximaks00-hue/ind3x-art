@@ -115,8 +115,12 @@ export function useCatalogKeyboardNav({
   }, [moveFocus, searchRef]);
 
   useEffect(() => {
+    if (entries.length === 0) {
+      if (focusIndex !== 0) setFocusIndex(0);
+      return;
+    }
     if (focusIndex >= entries.length) {
-      setFocusIndex(Math.max(0, entries.length - 1));
+      setFocusIndex(entries.length - 1);
     }
   }, [entries.length, focusIndex, setFocusIndex]);
 }

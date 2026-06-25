@@ -46,7 +46,14 @@ export function WelcomeScreen({
       </p>
       <div className={styles.modeSection}>
         <p className={styles.modeLabel}>Workspace</p>
-        <div className="segmented" role="group" aria-label="Workspace mode">
+        <div
+          className="segmented segmented--pill"
+          role="group"
+          aria-label="Workspace mode"
+          data-count={2}
+          data-active-index={workspaceMode === "studio" ? 1 : 0}
+        >
+          <span className="segmented-pill" aria-hidden />
           <button
             type="button"
             className={

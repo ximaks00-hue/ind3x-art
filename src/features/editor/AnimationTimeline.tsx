@@ -12,6 +12,9 @@ interface AnimationTimelineProps {
   animation: TextureAnimationMeta;
 }
 
+const THUMB_SIZE = 24;
+const THUMB_GAP = 4;
+
 export function AnimationTimeline({
   handle,
   texturePath,
@@ -85,7 +88,19 @@ export function AnimationTimeline({
           Del
         </button>
       </div>
-      <div className={styles.strip}>
+      <div
+        className={styles.strip}
+        style={
+          {
+            "--playhead-x": `${activeFrame * (THUMB_SIZE + THUMB_GAP)}px`,
+          } as CSSProperties
+        }
+      >
+        <div
+          className={styles.playhead}
+          style={{ transform: `translateX(var(--playhead-x))` }}
+          aria-hidden
+        />
         {animation.frames.map((frameRow, index) => {
           const thumbStyle: CSSProperties = {};
           if (stripDataUrl && canvas) {

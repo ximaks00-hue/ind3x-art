@@ -83,16 +83,21 @@ export function TitleBar({
 
       <div className={styles.actions} data-tour="tour-open">
         <div
-          className={styles.modeToggle}
+          className={`segmented segmented--pill ${styles.modeToggle}`}
           role="group"
           aria-label="Workspace mode"
           data-tour="tour-workspace-mode"
+          data-count={2}
+          data-active-index={workspaceMode === "studio" ? 1 : 0}
         >
+          <span className="segmented-pill" aria-hidden />
           {(["classic", "studio"] as WorkspaceMode[]).map((mode) => (
             <button
               key={mode}
               type="button"
-              className={workspaceMode === mode ? styles.modeActive : styles.modeBtn}
+              className={`segmented-item ${styles.modeSegment} ${
+                workspaceMode === mode ? "segmented-item--active" : ""
+              }`}
               onClick={() => setWorkspaceMode(mode)}
               aria-pressed={workspaceMode === mode}
             >
@@ -111,8 +116,8 @@ export function TitleBar({
           <Icon icon={Command} size={16} />
         </Button>
         <Button
-          variant={dirtyCount > 0 ? "default" : "ghost"}
-          className={dirtyCount > 0 ? styles.buttonSave : styles.iconAction}
+          variant={dirtyCount > 0 ? "primary" : "ghost"}
+          className={dirtyCount > 0 ? styles.buttonSaveDirty : styles.iconAction}
           onClick={onSave}
           disabled={opening || saving || dirtyCount === 0}
           title="Save textures (Ctrl+S)"

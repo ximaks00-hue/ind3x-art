@@ -7,7 +7,6 @@ export function studioEnterPatch(): {
   focusMode: false;
 } {
   const catalog = useCatalogStore.getState();
-  catalog.setSessionRestorePending(false);
   if (catalog.entries.length === 0 && !catalog.loading) {
     refreshCatalogCaches();
   }

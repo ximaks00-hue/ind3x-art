@@ -10,10 +10,13 @@ import {
   releaseCanvasElement,
 } from "../viewer3d/textureLoader";
 import { useProjectStore } from "../../state/projectStore";
+import { useViewerStore } from "../../state/viewerStore";
+import { clearPaintOperationGens } from "./paintOperationGen";
 import {
   activeLayer,
   applyChangesToDoc,
   boundsFromChanges,
+  mergeDirtyBoxFromChanges,
   compositeDocument,
   getLayer,
   inBounds,
@@ -262,6 +265,7 @@ export function clearTextureDocuments(): void {
   if (iconInvalidateTimer) clearTimeout(iconInvalidateTimer);
   iconInvalidateTimer = undefined;
   pendingIconPaths.clear();
+  clearPaintOperationGens();
   useDocumentStore.setState({ docs: new Map(), revision: useDocumentStore.getState().revision + 1 });
 }
 
@@ -332,6 +336,8 @@ export function addTextureLayer(path: string): TextureLayer | null {
   doc.layers.push(layer);
   doc.activeLayerId = layer.id;
   compositeDocument(doc);
+  doc.dirty = true;
+  doc.revision += 1;
   notify();
   return {
     id: layer.id,
@@ -617,6 +623,7 @@ export function commitChanges(
   recordUndo = true,
   label = "edit",
   flushIcons = false,
+  deferTextureReload = false,
 ): void {
   const doc = docsMap().get(path);
   if (!doc) return;
@@ -624,6 +631,9 @@ export function commitChanges(
   applyChanges(doc, changes, recordUndo, label);
   if (handle) {
     refreshTextureFromCanvas(handle, path, doc.compositeCanvas);
+    if (!deferTextureReload) {
+      useViewerStore.getState().bumpTextureReloadTick();
+    }
     scheduleIconInvalidation(handle, path);
     if (flushIcons) {
       flushIconInvalidations(handle);
@@ -664,6 +674,7 @@ export function undoTexture(handle: ProjectHandle | null, path: string): boolean
   }
 
   compositeDocument(doc, boundsFromChanges(entry.changes));
+  mergeDirtyBoxFromChanges(doc, entry.changes);
   doc.revision = Math.max(0, doc.revision - 1);
   doc.redo.push({ changes: entry.changes.map((change) => ({
     x: change.x,
@@ -675,6 +686,7 @@ export function undoTexture(handle: ProjectHandle | null, path: string): boolean
   doc.dirty = doc.revision !== doc.savedRevision;
   if (handle) {
     refreshTextureFromCanvas(handle, path, doc.compositeCanvas);
+    useViewerStore.getState().bumpTextureReloadTick();
     scheduleIconInvalidation(handle, path);
     flushIconInvalidations(handle);
   }
@@ -692,6 +704,7 @@ export function redoTexture(handle: ProjectHandle | null, path: string): boolean
   doc.dirty = doc.revision !== doc.savedRevision;
   if (handle) {
     refreshTextureFromCanvas(handle, path, doc.compositeCanvas);
+    useViewerStore.getState().bumpTextureReloadTick();
     scheduleIconInvalidation(handle, path);
     flushIconInvalidations(handle);
   }

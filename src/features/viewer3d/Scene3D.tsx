@@ -164,7 +164,11 @@ export function Scene3D({
             preferredDisplaySlot={preferredDisplaySlot}
           />
         ) : null}
-        <FaceHighlight model={model} studioMode={studioMode} />
+        <FaceHighlight
+          model={model}
+          studioMode={studioMode}
+          preferredDisplaySlot={preferredDisplaySlot}
+        />
         <FaceShapePreview model={model} />
         <FaceRaycaster model={model} handle={handle} studioMode={studioMode} />
         <FaceZoomHandler />

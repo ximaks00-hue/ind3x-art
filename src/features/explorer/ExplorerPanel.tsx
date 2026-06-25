@@ -1,4 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  ArrowUpRight,
+  Copy,
+  FolderOpen,
+  Search,
+  Square,
+  Star,
+} from "lucide-react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 
 import { getAssetFacets, revealAssetInFolder } from "../../app/services/explorerService";
@@ -257,21 +265,21 @@ export function ExplorerPanel({
 
   const contextMenuItems: ContextMenuItem[] = contextMenu
     ? [
-        { id: "select", label: "Open in viewer", icon: "↗" },
-        { id: "copy-path", label: "Copy asset path", icon: "⎘" },
-        { id: "reveal", label: "Open containing folder", icon: "📁" },
+        { id: "select", label: "Open in viewer", icon: ArrowUpRight },
+        { id: "copy-path", label: "Copy asset path", icon: Copy },
+        { id: "reveal", label: "Open containing folder", icon: FolderOpen },
         {
           id: "find-models",
           label: "Find models using this",
-          icon: "🔍",
+          icon: Search,
           disabled: contextMenu.entry.kind !== "texture",
         },
-        { id: "pin", label: "Pin favorite", icon: "★" },
+        { id: "pin", label: "Pin favorite", icon: Star },
         { id: "sep1", label: "", separator: true },
         {
           id: "copy-ns",
           label: `Namespace: ${contextMenu.entry.namespace}`,
-          icon: "◻",
+          icon: Square,
           disabled: true,
         },
       ]

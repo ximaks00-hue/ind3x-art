@@ -5,6 +5,58 @@ All notable changes to **inD3X Art** are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.6] - 2026-06-25
+
+### Added
+
+#### Premium UI & accessibility
+
+- **Design system** — elevation ladder, glass surfaces, motion tokens, unified focus rings, accent glow, and theme-aware `--color-surface-*` across dark / light / high-contrast.
+- **App shell polish** — TitleBar, StatusBar, panel transitions, scrollbar styling, press-scale micro-interactions, positioned tooltips.
+- **Catalog UX** — skeleton grid, premium empty states, search/filter toolbar in `CatalogSearch`, `useRovingTabindex` for category tabs and toolbars, `aria-colcount` on the virtual grid.
+- **3D viewer HUD** — `ViewerFloatingControls` (camera presets, grid, mode badge); branded loading / empty / error states; unified compare viewport styling.
+- **Editor chrome** — Lucide tool icons, premium palette/layers/timeline/options bars, checkerboard tokens, range slider styling.
+- **Overlays** — modal contract, command palette polish, toast progress stack, skeleton `aria-busy` guards.
+
+#### Studio, viewer & paint
+
+- **UV rotation parity** — `face.rotation` respected in 2D unfold, texture canvas, and 3D UV mapping.
+- **3D paint locking** — face/texture fixed on pointer-down so drag strokes cannot bleed across faces.
+- **Deferred texture reload** — `bumpTextureReloadTick` throttled during active paint strokes.
+- **Mini-scene sync** — ghost tiles and mesh rebuild follow `modelTexturePaths` / biome textures.
+- **Item extrusion & mesh** — improved block/item mesh build paths and cube-wrap preview coverage.
+
+#### Backend & IPC
+
+- **Catalog IPC hardening** — richer query/resolve paths, icon pipeline hooks, indexer and asset preview batch improvements.
+- **Index events** — `indexEvents` channel for frontend progress/dirty signals.
+- **Abortable / timeout helpers** — `resolveWithTimeout`, safer void IPC wrappers.
+
+#### Tests & docs
+
+- **Regression tests** — catalog icon snapshot stability, category sync, mini-scene picking, `viewerStore`, onboarding hooks.
+- **`docs/PREMIUM_UI_UPGRADE.md`** — epic tracker for the visual upgrade program.
+
+### Changed
+
+- **Catalog icons** — stable `readCatalogIconState` snapshots (key-scoped cache) to prevent grid re-render storms and crashes.
+- **Session restore** — `sessionRestorePending` race removed between `useCatalogQuery` and restore owner.
+- **Workspace transition** — Classic ↔ Studio restore and studio asset loader error surfacing.
+- **Dead code removed** — unused `CatalogGridToolbar`, legacy viewer toolbar CSS, duplicate comparator styles.
+- **Virtual grid perf** — `content-visibility` on rows; `will-change: transform` only on cell hover.
+
+### Fixed
+
+- **Catalog** — session restore vs. query cancellation on project switch; namespace filter recovery; quick-entry pinning.
+- **Viewer** — no camera reset on mount; reduced mesh/highlight rebuild churn; compare mode layout.
+- **Editor** — zoom slider matches canvas scale; copy/paste and comparator edge cases.
+- **Themes** — light AppShell/dev overlay; tokenized font sizes in error boundaries and panels.
+
+### Upgrade notes
+
+- No settings migration required. Reopen packs once if catalog labels or icons look stale after upgrade.
+- High-contrast theme disables backdrop blur by design (opaque surfaces).
+
 ## [0.3.5] - 2026-06-26
 
 ### Added
@@ -320,6 +372,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Initial release: asset indexer, explorer, 3D viewer, texture editor, save pipeline, Tauri 2 desktop shell.
 
+[0.3.6]: https://github.com/ximaks00-hue/ind3x-art/compare/v0.3.5...v0.3.6
 [0.3.5]: https://github.com/ximaks00-hue/ind3x-art/compare/v0.3.4...v0.3.5
 [0.3.4]: https://github.com/ximaks00-hue/ind3x-art/compare/v0.3.2...v0.3.4
 [0.3.2]: https://github.com/ximaks00-hue/ind3x-art/compare/v0.3.1...v0.3.2

@@ -31,9 +31,53 @@ import {
 import { elementRescaleFactor } from "../../lib/elementRotation";
 import { buildItemExtrusion } from "./itemExtrusion";
 import { loadTexture, tintColorForIndex } from "./textureLoader";
+import { modelTexturePaths } from "./viewerTextureSync";
 import { faceThreeUvs } from "./uvMapping";
 
 const BLOCK = 1 / 16;
+
+export const MINI_SCENE_ROOT_NAME = "mini-scene-tiles";
+export const MINI_SCENE_TILE_PREFIX = "mini-scene-tile-";
+
+/** True when `object` is part of the non-interactive mini-scene ghost grid. */
+export function isMiniSceneObject(object: Object3D): boolean {
+  let node: Object3D | null = object;
+  while (node) {
+    if (node.name === MINI_SCENE_ROOT_NAME || node.name.startsWith(MINI_SCENE_TILE_PREFIX)) {
+      return true;
+    }
+    node = node.parent;
+  }
+  return false;
+}
+
+/** Ghost tiles reuse geometry/materials but must not participate in face picking. */
+export function stripFacePickData(root: Object3D): void {
+  root.traverse((child) => {
+    if (child instanceof Mesh) {
+      delete child.userData[FACE_PICK_KEY];
+    }
+  });
+}
+
+/** Match `buildModelGroup` outer rotation + optional item display slot. */
+export function wrapModelPresentation(
+  object: Object3D,
+  model: RenderableModel,
+  preferredDisplaySlot?: string,
+): Group {
+  let content: Object3D = object;
+  const display = pickDisplayTransform(model, preferredDisplaySlot);
+  if (display) {
+    content = applyDisplayTransform(object, display);
+  }
+  const root = new Group();
+  root.rotation.x = MathUtils.degToRad(model.modelRotation.x);
+  root.rotation.y = MathUtils.degToRad(model.modelRotation.y);
+  root.rotation.z = MathUtils.degToRad(model.modelRotation.z);
+  root.add(content);
+  return root;
+}
 
 /**
  * In a standalone preview we never know if adjacent blocks cull a face.
@@ -197,6 +241,10 @@ function buildFaceGeometry(
 
 function attachFacePick(mesh: Mesh, pick: FacePickData): void {
   mesh.userData[FACE_PICK_KEY] = pick;
+  mesh.userData.__meshTexturePath = pick.face.texture;
+  if (pick.face.tintindex !== undefined) {
+    mesh.userData.__meshTintIndex = pick.face.tintindex;
+  }
 }
 
 function wrapElementRotation(
@@ -397,6 +445,41 @@ export function buildFaceOverlayNode(
     : cuboidGroup;
 }
 
+/** Structural clone for ghost tiles — reuses geometry and materials from the template. */
+export function cloneModelGroupShared(source: Object3D): Object3D {
+  if (source instanceof Mesh) {
+    const mesh = new Mesh(source.geometry, source.material);
+    mesh.position.copy(source.position);
+    mesh.rotation.copy(source.rotation);
+    mesh.scale.copy(source.scale);
+    mesh.matrixAutoUpdate = source.matrixAutoUpdate;
+    mesh.userData = source.userData;
+    mesh.layers.mask = source.layers.mask;
+    return mesh;
+  }
+  const group = new Group();
+  group.position.copy(source.position);
+  group.rotation.copy(source.rotation);
+  group.scale.copy(source.scale);
+  group.name = source.name;
+  group.userData = source.userData;
+  for (const child of source.children) {
+    group.add(cloneModelGroupShared(child));
+  }
+  return group;
+}
+
+/** Drop ghost tile nodes without disposing shared geometry/materials owned by the template. */
+export function disposeGhostModelGroup(root: Object3D): void {
+  const detach = (object: Object3D) => {
+    while (object.children.length > 0) {
+      detach(object.children[0]!);
+      object.remove(object.children[0]!);
+    }
+  };
+  detach(root);
+}
+
 export function disposeObject3D(object: Object3D, options?: { disposeMaps?: boolean }): void {
   const disposeMaps = options?.disposeMaps ?? false;
   const disposedMaterials = new Set<Material>();
@@ -426,12 +509,22 @@ export async function syncModelGroupTextures(
   handle: ProjectHandle,
   model: RenderableModel,
 ): Promise<void> {
-  const paths = new Set<string>();
+  const pathByMesh = new Map<Mesh, string>();
   root.traverse((child) => {
     if (!(child instanceof Mesh)) return;
     const pick = child.userData[FACE_PICK_KEY] as FacePickData | undefined;
-    if (pick?.face?.texture) paths.add(pick.face.texture);
+    const path =
+      pick?.face?.texture ??
+      (child.userData.__meshTexturePath as string | undefined);
+    if (path) pathByMesh.set(child, path);
   });
+
+  const paths = new Set(pathByMesh.values());
+  if (paths.size === 0) {
+    for (const path of modelTexturePaths(model)) {
+      paths.add(path);
+    }
+  }
   if (paths.size === 0) return;
 
   const textureMap = new Map<string, Texture>();
@@ -444,7 +537,10 @@ export async function syncModelGroupTextures(
   root.traverse((child) => {
     if (!(child instanceof Mesh)) return;
     const pick = child.userData[FACE_PICK_KEY] as FacePickData | undefined;
-    const path = pick?.face?.texture;
+    const path =
+      pathByMesh.get(child) ??
+      pick?.face?.texture ??
+      (child.userData.__meshTexturePath as string | undefined);
     if (!path) return;
     const texture = textureMap.get(path);
     if (!texture) return;
@@ -463,10 +559,13 @@ export function syncBiomeTints(root: Group): void {
   root.traverse((child) => {
     if (!(child instanceof Mesh)) return;
     const pick = child.userData[FACE_PICK_KEY] as FacePickData | undefined;
-    if (!pick) return;
+    const tintIndex =
+      pick?.face?.tintindex ??
+      (child.userData.__meshTintIndex as number | undefined);
+    if (tintIndex === undefined && !pick) return;
     const material = child.material;
     if (!(material instanceof MeshLambertMaterial)) return;
-    const tint = tintColorForIndex(pick.face.tintindex);
+    const tint = tintIndex !== undefined ? tintColorForIndex(tintIndex) : null;
     if (tint) {
       material.color.copy(tint);
     } else {

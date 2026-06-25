@@ -1,11 +1,21 @@
 import type { PixelChange } from "./textureDocumentCore";
 
 const strokeBuffers = new Map<string, PixelChange[]>();
+const strokeLayerIds = new Map<string, string>();
 const activeStrokes = new Set<string>();
 
-export function beginBrushStroke(texturePath: string): void {
+export function beginBrushStroke(texturePath: string, layerId?: string): void {
   activeStrokes.add(texturePath);
   strokeBuffers.set(texturePath, []);
+  if (layerId) {
+    strokeLayerIds.set(texturePath, layerId);
+  } else {
+    strokeLayerIds.delete(texturePath);
+  }
+}
+
+export function getBrushStrokeLayerId(texturePath: string): string | undefined {
+  return strokeLayerIds.get(texturePath);
 }
 
 export function isBrushStrokeActive(texturePath: string): boolean {
@@ -20,6 +30,7 @@ export function appendBrushStrokeChanges(texturePath: string, changes: PixelChan
 
 export function takeBrushStrokeChanges(texturePath: string): PixelChange[] {
   activeStrokes.delete(texturePath);
+  strokeLayerIds.delete(texturePath);
   const raw = strokeBuffers.get(texturePath) ?? [];
   strokeBuffers.delete(texturePath);
   return coalescePixelChanges(raw);
@@ -27,6 +38,7 @@ export function takeBrushStrokeChanges(texturePath: string): PixelChange[] {
 
 export function cancelBrushStroke(texturePath: string): void {
   activeStrokes.delete(texturePath);
+  strokeLayerIds.delete(texturePath);
   strokeBuffers.delete(texturePath);
 }
 

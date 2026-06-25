@@ -1,11 +1,16 @@
+import { AlertTriangle, Package, SearchX } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef } from "react";
 
 import type { CatalogEntry } from "../../ipc/types";
 import { useProjectStore } from "../../state/projectStore";
 import { useSettingsStore } from "../../state/settingsStore";
 import { useUiStore } from "../../state/uiStore";
+import { Icon } from "../../ui/icons/Icon";
+import { Button } from "../../ui/primitives";
+import { PanelErrorBoundary } from "../../ui/PanelErrorBoundary/PanelErrorBoundary";
+import { Spinner } from "../../ui/primitives/Spinner";
 import { CatalogCategoryTabs } from "./CatalogCategoryTabs";
-import { CatalogGridToolbar } from "./CatalogGridToolbar";
+import { CatalogGridSkeleton } from "./CatalogGridSkeleton";
 import { CatalogQuickRow } from "./CatalogQuickRow";
 import { refreshCatalogCaches } from "../../app/projectDataRevision";
 import { CatalogSearch } from "./CatalogSearch";
@@ -14,8 +19,11 @@ import styles from "./CatalogPanel.module.css";
 import { flushCatalogSearchDebounce, useCatalogStore } from "./catalogStore";
 import {
   catalogCategoryCount,
+  catalogRowHeight,
+  catalogRowCount,
   catalogTotalCount,
   CATALOG_CATEGORY_LABELS,
+  CATALOG_GRID_COLS,
 } from "./catalogUtils";
 import { useCatalogIconPendingCount } from "./useCatalogIconPipeline";
 import { useCatalogKeyboardNav } from "./useCatalogKeyboardNav";
@@ -23,7 +31,9 @@ import { useCatalogLoadMore } from "./useCatalogQuery";
 import { useCatalogQuickEntries } from "./useCatalogQuickEntries";
 import { useCatalogSelection } from "./useCatalogSelection";
 import { useCatalogSessionRestore } from "./useCatalogSessionRestore";
-import { PanelErrorBoundary } from "../../ui/PanelErrorBoundary/PanelErrorBoundary";
+import { useCatalogLanguageSwitch } from "./useCatalogLanguageSwitch";
+
+const CATALOG_GRID_ID = "catalog-items-grid";
 
 export function CatalogPanel() {
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -33,7 +43,6 @@ export function CatalogPanel() {
 
   const handle = useProjectStore((s) => s.handle);
   const indexStatus = useProjectStore((s) => s.indexStatus);
-  const sourcePath = useProjectStore((s) => s.sourcePath);
   const fuzzySearch = useProjectStore((s) => s.fuzzySearch);
   const setFuzzySearch = useProjectStore((s) => s.setFuzzySearch);
   const namespaceFilter = useProjectStore((s) => s.namespaceFilter);
@@ -41,6 +50,8 @@ export function CatalogPanel() {
   const workspaceMode = useSettingsStore((s) => s.workspaceMode);
   const pinnedCatalogIds = useSettingsStore((s) => s.pinnedCatalogIds);
   const recentCatalogIds = useSettingsStore((s) => s.recentCatalogIds);
+  const catalogShowCellLabels = useSettingsStore((s) => s.catalogShowCellLabels);
+  const setCatalogShowCellLabels = useSettingsStore((s) => s.setCatalogShowCellLabels);
   const togglePinnedCatalogId = useSettingsStore((s) => s.togglePinnedCatalogId);
   const setStudioCatalogCategory = useSettingsStore((s) => s.setStudioCatalogCategory);
   const explorerFocusTick = useUiStore((s) => s.explorerFocusTick);
@@ -64,6 +75,8 @@ export function CatalogPanel() {
   const { selectEntry } = useCatalogSelection();
   const { loadMore, searchPending } = useCatalogLoadMore();
   const iconPending = useCatalogIconPendingCount();
+  const { catalogLanguage, switchLanguage, busy: languageBusy } = useCatalogLanguageSwitch();
+  const rowHeight = catalogRowHeight(catalogShowCellLabels);
 
   useCatalogSessionRestore();
 
@@ -121,22 +134,29 @@ export function CatalogPanel() {
     scrollToRow: (row) => {
       const el = scrollRef.current;
       if (!el) return;
-      const targetTop = row * 48;
-      el.scrollTo({ top: targetTop, behavior: "auto" });
+      el.scrollTo({ top: row * rowHeight, behavior: "auto" });
     },
   });
 
   useEffect(() => {
-    if (!facets || category == null) return;
+    if (!facets) return;
+    if (category == null) {
+      if (useSettingsStore.getState().studioCatalogCategory !== null) {
+        setStudioCatalogCategory(null);
+      }
+      return;
+    }
     if (catalogCategoryCount(facets, category) === 0) {
-      setCategory(null);
-      setStudioCatalogCategory(null);
+      if (useCatalogStore.getState().category !== null) setCategory(null);
+      if (useSettingsStore.getState().studioCatalogCategory !== null) {
+        setStudioCatalogCategory(null);
+      }
+      return;
+    }
+    if (useSettingsStore.getState().studioCatalogCategory !== category) {
+      setStudioCatalogCategory(category);
     }
   }, [facets, category, setCategory, setStudioCatalogCategory]);
-
-  useEffect(() => {
-    if (category != null) setStudioCatalogCategory(category);
-  }, [category, setStudioCatalogCategory]);
 
   const handleTogglePin = useCallback(
     (entry: { id: string }) => {
@@ -157,6 +177,8 @@ export function CatalogPanel() {
   const isLoading = loading || searchPending;
   const showNoMatches =
     !queryError && entries.length === 0 && !isLoading && indexStatus === "done" && handle;
+  const showSkeleton =
+    isLoading && entries.length === 0 && handle && indexStatus === "done" && !queryError;
   const allCatalogCount = catalogTotalCount(facets);
   const hasActiveFilter = Boolean(category) || search.trim().length > 0;
 
@@ -177,20 +199,22 @@ export function CatalogPanel() {
       tabIndex={-1}
     >
       <div className={styles.header}>
-        <h2 className={styles.title}>Catalog</h2>
-        <p className={styles.subtitle}>
-          {queryError
-            ? "Catalog load failed"
-            : indexStatus === "done"
-              ? `${shownCount.toLocaleString()} loaded · ${total.toLocaleString()} total`
-              : indexStatus === "running"
-                ? "Indexing…"
-                : "Open a pack to browse blocks"}
-        </p>
+        <div className={styles.headerRow}>
+          <h2 className={styles.title}>Catalog</h2>
+          {indexStatus === "done" && handle ? (
+            <span className={styles.headerMeta}>
+              {queryError
+                ? "Load failed"
+                : `${shownCount.toLocaleString()} / ${total.toLocaleString()}`}
+            </span>
+          ) : null}
+        </div>
         {iconPending > 50 ? (
-          <p className={styles.bakingProgress}>Baking icons… ({iconPending} pending)</p>
+          <p className={styles.bakingProgress}>
+            <span className="status-dot status-dot--breathe" aria-hidden />
+            Baking icons… ({iconPending} pending)
+          </p>
         ) : null}
-        {sourcePath ? <p className={styles.sourcePath}>{sourcePath}</p> : null}
       </div>
 
       <CatalogSearch
@@ -199,9 +223,15 @@ export function CatalogPanel() {
         namespace={namespaceFilter}
         onNamespaceChange={setNamespaceFilter}
         disabled={!handle}
+        searchPending={searchPending}
         inputRef={searchRef}
         fuzzySearch={fuzzySearch}
         onFuzzySearchChange={setFuzzySearch}
+        showLabels={catalogShowCellLabels}
+        onShowLabelsChange={setCatalogShowCellLabels}
+        catalogLanguage={catalogLanguage}
+        onCatalogLanguageChange={(language) => void switchLanguage(language)}
+        languageBusy={languageBusy}
       />
 
       <CatalogCategoryTabs
@@ -209,9 +239,8 @@ export function CatalogPanel() {
         facetsError={facetsError}
         active={category}
         onSelect={setCategory}
+        gridId={CATALOG_GRID_ID}
       />
-
-      {handle && indexStatus === "done" ? <CatalogGridToolbar /> : null}
 
       {pinnedEntries.length > 0 ? (
         <CatalogQuickRow
@@ -237,29 +266,34 @@ export function CatalogPanel() {
 
       <div ref={scrollRef} className={styles.scroll}>
         {!handle || indexStatus !== "done" ? (
-          <div className={styles.empty}>
-            <p className={styles.emptyTitle}>Creative catalog</p>
-            <p className={styles.emptyBody}>
+          <div className="empty-state" role="status" aria-live="polite">
+            <span className={styles.emptyIcon} aria-hidden>
+              <Icon icon={Package} size={20} />
+            </span>
+            <p className="empty-state-title">Creative catalog</p>
+            <p className="empty-state-body">
               Open a resource pack or try the demo pack to browse blocks and items like
               Minecraft&apos;s creative inventory.
             </p>
           </div>
         ) : queryError ? (
-          <div className={styles.empty}>
-            <p className={styles.emptyTitle}>Catalog failed to load</p>
-            <p className={styles.emptyBody}>{queryError}</p>
-            <button
-              type="button"
-              className={styles.retryBtn}
-              onClick={() => refreshCatalog()}
-            >
+          <div className="empty-state" role="alert" aria-live="polite">
+            <span className={`${styles.emptyIcon} ${styles.emptyIconDanger}`} aria-hidden>
+              <Icon icon={AlertTriangle} size={20} />
+            </span>
+            <p className="empty-state-title">Catalog failed to load</p>
+            <p className="empty-state-body">{queryError}</p>
+            <Button variant="ghost" onClick={() => refreshCatalog()}>
               Retry
-            </button>
+            </Button>
           </div>
         ) : showNoMatches ? (
-          <div className={styles.empty}>
-            <p className={styles.emptyTitle}>No matches</p>
-            <p className={styles.emptyBody}>
+          <div className="empty-state" role="status" aria-live="polite">
+            <span className={styles.emptyIcon} aria-hidden>
+              <Icon icon={SearchX} size={20} />
+            </span>
+            <p className="empty-state-title">No matches</p>
+            <p className="empty-state-body">
               {search.trim()
                 ? "Try a different search or clear the filters."
                 : category
@@ -269,12 +303,22 @@ export function CatalogPanel() {
                     : "No entries match the current filters."}
             </p>
             {hasActiveFilter ? (
-              <button type="button" className={styles.retryBtn} onClick={clearCatalogFilters}>
+              <Button variant="ghost" onClick={clearCatalogFilters}>
                 Show all items
-              </button>
+              </Button>
             ) : null}
           </div>
+        ) : showSkeleton ? (
+          <CatalogGridSkeleton showLabels={catalogShowCellLabels} />
         ) : (
+          <div
+            className={styles.grid}
+            id={CATALOG_GRID_ID}
+            role="grid"
+            aria-label="Catalog items"
+            aria-rowcount={catalogRowCount(entries.length)}
+            aria-colcount={CATALOG_GRID_COLS}
+          >
           <CatalogVirtualGrid
             scrollRef={scrollRef}
             entries={entries}
@@ -287,8 +331,14 @@ export function CatalogPanel() {
             onTogglePin={handleTogglePin}
             loadMore={loadMore}
           />
+          </div>
         )}
-        {isLoading ? <p className={styles.loading}>Loading…</p> : null}
+        {isLoading && entries.length > 0 ? (
+          <div className={styles.loadingBar} role="status">
+            <Spinner label="Loading catalog" />
+            <span>Loading…</span>
+          </div>
+        ) : null}
       </div>
     </div>
     </PanelErrorBoundary>

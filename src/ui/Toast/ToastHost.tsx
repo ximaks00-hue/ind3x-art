@@ -27,6 +27,7 @@ function ToastList({
             className={`${styles.toast} ${styles[toast.variant]}`}
             role={toast.variant === "error" ? "alert" : "status"}
           >
+            <div className={styles.progress} aria-hidden />
             <span className={styles.iconWrap} aria-hidden>
               <Icon icon={VariantIcon} size={20} />
             </span>

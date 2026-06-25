@@ -14,7 +14,7 @@
   display: flex;
   align-items: center;
   gap: var(--space-2);
-  font-size: 10px;
+  font-size: var(--text-2xs);
   color: var(--color-text-muted);
   flex: 1;
 }
@@ -25,7 +25,7 @@
 }
 
 .zoomValue {
-  font-size: 10px;
+  font-size: var(--text-2xs);
   color: var(--color-text-secondary);
   min-width: 28px;
   text-align: right;
@@ -88,10 +88,10 @@
   padding: 2px 6px;
   border-radius: var(--radius-sm);
   background: color-mix(in srgb, var(--color-bg-panel) 85%, transparent);
-  font-size: 10px;
-  font-weight: 600;
+  font-size: var(--text-2xs);
+  font-weight: var(--font-weight-semibold);
   text-transform: uppercase;
-  letter-spacing: 0.04em;
+  letter-spacing: var(--tracking-wide);
   color: var(--color-text-secondary);
   pointer-events: none;
   z-index: 1;
@@ -107,6 +107,6 @@
 
 .hint {
   margin: 0;
-  font-size: 10px;
+  font-size: var(--text-2xs);
   color: var(--color-text-muted);
 }

@@ -14,3 +14,7 @@ export function currentPaintOperationGen(texturePath: string): number {
 export function isPaintOperationCurrent(texturePath: string, gen: number): boolean {
   return currentPaintOperationGen(texturePath) === gen;
 }
+
+export function clearPaintOperationGens(): void {
+  generationByPath.clear();
+}

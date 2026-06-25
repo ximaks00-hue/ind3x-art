@@ -78,12 +78,14 @@ pub struct AppState {
     /// Per-request cancel flags keyed by frontend-allocated IPC request id.
     pub ipc_requests: HashMap<u64, Arc<AtomicBool>>,
     pub db: Db,
+    /// Session-only sled when the on-disk cache is locked by another instance.
+    pub cache_ephemeral: bool,
     pub watcher: crate::watcher::SharedWatcher,
 }
 
 impl AppState {
     pub fn new(cache_root: PathBuf) -> CoreResult<Self> {
-        let db = open_cache_db(&cache_root)?;
+        let (db, cache_ephemeral) = open_cache_db(&cache_root)?;
 
         Ok(Self {
             next_handle: AtomicU64::new(1),
@@ -91,6 +93,7 @@ impl AppState {
             cancel_flags: HashMap::new(),
             ipc_requests: HashMap::new(),
             db,
+            cache_ephemeral,
             watcher: std::sync::Arc::new(std::sync::Mutex::new(HashMap::new())),
         })
     }
@@ -106,6 +109,7 @@ impl AppState {
                 "release".to_string()
             },
             log_dir: logging::log_directory().map(|p| p.to_string_lossy().to_string()),
+            cache_ephemeral: self.cache_ephemeral,
         }
     }
 
@@ -167,11 +171,12 @@ pub fn test_app_state() -> CoreResult<AppState> {
         cancel_flags: HashMap::new(),
         ipc_requests: HashMap::new(),
         db,
+        cache_ephemeral: false,
         watcher: Arc::new(std::sync::Mutex::new(HashMap::new())),
     })
 }
 
-pub fn open_cache_db(app_cache_root: &Path) -> CoreResult<Db> {
+pub fn open_cache_db(app_cache_root: &Path) -> CoreResult<(Db, bool)> {
     let cache_root = app_cache_root
         .join("ind3x-art")
         .join("cache")
@@ -180,17 +185,18 @@ pub fn open_cache_db(app_cache_root: &Path) -> CoreResult<Db> {
     note_legacy_temp_cache();
     let db_path = cache_root.join("sled");
     match sled::open(&db_path) {
-        Ok(db) => Ok(db),
+        Ok(db) => Ok((db, false)),
         Err(err) if cache_db_lock_conflict(&err) => {
             tracing::warn!(
                 path = %db_path.display(),
                 %err,
                 "persistent cache locked by another instance — using in-memory session cache"
             );
-            sled::Config::new()
+            let db = sled::Config::new()
                 .temporary(true)
                 .open()
-                .map_err(CoreError::from)
+                .map_err(CoreError::from)?;
+            Ok((db, true))
         }
         Err(err) => Err(err.into()),
     }

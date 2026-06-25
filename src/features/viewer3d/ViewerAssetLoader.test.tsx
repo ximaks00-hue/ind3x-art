@@ -10,11 +10,17 @@ const listVariants = vi.fn();
 const resolveRenderable = vi.fn();
 const modelsForTexture = vi.fn();
 
+vi.mock("../../ipc/abortable", () => ({
+  withAbortableIpc: (_signal: unknown, invoke: (id: null) => Promise<unknown>) => invoke(null),
+}));
+
 vi.mock("../../ipc/client", () => ({
   ipc: {
     listVariants: (...args: unknown[]) => listVariants(...args),
     resolveRenderable: (...args: unknown[]) => resolveRenderable(...args),
     modelsForTexture: (...args: unknown[]) => modelsForTexture(...args),
+    finishIpcRequest: vi.fn(),
+    cancelIpcRequest: vi.fn(),
   },
 }));
 
@@ -74,6 +80,7 @@ describe("ViewerAssetLoader", () => {
         selected.path,
         "",
         undefined,
+        null,
       );
     });
 

@@ -4,6 +4,7 @@ const { commandsMock } = vi.hoisted(() => ({
   commandsMock: {
     queryAssets: vi.fn(),
     saveTextures: vi.fn(),
+    saveBatch: vi.fn(),
     resolveRenderable: vi.fn(),
     getTextureBinary: vi.fn(),
   },
@@ -39,7 +40,7 @@ describe("spectaClient", () => {
   });
 
   it("normalizes save options nullables", async () => {
-    commandsMock.saveTextures.mockResolvedValue({
+    commandsMock.saveBatch.mockResolvedValue({
       savedCount: 0,
       savedPaths: [],
       originalPaths: [],
@@ -50,7 +51,7 @@ describe("spectaClient", () => {
       targetPath: undefined,
       namespace: undefined,
     });
-    expect(commandsMock.saveTextures).toHaveBeenCalledWith({ id: 1 }, [], {
+    expect(commandsMock.saveBatch).toHaveBeenCalledWith({ id: 1 }, [], {
       mode: "rename",
       targetPath: null,
       namespace: null,
@@ -69,6 +70,7 @@ describe("spectaClient", () => {
       { id: 1 },
       "assets/test/blockstate.json",
       "",
+      null,
       null,
     );
   });

@@ -291,6 +291,7 @@ pub fn patch_entries_for_paths(
     source: &dyn AssetSource,
     changed_paths: &[String],
     on_event: Option<&Channel<IndexEvent>>,
+    app_emit: Option<&tauri::AppHandle>,
 ) -> CoreResult<()> {
     for raw_path in changed_paths {
         let path = raw_path.replace('\\', "/");
@@ -303,7 +304,7 @@ pub fn patch_entries_for_paths(
                     if let Some(ch) = on_event {
                         let _ = send(
                             ch,
-                            None,
+                            app_emit,
                             IndexEvent::Warning {
                                 path: path.clone(),
                                 reason: "removed from source".to_string(),
@@ -314,7 +315,7 @@ pub fn patch_entries_for_paths(
             } else if let Some(ch) = on_event {
                 let _ = send(
                     ch,
-                    None,
+                    app_emit,
                     IndexEvent::Warning {
                         path: path.clone(),
                         reason: format!("read failed, keeping index entry: {err}"),
@@ -326,7 +327,7 @@ pub fn patch_entries_for_paths(
 
         if let Some(entry) = classify_path(&path) {
             if let Some(ch) = on_event {
-                send(ch, None, IndexEvent::Asset { entry: entry.clone() })?;
+                send(ch, app_emit, IndexEvent::Asset { entry: entry.clone() })?;
             }
             entries.retain(|e| e.path != path);
             entries.push(entry);
@@ -337,7 +338,7 @@ pub fn patch_entries_for_paths(
                 if let Some(ch) = on_event {
                     let _ = send(
                         ch,
-                        None,
+                        app_emit,
                         IndexEvent::Warning {
                             path: path.clone(),
                             reason: "could not classify changed path".to_string(),
@@ -568,7 +569,11 @@ fn send(
     event: IndexEvent,
 ) -> CoreResult<()> {
     if let Some(app) = app_emit {
-        let _ = app.emit("index-event", event.clone());
+        // Blocking index work runs on spawn_blocking; Channel::send uses webview.eval which
+        // can block the worker until the main thread runs the script (dev + tracing).
+        // Emit only — the frontend listens on `index-event`.
+        let _ = app.emit("index-event", event);
+        return Ok(());
     }
     on_event
         .send(event)

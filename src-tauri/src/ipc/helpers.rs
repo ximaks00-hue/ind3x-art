@@ -13,9 +13,61 @@ use crate::index::{
 use crate::model::normalize::{read_pack_info, PackInfo};
 use crate::resolve::ModelRegistry;
 use crate::source::open_source as load_source;
-use crate::state::{lock_model_cache, read_project, write_project, IndexState, Project, SharedState};
+use crate::state::{
+    lock_model_cache, read_project, write_project, CatalogState, IndexState, Project, SaveState,
+    SharedState,
+};
 
 pub(crate) const INDEX_EVENT: &str = "index-event";
+
+fn clone_index_state(index: &IndexState) -> IndexState {
+    IndexState {
+        fingerprint: index.fingerprint.clone(),
+        entries: index.entries.clone(),
+        entry_id_index: index.entry_id_index.clone(),
+        texture_model_index: index.texture_model_index.clone(),
+        model_cache: Mutex::new(
+            index
+                .model_cache
+                .lock()
+                .map(|cache| cache.clone())
+                .unwrap_or_default(),
+        ),
+    }
+}
+
+fn clone_catalog_state(catalog: &CatalogState) -> CatalogState {
+    CatalogState {
+        entries: catalog.entries.clone(),
+        id_index: catalog.id_index.clone(),
+        creative_tab_order: catalog.creative_tab_order.clone(),
+        language: catalog.language.clone(),
+    }
+}
+
+/// Clone project state for heavy refresh/reindex work outside the per-project write lock.
+pub(crate) fn clone_project_for_off_lock_work(project: &Project) -> CoreResult<Project> {
+    Ok(Project {
+        source_path: project.source_path.clone(),
+        source_kind: project.source_kind,
+        pack_format: project.pack_format,
+        source: load_source(&project.source_path)?,
+        index: clone_index_state(&project.index),
+        catalog: clone_catalog_state(&project.catalog),
+        save: SaveState {
+            journal: project.save.journal.clone(),
+        },
+    })
+}
+
+/// Publish off-lock results under a brief write lock.
+pub(crate) fn publish_project_work_result(dst: &mut Project, src: Project) {
+    dst.source = src.source;
+    dst.pack_format = src.pack_format;
+    dst.index = src.index;
+    dst.catalog = src.catalog;
+    dst.save.journal = src.save.journal;
+}
 
 pub(crate) fn touch_ipc_request(state: &SharedState, request_id: Option<u64>) -> CoreResult<()> {
     let Some(request_id) = request_id else {
@@ -50,7 +102,8 @@ pub(crate) fn send_index_event(
     event: IndexEvent,
 ) {
     if let Some(app) = app {
-        emit_index_event(app, event.clone());
+        emit_index_event(app, event);
+        return;
     }
     let _ = channel.send(event);
 }
@@ -189,19 +242,9 @@ pub(crate) fn prepare_opened_project(
             journal: Vec::new(),
         },
     };
-    rebuild_texture_model_index(&mut project)?;
-    send_index_event(
-        app,
-        on_event,
-        IndexEvent::Progress {
-            scanned: 0,
-            total: 1,
-            stage: "building catalog".to_string(),
-        },
-    );
 
     // Stale sled index cache can produce an empty catalog while blockstates/models exist.
-    // Cold-scan once before the first catalog build instead of build → invalidate → cold → build.
+    // Cold-scan once before texture/catalog work instead of build → invalidate → cold → build.
     if from_cache && crate::catalog::catalog_needs_rebuild(&project) {
         tracing::warn!(
             entry_count = project.index.entries.len(),
@@ -225,8 +268,18 @@ pub(crate) fn prepare_opened_project(
         )?;
         from_cache = fresh_from_cache;
         project.index.entries = fresh_entries;
-        rebuild_texture_model_index(&mut project)?;
     }
+
+    rebuild_texture_model_index(&mut project)?;
+    send_index_event(
+        app,
+        on_event,
+        IndexEvent::Progress {
+            scanned: 0,
+            total: 1,
+            stage: "building catalog".to_string(),
+        },
+    );
 
     let mut catalog_from_cache = crate::catalog::build_project_catalog(&mut project, db)?;
     if crate::catalog::catalog_needs_rebuild(&project) {
@@ -334,15 +387,20 @@ pub(crate) fn invalidate_jar_cache_if_needed(
 }
 
 pub(crate) fn ensure_catalog_built(state: &SharedState, handle_id: u64) -> CoreResult<()> {
-    let needs = {
-        let app = state.read()?;
-        let arc = crate::state::project_arc(&app.projects, handle_id)?;
-        let project = read_project(&arc)?;
-        crate::catalog::catalog_needs_rebuild(&project)
-    };
-    if !needs {
+    if !catalog_needs_build(state, handle_id)? {
         return Ok(());
     }
+    ensure_catalog_built_blocking(state, handle_id)
+}
+
+pub(crate) fn catalog_needs_build(state: &SharedState, handle_id: u64) -> CoreResult<bool> {
+    let app = state.read()?;
+    let arc = crate::state::project_arc(&app.projects, handle_id)?;
+    let project = read_project(&arc)?;
+    Ok(crate::catalog::catalog_needs_rebuild(&project))
+}
+
+pub(crate) fn ensure_catalog_built_blocking(state: &SharedState, handle_id: u64) -> CoreResult<()> {
     let db = {
         let app = state.read()?;
         app.db.clone()
@@ -352,12 +410,28 @@ pub(crate) fn ensure_catalog_built(state: &SharedState, handle_id: u64) -> CoreR
         crate::state::project_arc(&app.projects, handle_id)?
     };
     let mut project = write_project(&arc)?;
+    if !crate::catalog::catalog_needs_rebuild(&project) {
+        return Ok(());
+    }
     tracing::warn!(
         entry_count = project.index.entries.len(),
         "catalog empty while index has blockstates/models — rebuilding"
     );
     crate::catalog::build_project_catalog(&mut project, &db)?;
     Ok(())
+}
+
+pub(crate) async fn ensure_catalog_built_async(
+    state: &SharedState,
+    handle_id: u64,
+) -> CoreResult<()> {
+    if !catalog_needs_build(state, handle_id)? {
+        return Ok(());
+    }
+    let shared = state.clone();
+    tauri::async_runtime::spawn_blocking(move || ensure_catalog_built_blocking(&shared, handle_id))
+        .await
+        .map_err(|e| CoreError::Internal(format!("catalog build task failed: {e}")))?
 }
 
 pub(crate) fn refresh_pack_format(project: &mut crate::state::Project) {
@@ -385,6 +459,7 @@ pub(crate) fn refresh_project_for_paths_on_project(
         &mut project.index.entries,
         project.source.as_ref(),
         changed_paths,
+        None,
         None,
     )?;
     prune_orphan_entries(&mut project.index.entries, project.source.as_ref())?;

@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 
-import { getCatalogEntry } from "../../app/services/catalogService";
+import { getCatalogEntriesBatch } from "../../app/services/catalogService";
 import type { CatalogEntry, ProjectHandle } from "../../ipc/types";
 import { useCatalogStore } from "./catalogStore";
 
@@ -10,6 +10,8 @@ export function useCatalogQuickEntries(
   catalogIds: string[],
 ): Map<string, CatalogEntry> {
   const [entries, setEntries] = useState<Map<string, CatalogEntry>>(new Map());
+  const queryRevision = useCatalogStore((s) => s.queryRevision);
+  const gridEntries = useCatalogStore((s) => s.entries);
   const idsKey = catalogIds.join("\0");
 
   useEffect(() => {
@@ -19,42 +21,47 @@ export function useCatalogQuickEntries(
     }
 
     const gridById = new Map(
-      useCatalogStore
-        .getState()
-        .entries.filter((entry) => catalogIds.includes(entry.id))
+      gridEntries
+        .filter((entry) => catalogIds.includes(entry.id))
         .map((entry) => [entry.id, entry] as const),
     );
     const missingIds = catalogIds.filter((id) => !gridById.has(id));
 
     if (missingIds.length === 0) {
+      const prev = entries;
+      if (
+        prev.size === gridById.size &&
+        [...gridById.keys()].every((id) => prev.get(id) === gridById.get(id))
+      ) {
+        return;
+      }
       setEntries(gridById);
       return;
     }
 
-    let cancelled = false;
+    const controller = new AbortController();
     void (async () => {
-      const pairs = await Promise.all(
-        missingIds.map(async (id) => {
-          try {
-            const entry = await getCatalogEntry(handle, id);
-            return [id, entry] as const;
-          } catch {
-            return null;
-          }
-        }),
-      );
-      if (cancelled) return;
-      const next = new Map(gridById);
-      for (const pair of pairs) {
-        if (pair) next.set(pair[0], pair[1]);
+      try {
+        const batch = await getCatalogEntriesBatch(handle, missingIds, {
+          signal: controller.signal,
+        });
+        if (controller.signal.aborted) return;
+        const next = new Map(gridById);
+        for (const entry of batch) {
+          next.set(entry.id, entry);
+        }
+        setEntries(next);
+      } catch (error) {
+        if (!controller.signal.aborted) {
+          console.warn("[catalog] quick entries batch failed", error);
+        }
       }
-      setEntries(next);
     })();
 
     return () => {
-      cancelled = true;
+      controller.abort();
     };
-  }, [handle, idsKey, catalogIds]);
+  }, [handle, idsKey, catalogIds, gridEntries, queryRevision]);
 
   return entries;
 }

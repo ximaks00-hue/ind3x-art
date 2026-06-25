@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { Eye, EyeOff, Lock, Trash2, Unlock } from "lucide-react";
 
 import {
   addTextureLayer,
@@ -12,6 +13,7 @@ import {
   type BlendMode,
   type TextureLayer,
 } from "./textureDocument";
+import { Icon } from "../../ui/icons/Icon";
 import styles from "./LayersPanel.module.css";
 
 const BLEND_MODES: BlendMode[] = [
@@ -47,6 +49,7 @@ function LayersPanelContent({ texturePath }: { texturePath: string }) {
   );
   const dragRef = useRef<string | null>(null);
   const [dragOver, setDragOver] = useState<string | null>(null);
+  const [draggingId, setDraggingId] = useState<string | null>(null);
 
   useEffect(() => {
     const refresh = () => {
@@ -80,9 +83,11 @@ function LayersPanelContent({ texturePath }: { texturePath: string }) {
               className={styles.item}
               data-active={layer.id === activeId}
               data-dragover={dragOver === layer.id}
+              data-dragging={draggingId === layer.id}
               draggable
               onDragStart={() => {
                 dragRef.current = layer.id;
+                setDraggingId(layer.id);
               }}
               onDragOver={(e) => {
                 e.preventDefault();
@@ -96,10 +101,12 @@ function LayersPanelContent({ texturePath }: { texturePath: string }) {
                 }
                 dragRef.current = null;
                 setDragOver(null);
+                setDraggingId(null);
               }}
               onDragEnd={() => {
                 dragRef.current = null;
                 setDragOver(null);
+                setDraggingId(null);
               }}
             >
               <button
@@ -119,7 +126,7 @@ function LayersPanelContent({ texturePath }: { texturePath: string }) {
                 }
                 title={layer.visible ? "Hide layer" : "Show layer"}
               >
-                {layer.visible ? "◉" : "○"}
+                <Icon icon={layer.visible ? Eye : EyeOff} size={16} />
               </button>
               <button
                 type="button"
@@ -130,7 +137,7 @@ function LayersPanelContent({ texturePath }: { texturePath: string }) {
                 }
                 title={layer.locked ? "Unlock layer" : "Lock layer"}
               >
-                {layer.locked ? "🔒" : "🔓"}
+                <Icon icon={layer.locked ? Lock : Unlock} size={16} />
               </button>
               <select
                 className={styles.blendSelect}
@@ -168,7 +175,7 @@ function LayersPanelContent({ texturePath }: { texturePath: string }) {
                 onClick={() => removeTextureLayer(texturePath, layer.id)}
                 title="Delete layer"
               >
-                ×
+                <Icon icon={Trash2} size={16} />
               </button>
             </li>
           );

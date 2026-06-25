@@ -15,7 +15,7 @@ describe("buildCubeAllPreviewModel", () => {
     expect(model.cuboids[0]!.faces).toHaveLength(6);
     for (const face of model.cuboids[0]!.faces) {
       expect(face.texture).toBe("minecraft:textures/block/stone.png");
-      expect(face.uv).toEqual([0, 0, 32, 32]);
+      expect(face.uv).toEqual([0, 0, 16, 16]);
     }
   });
 

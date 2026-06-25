@@ -23,7 +23,7 @@
   margin: 0;
   font-size: var(--text-panel-title);
   font-weight: var(--font-weight-semibold);
-  letter-spacing: -0.01em;
+  letter-spacing: var(--tracking-tight);
 }
 
 .viewToggle {
@@ -36,7 +36,7 @@
 .toggle,
 .toggleActive {
   padding: 4px 8px;
-  font-size: 10px;
+  font-size: var(--text-2xs);
   border: none;
   background: transparent;
   color: var(--color-text-muted);
@@ -53,13 +53,13 @@
 
 .subtitle {
   margin: 4px 0 0;
-  font-size: 11px;
+  font-size: var(--text-xs);
   color: var(--color-text-muted);
 }
 
 .sourcePath {
   margin: 6px 0 0;
-  font-size: 10px;
+  font-size: var(--text-2xs);
   color: var(--color-text-muted);
   white-space: nowrap;
   overflow: hidden;
@@ -81,7 +81,7 @@
   background: var(--color-bg-input);
   color: var(--color-text-primary);
   padding: 7px 10px;
-  font-size: 12px;
+  font-size: var(--text-compact);
 }
 
 .search:disabled {
@@ -92,7 +92,7 @@
   display: flex;
   align-items: center;
   gap: 5px;
-  font-size: 11px;
+  font-size: var(--text-xs);
   color: var(--color-text-muted);
   white-space: nowrap;
   user-select: none;
@@ -105,7 +105,7 @@
 }
 
 .miniBtn {
-  font-size: 10px;
+  font-size: var(--text-2xs);
   padding: 2px 6px;
   border: 1px solid var(--color-border);
   border-radius: var(--radius-sm);
@@ -135,13 +135,13 @@
 }
 
 .quickLabel {
-  font-size: 10px;
+  font-size: var(--text-2xs);
   color: var(--color-text-muted);
   min-width: 44px;
 }
 
 .quickChip {
-  font-size: 10px;
+  font-size: var(--text-2xs);
   padding: 2px 6px;
   border-radius: var(--radius-sm);
   border: 1px solid var(--color-border);
@@ -152,21 +152,30 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  transition: box-shadow var(--transition-focus);
 }
 
-.rowFocused {
-  outline: 1px solid var(--color-accent);
-  outline-offset: -1px;
+.quickChip:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring-inset);
+}
+
+.rowFocused,
+.row:focus-visible,
+.rowActive:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring-inset);
+  transition: box-shadow var(--transition-focus);
 }
 
 .warnBadge {
   flex-shrink: 0;
-  font-size: 10px;
+  font-size: var(--text-2xs);
 }
 
 .pinMark {
   flex-shrink: 0;
-  font-size: 10px;
+  font-size: var(--text-2xs);
   color: var(--color-accent);
 }
 
@@ -197,12 +206,18 @@
   background: color-mix(in srgb, var(--color-bg-panel) 85%, transparent);
   color: var(--color-text-secondary);
   text-align: left;
-  font-size: 11px;
-  font-weight: 600;
+  font-size: var(--text-xs);
+  font-weight: var(--font-weight-semibold);
 }
 
 .groupRow:hover {
   background: var(--color-bg-panel-hover);
+}
+
+.groupRow:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring-inset);
+  transition: box-shadow var(--transition-focus);
 }
 
 .chevron {
@@ -220,7 +235,7 @@
 }
 
 .groupCount {
-  font-size: 10px;
+  font-size: var(--text-2xs);
   color: var(--color-text-muted);
   font-variant-numeric: tabular-nums;
 }
@@ -250,7 +265,7 @@
 
 .rowActive {
   background: var(--color-bg-accent-subtle);
-  animation: rowSelectPulse var(--transition-normal) ease;
+  animation: rowSelectPulse var(--transition-enter);
 }
 
 @keyframes rowSelectPulse {
@@ -276,14 +291,14 @@
   place-content: center;
   border-radius: 3px;
   background: var(--color-bg-input);
-  font-size: 10px;
+  font-size: var(--text-2xs);
   font-weight: 700;
   color: var(--color-text-muted);
 }
 
 .name {
   flex: 1;
-  font-size: 12px;
+  font-size: var(--text-compact);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -291,15 +306,15 @@
 }
 
 .ns {
-  font-size: 10px;
+  font-size: var(--text-2xs);
   color: var(--color-accent);
   flex-shrink: 0;
 }
 
 .linkBadge {
   flex-shrink: 0;
-  font-size: 10px;
-  font-weight: 600;
+  font-size: var(--text-2xs);
+  font-weight: var(--font-weight-semibold);
   padding: 1px 6px;
   border-radius: 999px;
   background: var(--color-bg-accent-subtle);
@@ -310,5 +325,5 @@
   padding: var(--space-5);
   text-align: center;
   color: var(--color-text-secondary);
-  font-size: 12px;
+  font-size: var(--text-compact);
 }

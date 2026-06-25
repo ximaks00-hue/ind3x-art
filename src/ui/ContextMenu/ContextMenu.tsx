@@ -1,12 +1,14 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import type { LucideIcon } from "lucide-react";
 import { createPortal } from "react-dom";
 
+import { Icon } from "../icons/Icon";
 import styles from "./ContextMenu.module.css";
 
 export interface ContextMenuItem {
   id: string;
   label: string;
-  icon?: string;
+  icon?: LucideIcon;
   shortcut?: string;
   disabled?: boolean;
   separator?: boolean;
@@ -138,7 +140,11 @@ export function ContextMenu({ items, x, y, onSelect, onClose }: ContextMenuProps
               }
             }}
           >
-            {item.icon && <span className={styles.icon}>{item.icon}</span>}
+            {item.icon ? (
+              <span className={styles.icon} aria-hidden>
+                <Icon icon={item.icon} size={16} />
+              </span>
+            ) : null}
             <span className={styles.label}>{item.label}</span>
             {item.shortcut && <span className={styles.shortcut}>{item.shortcut}</span>}
           </button>

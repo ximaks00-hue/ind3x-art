@@ -1,6 +1,9 @@
 import { useEffect, useRef } from "react";
 
 import { ipc } from "../../ipc/client";
+import { withAbortableIpc } from "../../ipc/abortable";
+import { resolveWithTimeout } from "../../lib/resolveWithTimeout";
+import { safeVoid } from "../../lib/safeVoid";
 import type {
   AssetEntry,
   ModelRefInfo,
@@ -30,6 +33,8 @@ interface ViewerAssetLoaderProps {
   onLoaded: (state: ViewerAssetState) => void;
 }
 
+const RESOLVE_TIMEOUT_MS = 45_000;
+
 export function ViewerAssetLoader({
   handle,
   selected,
@@ -47,7 +52,7 @@ export function ViewerAssetLoader({
   }, [clearSelection, handle.id, selected.path]);
 
   useEffect(() => {
-    let cancelled = false;
+    const abort = new AbortController();
 
     async function load() {
       onLoadedRef.current({
@@ -64,12 +69,14 @@ export function ViewerAssetLoader({
         let resolvedVariantKey = variantKey;
 
         if (selected.kind === "blockstate") {
-          variants = await ipc.listVariants(handle, selected.path);
+          variants = await withAbortableIpc(abort.signal, (ipcRequestId) =>
+            ipc.listVariants(handle, selected.path, ipcRequestId),
+          );
           if (resolvedVariantKey == null) {
             resolvedVariantKey = variants[0]?.key;
           }
           if (variants.length > 0 && resolvedVariantKey == null) {
-            if (!cancelled) {
+            if (!abort.signal.aborted) {
               onLoadedRef.current({
                 renderable: null,
                 linkedModels: [],
@@ -83,19 +90,29 @@ export function ViewerAssetLoader({
           }
         }
 
-        const [model, linked] = await Promise.all([
-          ipc.resolveRenderable(
-            handle,
-            selected.path,
-            selected.kind === "blockstate" ? resolvedVariantKey : undefined,
-            linkedModelPath,
-          ),
-          selected.kind === "texture"
-            ? ipc.modelsForTexture(handle, selected.path)
-            : Promise.resolve([] as ModelRefInfo[]),
-        ]);
+        const [model, linked] = await resolveWithTimeout(
+          Promise.all([
+            withAbortableIpc(abort.signal, (ipcRequestId) =>
+              ipc.resolveRenderable(
+                handle,
+                selected.path,
+                selected.kind === "blockstate" ? resolvedVariantKey : undefined,
+                linkedModelPath,
+                ipcRequestId,
+              ),
+            ),
+            selected.kind === "texture"
+              ? withAbortableIpc(abort.signal, (ipcRequestId) =>
+                  ipc.modelsForTexture(handle, selected.path, ipcRequestId),
+                )
+              : Promise.resolve([] as ModelRefInfo[]),
+          ]),
+          abort.signal,
+          RESOLVE_TIMEOUT_MS,
+          "Model resolve timed out — try another asset or reopen the pack",
+        );
 
-        if (cancelled) return;
+        if (abort.signal.aborted) return;
         setActiveTextureMeta(model.textureMeta);
         onLoadedRef.current({
           renderable: model,
@@ -106,7 +123,7 @@ export function ViewerAssetLoader({
           error: null,
         });
       } catch (e) {
-        if (cancelled) return;
+        if (abort.signal.aborted) return;
         onLoadedRef.current({
           renderable: null,
           linkedModels: [],
@@ -118,9 +135,9 @@ export function ViewerAssetLoader({
       }
     }
 
-    void load();
+    safeVoid(load(), "ViewerAssetLoader");
     return () => {
-      cancelled = true;
+      abort.abort();
     };
   }, [handle, selected, variantKey, linkedModelPath, setActiveTextureMeta]);
 

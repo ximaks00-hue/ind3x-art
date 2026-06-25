@@ -12,6 +12,17 @@ import {
   getPixel,
 } from "./textureDocument";
 import { ensureLayerPixelCache, getLayer } from "./textureDocumentCore";
+import { getBrushStrokeLayerId, isBrushStrokeActive } from "./paintStrokeBuffer";
+
+function resolvePaintLayer(path: string): { layerId: string; locked: boolean } | null {
+  const doc = getDoc(path);
+  if (!doc) return null;
+  const pinnedId = isBrushStrokeActive(path) ? getBrushStrokeLayerId(path) : undefined;
+  const layerId = pinnedId ?? doc.activeLayerId;
+  const layer = getLayer(doc, layerId);
+  if (!layer) return null;
+  return { layerId: layer.id, locked: layer.locked };
+}
 
 export function hexToRgba(hex: string): Rgba {
   const normalized = hex.replace("#", "").trim();
@@ -85,11 +96,12 @@ export function createPixelChange(
   after: Rgba,
   layerId?: string,
 ): PixelChange | null {
-  const layer = getActiveLayerContext(path);
-  if (!layer || layer.locked) return null;
-  const before = getLayerPixel(path, layer.layerId, x, y);
+  const target = resolvePaintLayer(path);
+  if (!target || target.locked) return null;
+  const resolvedLayerId = layerId ?? target.layerId;
+  const before = getLayerPixel(path, resolvedLayerId, x, y);
   if (!before || rgbaEqual(before, after)) return null;
-  return { x, y, before, after, layerId: layerId ?? layer.layerId };
+  return { x, y, before, after, layerId: resolvedLayerId };
 }
 
 export function linePixels(

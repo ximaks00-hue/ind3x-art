@@ -1,7 +1,6 @@
-import type { ComponentProps } from "react";
+import { useId, type ComponentProps } from "react";
 
 import type { ProjectHandle, RenderableModel } from "../../ipc/types";
-import { ViewerLoadingState } from "./ViewerLoadingState";
 import { Scene3D } from "./Scene3D";
 import { useCompareBeforeSnapshot } from "./useCompareBeforeSnapshot";
 import styles from "./Compare3DViewport.module.css";
@@ -25,22 +24,44 @@ export function Compare3DViewport({
   sceneProps,
 }: Compare3DViewportProps) {
   const { src, loading } = useCompareBeforeSnapshot(handle, beforeModel, true);
+  const beforePaneId = useId();
+  const afterPaneId = useId();
+  const beforeLabelId = useId();
+  const afterLabelId = useId();
 
   return (
     <div className={className ?? styles.comparator3d}>
-      <div className={styles.comparatorPane}>
-        <span className={styles.comparatorLabel}>Before</span>
+      <div
+        id={beforePaneId}
+        className={styles.comparatorPane}
+        aria-labelledby={beforeLabelId}
+      >
+        <span id={beforeLabelId} className={styles.comparatorLabel}>
+          Before
+        </span>
         {loading ? (
-          <div className={styles.compareLoading}>
-            <ViewerLoadingState />
+          <div className={styles.compareLoading} role="status" aria-label="Loading before snapshot">
+            <div className={styles.compareSkeleton} aria-hidden>
+              <span className={styles.skeletonFace} data-face="top" />
+              <span className={styles.skeletonFace} data-face="front" />
+              <span className={styles.skeletonFace} data-face="side" />
+            </div>
           </div>
         ) : src ? (
           <img className={styles.compareSnapshot} src={src} alt="Before" draggable={false} />
         ) : null}
       </div>
-      <div className={styles.comparatorDivider} aria-hidden />
-      <div className={styles.comparatorPane}>
-        <span className={styles.comparatorLabel}>After</span>
+      <div className={styles.comparatorDivider} aria-hidden>
+        <span className={styles.dividerHandle} />
+      </div>
+      <div
+        id={afterPaneId}
+        className={styles.comparatorPane}
+        aria-labelledby={afterLabelId}
+      >
+        <span id={afterLabelId} className={styles.comparatorLabel}>
+          After
+        </span>
         <Scene3D model={afterModel} handle={handle} {...sceneProps} />
       </div>
     </div>

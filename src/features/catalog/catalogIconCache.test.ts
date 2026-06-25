@@ -80,6 +80,21 @@ describe("catalogIconCache", () => {
     unsub();
   });
 
+  it("returns stable snapshot references for unchanged icon state", () => {
+    const key = catalogIconCacheKey(1, "minecraft:stone:");
+    const first = readCatalogIconState(1, "minecraft:stone:", 64);
+    const second = readCatalogIconState(1, "minecraft:stone:", 64);
+    expect(first).toBe(second);
+    expect(first).toBe(readCatalogIconState(1, "minecraft:dirt:", 64));
+
+    getCatalogIconCache(64).set(key, { url: "data:image/png;base64,abc", tier: 1 });
+    const ready = readCatalogIconState(1, "minecraft:stone:", 64);
+    const readyAgain = readCatalogIconState(1, "minecraft:stone:", 64);
+    expect(ready.status).toBe("ready");
+    expect(ready).toBe(readyAgain);
+    expect(ready).not.toBe(first);
+  });
+
   it("resizes shared cache without dropping entries when limit changes", () => {
     const key = catalogIconCacheKey(1, "minecraft:stone:");
     getCatalogIconCache(64).set(key, { url: "data:image/png;base64,abc", tier: 1 });

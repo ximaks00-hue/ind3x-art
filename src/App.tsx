@@ -18,9 +18,10 @@ import { useSelectionStore } from "./state/selectionStore";
 import { useSettingsStore } from "./state/settingsStore";
 import { useUiStore } from "./state/uiStore";
 import { AppShell } from "./ui/AppShell/AppShell";
-import { shouldShowOnboardingTour } from "./ui/Onboarding/onboardingSteps";
+import { shouldShowOnboardingTour, shouldShowStudioInAppOnboarding } from "./ui/Onboarding/onboardingSteps";
 import { ProjectOpenOverlay } from "./ui/ProjectOpenOverlay/ProjectOpenOverlay";
 import { SessionRestoreDialog } from "./ui/SessionRestore/SessionRestoreDialog";
+import { Spinner } from "./ui/primitives/Spinner";
 import { StatusBar } from "./ui/StatusBar/StatusBar";
 import { TitleBar } from "./ui/TitleBar/TitleBar";
 import { TooltipHints } from "./ui/Onboarding/TooltipHints";
@@ -46,6 +47,9 @@ function App() {
   const incrementSessionCount = useSettingsStore((s) => s.incrementSessionCount);
   const onboardingCompleted = useSettingsStore((s) => s.onboardingCompleted);
   const studioOnboardingCompleted = useSettingsStore((s) => s.studioOnboardingCompleted);
+  const studioInAppOnboardingCompleted = useSettingsStore(
+    (s) => s.studioInAppOnboardingCompleted,
+  );
   const workspaceMode = useSettingsStore((s) => s.workspaceMode);
 
   const selectedFace = useSelectionStore((s) => s.selectedFace);
@@ -80,6 +84,13 @@ function App() {
     onboardingCompleted,
     hasOpenProject: Boolean(handle),
     opening,
+    indexStatus,
+  });
+
+  const showStudioInAppTour = shouldShowStudioInAppOnboarding({
+    workspaceMode,
+    studioInAppOnboardingCompleted,
+    hasOpenProject: Boolean(handle),
     indexStatus,
   });
 
@@ -131,7 +142,27 @@ function App() {
         }
         leftPanel={
           workspaceMode === "studio" ? (
-            <Suspense fallback={null}>
+            <Suspense
+              fallback={
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    gap: "var(--space-2)",
+                    height: "100%",
+                    background: "var(--color-bg-panel)",
+                    borderRight: "1px solid var(--color-border-panel)",
+                    color: "var(--color-text-secondary)",
+                    fontSize: "var(--text-sm)",
+                  }}
+                  role="status"
+                >
+                  <Spinner label="Loading catalog" />
+                  <span>Loading catalog…</span>
+                </div>
+              }
+            >
               <CatalogPanel />
             </Suspense>
           ) : (
@@ -202,7 +233,7 @@ function App() {
           if (sourcePath) void openSource(sourcePath);
         }}
       />
-      {showOnboardingTour && (
+      {(showOnboardingTour || showStudioInAppTour) && (
         <Suspense fallback={null}>
           <OnboardingTour />
         </Suspense>

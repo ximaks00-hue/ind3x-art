@@ -10,6 +10,8 @@ function throwIfAborted(signal?: AbortSignal): void {
   }
 }
 
+export { throwIfAborted };
+
 /** Allocate a cancellable IPC request id wired to {@link AbortSignal}. */
 export function beginAbortableIpcRequest(signal?: AbortSignal): number | null {
   throwIfAborted(signal);

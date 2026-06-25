@@ -19,13 +19,20 @@ body,
 body {
   font-family: var(--font-sans);
   font-size: var(--text-sm);
-  line-height: 1.5;
+  line-height: var(--leading-normal);
+  letter-spacing: var(--tracking-normal);
   color: var(--color-text-primary);
   background: var(--color-bg-base);
+  font-optical-sizing: auto;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   text-rendering: optimizeLegibility;
   overflow: hidden;
+}
+
+/* Tabular figures — HUD counters, coordinates, FPS (Epic A1) */
+.tnum {
+  font-variant-numeric: tabular-nums;
 }
 
 ::selection {
@@ -42,45 +49,110 @@ select {
 button {
   cursor: pointer;
   transition:
-    background var(--transition-fast),
-    border-color var(--transition-fast),
-    color var(--transition-fast),
-    transform var(--transition-fast),
-    box-shadow var(--transition-fast);
+    transform var(--dur-instant) var(--ease-spring),
+    background var(--dur-fast) var(--ease-standard),
+    border-color var(--dur-fast) var(--ease-standard),
+    color var(--dur-fast) var(--ease-standard),
+    box-shadow var(--dur-fast) var(--ease-standard);
 }
 
 button:active:not(:disabled) {
-  transform: scale(0.98);
+  transform: scale(0.97);
+}
+
+[role="button"]:not(button) {
+  cursor: pointer;
+  transition:
+    transform var(--dur-instant) var(--ease-spring),
+    background var(--dur-fast) var(--ease-standard),
+    border-color var(--dur-fast) var(--ease-standard),
+    color var(--dur-fast) var(--ease-standard),
+    box-shadow var(--dur-fast) var(--ease-standard);
+}
+
+[role="button"]:not(button):active:not(:disabled) {
+  transform: scale(0.97);
+}
+
+.interactive {
+  transition:
+    transform var(--dur-instant) var(--ease-spring),
+    background var(--dur-fast) var(--ease-standard),
+    border-color var(--dur-fast) var(--ease-standard),
+    box-shadow var(--dur-fast) var(--ease-standard),
+    color var(--dur-fast) var(--ease-standard),
+    opacity var(--dur-fast) var(--ease-standard);
+}
+
+.interactive:active:not(:disabled) {
+  transform: scale(0.97);
+}
+
+:focus:not(:focus-visible) {
+  outline: none;
 }
 
 :focus-visible {
+  outline: none;
+}
+
+a:focus-visible,
+button:focus-visible,
+input:not([type="checkbox"]):not([type="radio"]):focus-visible,
+select:focus-visible,
+textarea:focus-visible,
+summary:focus-visible,
+[role="button"]:focus-visible,
+[role="tab"]:focus-visible,
+[role="menuitem"]:focus-visible,
+[role="treeitem"]:focus-visible,
+[role="separator"]:focus-visible {
+  box-shadow: var(--focus-ring);
+  transition: box-shadow var(--transition-focus);
+}
+
+[role="gridcell"]:focus-visible,
+[role="option"]:focus-visible {
+  box-shadow: var(--focus-ring-inset);
+  transition: box-shadow var(--transition-focus);
+}
+
+input[type="checkbox"]:focus-visible,
+input[type="radio"]:focus-visible {
   outline: 2px solid var(--color-accent);
   outline-offset: 2px;
 }
 
-button:focus-visible,
-a:focus-visible,
-input:focus-visible,
-select:focus-visible,
-[role="separator"]:focus-visible {
-  outline: none;
-  box-shadow: var(--focus-ring);
-}
-
 ::-webkit-scrollbar {
-  width: 10px;
-  height: 10px;
+  width: 8px;
+  height: 8px;
 }
 
 ::-webkit-scrollbar-thumb {
-  background: var(--color-border-strong);
+  background: var(--color-border);
   border-radius: 999px;
   border: 2px solid transparent;
+  background-clip: padding-box;
+  transition: background var(--transition-normal);
+}
+
+*:hover::-webkit-scrollbar-thumb {
+  background: var(--color-border-strong);
+  background-clip: padding-box;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-text-muted);
   background-clip: padding-box;
 }
 
 ::-webkit-scrollbar-track {
   background: transparent;
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-border) transparent;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -93,7 +165,9 @@ select:focus-visible,
     scroll-behavior: auto !important;
   }
 
-  button:active:not(:disabled) {
+  button:active:not(:disabled),
+  [role="button"]:not(button):active:not(:disabled),
+  .interactive:active:not(:disabled) {
     transform: none;
   }
 }

@@ -1,33 +1,24 @@
 .overlay {
-  position: fixed;
-  inset: 0;
+  composes: modal-overlay from global;
   z-index: 1150;
-  display: grid;
-  place-items: center;
-  background: rgba(0, 0, 0, 0.55);
-  backdrop-filter: blur(4px);
 }
 
 .dialog {
+  composes: modal-dialog from global;
   width: min(440px, calc(100vw - 32px));
   padding: var(--space-5);
-  border-radius: var(--radius-lg);
-  border: 1px solid var(--color-border);
-  background: var(--color-bg-elevated);
-  box-shadow: var(--shadow-md);
 }
 
 .title {
-  margin: 0 0 var(--space-2);
-  font-size: var(--text-lg);
-  font-weight: var(--font-weight-semibold);
+  composes: modal-title from global;
+  margin-bottom: var(--space-2);
 }
 
 .body {
   margin: 0 0 var(--space-2);
   font-size: var(--text-sm);
   color: var(--color-text-secondary);
-  line-height: 1.5;
+  line-height: var(--leading-normal);
 }
 
 .path {
@@ -38,7 +29,7 @@
 .mono {
   margin: 0 0 var(--space-4);
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: var(--text-2xs);
   color: var(--color-text-muted);
   white-space: nowrap;
   overflow: hidden;

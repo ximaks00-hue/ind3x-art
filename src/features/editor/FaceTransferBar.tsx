@@ -4,6 +4,7 @@ import type { ProjectHandle, RenderableModel } from "../../ipc/types";
 import { formatFaceDirection } from "../../app/studioStatusLabels";
 import type { SelectedFace } from "../../state/selectionStore";
 import { useEditorStore } from "../../state/editorStore";
+import { safeVoid } from "../../lib/safeVoid";
 import { buildModelFaceNav } from "../catalog/modelFaceNav";
 import { copyFaceUvToTarget, type FaceUvTransform } from "./faceUvTransfer";
 import styles from "./FaceTransferBar.module.css";
@@ -39,6 +40,8 @@ export function FaceTransferBar({ handle, model, selectedFace }: FaceTransferBar
         transform,
       );
       if (ok) bumpRevision();
+    } catch (error) {
+      console.warn("[FaceTransferBar] copy failed", error);
     } finally {
       setBusy(false);
     }
@@ -55,7 +58,7 @@ export function FaceTransferBar({ handle, model, selectedFace }: FaceTransferBar
             className={styles.btn}
             disabled={busy}
             title={`Copy ${formatFaceDirection(selectedFace.direction)} → ${formatFaceDirection(face.direction)}`}
-            onClick={() => void runCopy(face.faceIndex, "copy")}
+            onClick={() => safeVoid(runCopy(face.faceIndex, "copy"), "FaceTransferBar.copy")}
           >
             {formatFaceDirection(face.direction)}
           </button>
@@ -69,7 +72,7 @@ export function FaceTransferBar({ handle, model, selectedFace }: FaceTransferBar
               type="button"
               className={styles.mirrorBtn}
               disabled={busy}
-              onClick={() => void runCopy(face.faceIndex, "mirrorH")}
+              onClick={() => safeVoid(runCopy(face.faceIndex, "mirrorH"), "FaceTransferBar.mirrorH")}
             >
               ↔ {formatFaceDirection(face.direction)}
             </button>
@@ -77,7 +80,7 @@ export function FaceTransferBar({ handle, model, selectedFace }: FaceTransferBar
               type="button"
               className={styles.mirrorBtn}
               disabled={busy}
-              onClick={() => void runCopy(face.faceIndex, "mirrorV")}
+              onClick={() => safeVoid(runCopy(face.faceIndex, "mirrorV"), "FaceTransferBar.mirrorV")}
             >
               ↕ {formatFaceDirection(face.direction)}
             </button>
@@ -85,7 +88,7 @@ export function FaceTransferBar({ handle, model, selectedFace }: FaceTransferBar
               type="button"
               className={styles.mirrorBtn}
               disabled={busy}
-              onClick={() => void runCopy(face.faceIndex, "rotate90")}
+              onClick={() => safeVoid(runCopy(face.faceIndex, "rotate90"), "FaceTransferBar.rotate90")}
             >
               ↻ {formatFaceDirection(face.direction)}
             </button>

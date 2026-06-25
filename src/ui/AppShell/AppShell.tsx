@@ -181,7 +181,11 @@ export function AppShell({
             </button>
           </aside>
         ) : (
-          <aside className={styles.leftPanel}>{leftPanel}</aside>
+          <aside className={styles.leftPanel}>
+            <div className={styles.panelInner} key={studioCatalog ? "studio-left" : "classic-left"}>
+              {leftPanel}
+            </div>
+          </aside>
         )}
 
         {!leftHidden && !studioCatalog && (
@@ -212,7 +216,9 @@ export function AppShell({
               <Icon icon={PanelLeftClose} size={16} />
             </button>
           )}
-          {center}
+          <div className={styles.centerInner} key={workspaceMode}>
+            {center}
+          </div>
           {!rightHidden && (
             <button
               type="button"
@@ -255,7 +261,11 @@ export function AppShell({
             </button>
           </aside>
         ) : (
-          <aside className={styles.rightPanel}>{rightPanel}</aside>
+          <aside className={styles.rightPanel}>
+            <div className={styles.panelInner} key="editor-right">
+              {rightPanel}
+            </div>
+          </aside>
         )}
       </div>
       <footer className={styles.statusBar}>{statusBar}</footer>

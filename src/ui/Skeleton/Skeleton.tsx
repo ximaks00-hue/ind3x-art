@@ -24,7 +24,7 @@ export function Skeleton({
 
 export function SkeletonBlock({ rows = 5 }: { rows?: number }) {
   return (
-    <div className={styles.block} aria-label="Loading…">
+    <div className={styles.block} aria-busy="true" aria-label="Loading…">
       {Array.from({ length: rows }, (_, i) => (
         <Skeleton key={i} width={`${60 + ((i * 23) % 40)}%`} />
       ))}

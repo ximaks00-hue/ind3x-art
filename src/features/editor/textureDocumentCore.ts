@@ -119,6 +119,25 @@ export function boundsFromChanges(changes: PixelChange[]): PixelBounds | null {
   return bounds;
 }
 
+/** Expand the document dirty region to include pixel coordinates from changes. */
+export function mergeDirtyBoxFromChanges(
+  doc: TextureDoc,
+  changes: Pick<PixelChange, "x" | "y">[],
+): void {
+  const bounds = boundsFromChanges(changes as PixelChange[]);
+  if (!bounds) return;
+  if (!doc.dirtyBox) {
+    doc.dirtyBox = { ...bounds };
+    return;
+  }
+  doc.dirtyBox = {
+    x0: Math.min(doc.dirtyBox.x0, bounds.x0),
+    y0: Math.min(doc.dirtyBox.y0, bounds.y0),
+    x1: Math.max(doc.dirtyBox.x1, bounds.x1),
+    y1: Math.max(doc.dirtyBox.y1, bounds.y1),
+  };
+}
+
 /** Materialize a full layer cache for bulk algorithms (fill, worker IPC). */
 export function ensureLayerPixelCache(layer: LayerBuffers): Uint8ClampedArray {
   const { width, height } = layer.canvas;

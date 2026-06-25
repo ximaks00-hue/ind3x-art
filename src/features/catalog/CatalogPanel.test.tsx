@@ -106,6 +106,6 @@ describe("CatalogPanel", () => {
 
     render(<CatalogPanel />);
 
-    expect(screen.getByText(/Open a pack to browse blocks/)).toBeTruthy();
+    expect(screen.getByText(/Open a resource pack or try the demo pack/)).toBeTruthy();
   });
 });

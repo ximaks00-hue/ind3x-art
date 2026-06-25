@@ -14,22 +14,43 @@
 
 .comparatorLabel {
   position: absolute;
-  top: 8px;
+  top: var(--space-2);
   left: 50%;
   transform: translateX(-50%);
   z-index: 10;
-  background: rgba(0, 0, 0, 0.55);
-  color: #fff;
-  font-size: 11px;
-  padding: 2px 8px;
-  border-radius: 4px;
+  background: var(--glass-chip-bg);
+  backdrop-filter: var(--glass-chip-blur);
+  -webkit-backdrop-filter: var(--glass-chip-blur);
+  color: var(--color-text-primary);
+  border: 1px solid color-mix(in srgb, var(--color-border) 70%, transparent);
+  font-size: var(--text-caption);
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: var(--tracking-wide);
+  text-transform: uppercase;
+  padding: 2px 10px;
+  border-radius: var(--radius-sm);
   pointer-events: none;
+  box-shadow: var(--elevation-1);
 }
 
 .comparatorDivider {
-  width: 1px;
+  position: relative;
+  width: 2px;
   flex-shrink: 0;
-  background: var(--border-subtle, rgba(255, 255, 255, 0.12));
+  background: var(--color-accent);
+  cursor: col-resize;
+}
+
+.dividerHandle {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 8px;
+  height: 36px;
+  border-radius: var(--radius-full);
+  background: var(--color-accent);
+  box-shadow: var(--elevation-1);
 }
 
 .compareSnapshot {
@@ -46,4 +67,54 @@
   justify-content: center;
   width: 100%;
   height: 100%;
+}
+
+.compareSkeleton {
+  position: relative;
+  width: 48px;
+  height: 48px;
+  transform: rotateX(-28deg) rotateY(38deg);
+  transform-style: preserve-3d;
+  animation: comparePulse 1.4s ease-in-out infinite;
+}
+
+.skeletonFace {
+  position: absolute;
+  width: 48px;
+  height: 48px;
+  border: 1px solid color-mix(in srgb, var(--color-accent) 45%, var(--color-border));
+  background: color-mix(in srgb, var(--color-accent) 10%, var(--color-bg-panel));
+  opacity: 0.85;
+}
+
+.skeletonFace[data-face="front"] {
+  transform: translateZ(24px);
+}
+
+.skeletonFace[data-face="side"] {
+  transform: rotateY(90deg) translateZ(24px);
+  filter: brightness(0.88);
+}
+
+.skeletonFace[data-face="top"] {
+  transform: rotateX(90deg) translateZ(24px);
+  filter: brightness(1.08);
+}
+
+@keyframes comparePulse {
+  0%,
+  100% {
+    opacity: 0.55;
+    transform: rotateX(-28deg) rotateY(38deg) scale(0.96);
+  }
+  50% {
+    opacity: 1;
+    transform: rotateX(-28deg) rotateY(38deg) scale(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .compareSkeleton {
+    animation: none;
+  }
 }

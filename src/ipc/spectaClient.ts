@@ -149,6 +149,14 @@ export const spectaCommands = {
     entryId: string,
     ipcRequestId?: number | null,
   ) => unwrap<CatalogEntry>(commands.getCatalogEntry(handle, entryId, ipcRequestId ?? null)),
+  getCatalogEntriesBatch: (
+    handle: Parameters<typeof commands.getCatalogEntriesBatch>[0],
+    entryIds: string[],
+    ipcRequestId?: number | null,
+  ) =>
+    unwrap<CatalogEntry[]>(
+      commands.getCatalogEntriesBatch(handle, entryIds, ipcRequestId ?? null),
+    ),
   getCatalogFacets: (handle: Parameters<typeof commands.getCatalogFacets>[0]) =>
     unwrap<CatalogFacets>(commands.getCatalogFacets(handle)),
   resolveCatalogEntry: (
@@ -177,6 +185,14 @@ export const spectaCommands = {
     handle: Parameters<typeof commands.getCatalogIconCache>[0],
     iconKey: string,
   ) => unwrap<string | null>(commands.getCatalogIconCache(handle, iconKey)),
+  getCatalogIconCacheBatch: (
+    handle: Parameters<typeof commands.getCatalogIconCacheBatch>[0],
+    iconKeys: string[],
+    ipcRequestId?: number | null,
+  ) =>
+    unwrap<{ iconKey: string; pngBase64: string | null }[]>(
+      commands.getCatalogIconCacheBatch(handle, iconKeys, ipcRequestId ?? null),
+    ),
   setCatalogIconCache: (
     handle: Parameters<typeof commands.setCatalogIconCache>[0],
     iconKey: string,
@@ -201,9 +217,10 @@ export const spectaCommands = {
     handle: Parameters<typeof commands.getTexturePreview>[0],
     assetPath: string,
     maxSize?: number | null,
+    ipcRequestId?: number | null,
   ) =>
     unwrap<TexturePreview>(
-      commands.getTexturePreview(handle, assetPath, maxSize ?? null),
+      commands.getTexturePreview(handle, assetPath, maxSize ?? null, ipcRequestId ?? null),
     ),
   getTexturePreviewsBatch: (
     handle: Parameters<typeof commands.getTexturePreviewsBatch>[0],
@@ -263,13 +280,20 @@ export const spectaCommands = {
     assetPath: string,
     ipcRequestId?: number | null,
   ) => unwrap<VariantKey[]>(commands.listVariants(handle, assetPath, ipcRequestId ?? null)),
-  modelsForTexture: (...args: Parameters<typeof commands.modelsForTexture>) =>
-    unwrap<ModelRefInfo[]>(commands.modelsForTexture(...args)),
+  modelsForTexture: (
+    handle: Parameters<typeof commands.modelsForTexture>[0],
+    assetPath: string,
+    ipcRequestId?: number | null,
+  ) =>
+    unwrap<ModelRefInfo[]>(
+      commands.modelsForTexture(handle, assetPath, ipcRequestId ?? null),
+    ),
   resolveRenderable: (
     handle: Parameters<typeof commands.resolveRenderable>[0],
     assetPath: string,
     variantKey?: string | null,
     linkedModelPath?: string | null,
+    ipcRequestId?: number | null,
   ) =>
     unwrap<RenderableModel>(
       commands.resolveRenderable(
@@ -277,6 +301,7 @@ export const spectaCommands = {
         assetPath,
         variantKey ?? null,
         linkedModelPath ?? null,
+        ipcRequestId ?? null,
       ),
     ),
   readRecentLogs: (maxLines?: number | null) =>

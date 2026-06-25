@@ -23,6 +23,15 @@ vi.mock("@react-three/fiber", () => ({
   }),
 }));
 
+vi.mock("./buildMesh", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./buildMesh")>();
+  return {
+    ...actual,
+    isFacePickData: actual.isFacePickData,
+    isMiniSceneObject: actual.isMiniSceneObject,
+  };
+});
+
 vi.mock("../editor/usePixelWorker", () => ({
   usePixelWorker: () => ({ current: null }),
 }));

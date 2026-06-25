@@ -3,7 +3,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { ProjectHandle, RenderableModel } from "../../ipc/types";
 import type { SelectedFace } from "../../state/selectionStore";
 import { useEditorStore, TOOL_LABELS } from "../../state/editorStore";
-import { faceUvRegion } from "../viewer3d/uvMapping";
+import { faceUvRegion, faceCanvasToTexturePixel, drawRotatedFaceRegion, effectiveFaceRotation } from "../viewer3d/uvMapping";
 import {
   collectAtlasFaceRegions,
   drawAtlasGuide,
@@ -17,6 +17,7 @@ import {
   paintAtTexturePixel,
 } from "./paintInteraction";
 import { drawShapePreview as drawShapePreviewOnCanvas } from "./shapePreviewDraw";
+import { safeVoid } from "../../lib/safeVoid";
 import {
   canRedo,
   canUndo,
@@ -24,6 +25,7 @@ import {
   ensureTextureDocument,
   flushIconInvalidations,
   getActiveLayerContext,
+  getActiveLayerId,
   getDoc,
   getLayerPixel,
   getTextureCanvas,
@@ -41,18 +43,6 @@ interface TextureCanvasProps {
   handle: ProjectHandle;
   selectedFace: SelectedFace;
   atlasModel?: RenderableModel | null;
-}
-
-function canvasToTexture(
-  localX: number,
-  localY: number,
-  region: { x: number; y: number; width: number; height: number },
-  canvasW: number,
-  canvasH: number,
-): [number, number] {
-  const tx = region.x + Math.floor((localX / canvasW) * region.width);
-  const ty = region.y + Math.floor((localY / canvasH) * region.height);
-  return [tx, ty];
 }
 
 function isShapeTool(tool: string): tool is "line" | "rect" | "ellipse" {
@@ -130,7 +120,11 @@ function TextureCanvasInner({ handle, selectedFace, atlasModel = null }: Texture
     const source = getTextureCanvas(selectedFace.texturePath);
     if (!view || !source) return;
 
-    const faceRegion = faceUvRegion(faceForRegion(), source.width, source.height);
+    const face = faceForRegion();
+    const faceRegion = faceUvRegion(face, source.width, source.height);
+    const rotation = effectiveFaceRotation(face);
+    const rotSteps = (rotation % 360) / 90;
+    const rotSwap = rotSteps % 2 === 1;
     const region = useAtlasView
       ? { x: 0, y: 0, width: source.width, height: source.height }
       : faceRegion;
@@ -151,9 +145,20 @@ function TextureCanvasInner({ handle, selectedFace, atlasModel = null }: Texture
       };
     }
 
+    const displayW = useAtlasView
+      ? srcRegion.width
+      : rotSwap
+        ? faceRegion.height
+        : faceRegion.width;
+    const displayH = useAtlasView
+      ? srcRegion.height
+      : rotSwap
+        ? faceRegion.width
+        : faceRegion.height;
+
     const scale = zoom;
-    view.width = Math.max(1, srcRegion.width * scale);
-    view.height = Math.max(1, srcRegion.height * scale);
+    view.width = Math.max(1, displayW * scale);
+    view.height = Math.max(1, displayH * scale);
 
     const overlay = overlayRef.current;
     if (overlay) {
@@ -214,18 +219,30 @@ function TextureCanvasInner({ handle, selectedFace, atlasModel = null }: Texture
       }
     }
 
-    drawRegion(srcRegion, 1);
+    if (!useAtlasView && (!animMeta || animMeta.frames.length === 0)) {
+      drawRotatedFaceRegion(
+        ctx,
+        source,
+        face,
+        source.width,
+        source.height,
+        view.width,
+        view.height,
+      );
+    } else {
+      drawRegion(srcRegion, 1);
+    }
 
     if (!useAtlasView && scale >= 4) {
       ctx.strokeStyle = "rgba(255,255,255,0.08)";
       ctx.beginPath();
-      for (let x = 0; x <= srcRegion.width; x += 1) {
-        const px = (x / srcRegion.width) * view.width;
+      for (let x = 0; x <= displayW; x += 1) {
+        const px = (x / displayW) * view.width;
         ctx.moveTo(px, 0);
         ctx.lineTo(px, view.height);
       }
-      for (let y = 0; y <= srcRegion.height; y += 1) {
-        const py = (y / srcRegion.height) * view.height;
+      for (let y = 0; y <= displayH; y += 1) {
+        const py = (y / displayH) * view.height;
         ctx.moveTo(0, py);
         ctx.lineTo(view.width, py);
       }
@@ -427,36 +444,42 @@ function TextureCanvasInner({ handle, selectedFace, atlasModel = null }: Texture
       }
 
       if (tool === "fill" || tool === "wand") {
-        void paintAtTexturePixel(paintCtx(), tx, ty, false, null, {
-          pixelWorker: pixelWorkerRef.current,
-          callbacks: {
-            onWandSelection: (sel) => {
-              setSelection(sel);
-              selectionRef.current = sel;
-              drawSelectionOverlay(sel);
+        safeVoid(
+          paintAtTexturePixel(paintCtx(), tx, ty, false, null, {
+            pixelWorker: pixelWorkerRef.current,
+            callbacks: {
+              onWandSelection: (sel) => {
+                setSelection(sel);
+                selectionRef.current = sel;
+                drawSelectionOverlay(sel);
+              },
+              onComplete: () => bumpRevision(),
             },
-            onComplete: () => bumpRevision(),
-          },
-        });
+          }),
+          "TextureCanvas.fillOrWand",
+        );
         return;
       }
 
       if (isShapeTool(tool)) return;
 
       const last = lastPixelRef.current;
-      void paintAtTexturePixel(
-        paintCtx(),
-        tx,
-        ty,
-        isStroke,
-        last ? { x: last[0], y: last[1] } : null,
-        {
-          pixelWorker: pixelWorkerRef.current,
-          callbacks: { onComplete: () => bumpRevision() },
-        },
-      ).then((next) => {
-        if (next) lastPixelRef.current = [next.x, next.y];
-      });
+      safeVoid(
+        paintAtTexturePixel(
+          paintCtx(),
+          tx,
+          ty,
+          isStroke,
+          last ? { x: last[0], y: last[1] } : null,
+          {
+            pixelWorker: pixelWorkerRef.current,
+            callbacks: { onComplete: () => bumpRevision() },
+          },
+        ).then((next) => {
+          if (next) lastPixelRef.current = [next.x, next.y];
+        }),
+        "TextureCanvas.stroke",
+      );
     },
     [
       handle,
@@ -507,8 +530,13 @@ function TextureCanvasInner({ handle, selectedFace, atlasModel = null }: Texture
         return [tx, ty];
       }
 
-      const region = faceUvRegion(faceForRegion(), source.width, source.height);
-      return canvasToTexture(localX, localY, region, view.width, view.height);
+      return faceCanvasToTexturePixel(
+        localX,
+        localY,
+        view.width,
+        view.height,
+        faceForRegion(),
+      );
     },
     [selectedFace.texturePath, faceForRegion, useAtlasView],
   );
@@ -577,7 +605,10 @@ function TextureCanvasInner({ handle, selectedFace, atlasModel = null }: Texture
       tool !== "wand" &&
       tool !== "picker"
     ) {
-      beginBrushStroke(selectedFace.texturePath);
+      beginBrushStroke(
+        selectedFace.texturePath,
+        getActiveLayerId(selectedFace.texturePath) ?? undefined,
+      );
     }
 
     applyAt(point[0], point[1], false);
@@ -713,8 +744,9 @@ function TextureCanvasInner({ handle, selectedFace, atlasModel = null }: Texture
           Zoom
           <input
             type="range"
+            className="range-premium"
             min={1}
-            max={32}
+            max={64}
             value={zoom}
             onChange={(e) => setZoom(Number(e.target.value))}
           />

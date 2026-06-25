@@ -1,10 +1,16 @@
 import { useCallback, useLayoutEffect, useRef } from "react";
 
 import type { RenderFace } from "../../ipc/types";
-import { useEditorStore } from "../../state/editorStore";
+import { safeVoid } from "../../lib/safeVoid";
+import { useEditorStore, TOOL_LABELS } from "../../state/editorStore";
 import { useProjectStore } from "../../state/projectStore";
-import { buildPaintStrokeContext, paintAtTexturePixel } from "../editor/paintInteraction";
-import { getTextureCanvas } from "../editor/textureDocument";
+import { beginBrushStroke, endBrushStroke } from "../editor/paintEngine";
+import {
+  buildPaintStrokeContext,
+  isClickOnlyTool,
+  paintAtTexturePixel,
+} from "../editor/paintInteraction";
+import { getActiveLayerId, getTextureCanvas } from "../editor/textureDocument";
 import { faceUvRegion } from "../viewer3d/uvMapping";
 import { drawFacePreviewToCanvas } from "./unfoldFacePreview";
 import styles from "./UnfoldPanel.module.css";
@@ -88,10 +94,16 @@ export function EditableUnfoldFace({
     const point = localToTexturePixel(localX, localY, canvas, face, source);
     if (!point) return;
 
+    if (isClickOnlyTool(tool)) {
+      safeVoid(paintAt(point[0], point[1], false), "EditableUnfoldFace.paint");
+      return;
+    }
+
     paintingRef.current = true;
     lastPixelRef.current = null;
+    beginBrushStroke(face.texture, getActiveLayerId(face.texture) ?? undefined);
     event.currentTarget.setPointerCapture(event.pointerId);
-    void paintAt(point[0], point[1], false);
+    safeVoid(paintAt(point[0], point[1], false), "EditableUnfoldFace.paint");
   };
 
   const onPointerMove = (event: React.PointerEvent<HTMLCanvasElement>) => {
@@ -106,7 +118,7 @@ export function EditableUnfoldFace({
     const localY = ((event.clientY - rect.top) / rect.height) * canvas.height;
     const point = localToTexturePixel(localX, localY, canvas, face, source);
     if (!point) return;
-    void paintAt(point[0], point[1], true);
+    safeVoid(paintAt(point[0], point[1], true), "EditableUnfoldFace.stroke");
   };
 
   const endStroke = (event: React.PointerEvent<HTMLCanvasElement>) => {
@@ -114,7 +126,12 @@ export function EditableUnfoldFace({
     paintingRef.current = false;
     lastPixelRef.current = null;
     event.stopPropagation();
-    event.currentTarget.releasePointerCapture(event.pointerId);
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+    if (handle && !isClickOnlyTool(tool)) {
+      endBrushStroke(handle, face.texture, `${TOOL_LABELS[tool]} stroke`, true);
+    }
   };
 
   return (

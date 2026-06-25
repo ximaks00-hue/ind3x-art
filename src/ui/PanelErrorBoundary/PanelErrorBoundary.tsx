@@ -28,7 +28,7 @@ export class PanelErrorBoundary extends Component<
   }
 
   componentDidUpdate(prevProps: PanelErrorBoundaryProps): void {
-    if (prevProps.children !== this.props.children && this.state.error) {
+    if (this.state.error && prevProps.name !== this.props.name) {
       this.setState({ error: null });
     }
   }

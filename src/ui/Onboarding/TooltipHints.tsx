@@ -62,6 +62,8 @@ interface HintPlacement {
   text: string;
   top: number;
   left: number;
+  originX: number;
+  originY: number;
 }
 
 function measurePlacements(activeHints: ReadonlyArray<HintDef>): HintPlacement[] {
@@ -75,6 +77,8 @@ function measurePlacements(activeHints: ReadonlyArray<HintDef>): HintPlacement[]
       text: hint.text,
       top: rect.bottom + 8,
       left: Math.max(12, rect.left),
+      originX: Math.max(12, rect.left) - rect.left + rect.width * 0.25,
+      originY: rect.bottom + 8 - rect.top,
     });
   }
   return next;
@@ -97,29 +101,43 @@ export function TooltipHints() {
   useLayoutEffect(() => {
     let cancelled = false;
 
-    if (handle) {
+    if (handle && workspaceMode !== "studio") {
       setPlacements([]);
       return;
     }
 
-    const frame = requestAnimationFrame(() => {
+    const refresh = () => {
       if (cancelled) return;
-      if (sessionCount > 3 || activeHints.length === 0) {
+      if (!handle && sessionCount > 3) {
+        setPlacements([]);
+        return;
+      }
+      if (handle && workspaceMode === "studio" && sessionCount > 5) {
+        setPlacements([]);
+        return;
+      }
+      if (activeHints.length === 0) {
         setPlacements([]);
         return;
       }
       setPlacements(measurePlacements(activeHints));
-    });
+    };
+
+    const frame = requestAnimationFrame(refresh);
+    window.addEventListener("resize", refresh);
+    window.addEventListener("scroll", refresh, true);
 
     return () => {
       cancelled = true;
       cancelAnimationFrame(frame);
+      window.removeEventListener("resize", refresh);
+      window.removeEventListener("scroll", refresh, true);
     };
   }, [handle, sessionCount, activeHints, workspaceMode]);
 
-  if (handle) return null;
-
-  if (sessionCount > 3 || placements.length === 0) return null;
+  if (sessionCount > 3 && !handle) return null;
+  if (handle && workspaceMode === "studio" && sessionCount > 5) return null;
+  if (placements.length === 0) return null;
 
   return (
     <>
@@ -127,7 +145,11 @@ export function TooltipHints() {
         <div
           key={hint.id}
           className={styles.hint}
-          style={{ top: hint.top, left: hint.left }}
+          style={{
+            top: hint.top,
+            left: hint.left,
+            transformOrigin: `${hint.originX}px ${hint.originY}px`,
+          }}
           role="status"
         >
           <p>{hint.text}</p>

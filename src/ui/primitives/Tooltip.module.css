@@ -1,0 +1,74 @@
+.anchor {
+  display: inline-flex;
+  max-width: 100%;
+}
+
+.tooltip {
+  position: fixed;
+  z-index: 1300;
+  max-width: 280px;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-sm);
+  border: 1px solid color-mix(in srgb, var(--color-border) 70%, transparent);
+  background: var(--glass-popover-bg);
+  backdrop-filter: var(--glass-popover-blur);
+  -webkit-backdrop-filter: var(--glass-popover-blur);
+  box-shadow: var(--elevation-2);
+  font-size: var(--text-xs);
+  line-height: var(--leading-snug);
+  color: var(--color-text-secondary);
+  pointer-events: none;
+  opacity: 0;
+  transition:
+    opacity 100ms var(--ease-standard),
+    transform 100ms var(--ease-standard);
+}
+
+.visible {
+  opacity: 1;
+  transition:
+    opacity 150ms var(--ease-decelerate),
+    transform 150ms var(--ease-decelerate);
+}
+
+.top {
+  transform: translate(-50%, calc(-100% - 8px)) scale(0.96);
+  transform-origin: center bottom;
+}
+
+.top.visible {
+  transform: translate(-50%, calc(-100% - 8px)) scale(1);
+}
+
+.bottom {
+  transform: translate(-50%, 8px) scale(0.96);
+  transform-origin: center top;
+}
+
+.bottom.visible {
+  transform: translate(-50%, 8px) scale(1);
+}
+
+.left {
+  transform: translate(calc(-100% - 8px), -50%) scale(0.96);
+  transform-origin: right center;
+}
+
+.left.visible {
+  transform: translate(calc(-100% - 8px), -50%) scale(1);
+}
+
+.right {
+  transform: translate(8px, -50%) scale(0.96);
+  transform-origin: left center;
+}
+
+.right.visible {
+  transform: translate(8px, -50%) scale(1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tooltip {
+    transition: none;
+  }
+}

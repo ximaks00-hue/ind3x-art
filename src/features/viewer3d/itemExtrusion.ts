@@ -72,6 +72,28 @@ function uvForPixel(
   return [u0, v0, u1, v1];
 }
 
+function normalizedUvToFaceUv(
+  uv: [number, number, number, number],
+  grid: AlphaGrid,
+): [number, number, number, number] {
+  const [u0, v0, u1, v1] = uv;
+  return [u0 * grid.width, v0 * grid.height, u1 * grid.width, v1 * grid.height];
+}
+
+function itemFace(
+  texturePath: string,
+  uv: [number, number, number, number],
+): RenderFace {
+  return {
+    direction: "item",
+    uv,
+    texture: texturePath,
+    rotation: 0,
+    tintindex: -1,
+    cullface: null,
+  };
+}
+
 function addQuad(
   positions: number[],
   normals: number[],
@@ -115,6 +137,29 @@ function buildGeometryFromBuffers(
 
 function attachFacePick(mesh: THREE.Mesh, pick: FacePickData): void {
   mesh.userData[FACE_PICK_KEY] = pick;
+  mesh.userData.__meshTexturePath = pick.face.texture;
+  if (pick.face.tintindex !== undefined) {
+    mesh.userData.__meshTintIndex = pick.face.tintindex;
+  }
+}
+
+function addPickableQuad(
+  group: THREE.Group,
+  material: THREE.MeshLambertMaterial,
+  corners: [number, number, number][],
+  normal: [number, number, number],
+  uvRect: [number, number, number, number],
+  pick: FacePickData,
+): void {
+  const positions: number[] = [];
+  const normals: number[] = [];
+  const uvs: number[] = [];
+  const indices: number[] = [];
+  addQuad(positions, normals, uvs, indices, corners, normal, uvRect);
+  const geometry = buildGeometryFromBuffers(positions, normals, uvs, indices);
+  const mesh = new THREE.Mesh(geometry, material);
+  attachFacePick(mesh, pick);
+  group.add(mesh);
 }
 
 export async function buildItemExtrusion(
@@ -135,28 +180,21 @@ export async function buildItemExtrusion(
     side: THREE.DoubleSide,
   });
 
-  const positions: number[] = [];
-  const normals: number[] = [];
-  const uvs: number[] = [];
-  const indices: number[] = [];
-
-  const syntheticFace: RenderFace = {
-    direction: "item",
-    uv: [0, 0, 16, 16],
-    texture: texturePath,
-    rotation: 0,
-    tintindex: -1,
-    cullface: null,
+  const group = new THREE.Group();
+  const fullFaceUv: [number, number, number, number] = [0, 0, width, height];
+  const fullPick: FacePickData = {
+    cuboidIndex: 0,
+    faceIndex: 0,
+    face: itemFace(texturePath, fullFaceUv),
   };
 
-  // Front + back planes
   const frontCorners: [number, number, number][] = [
     [-ITEM_DISPLAY_SCALE / 2, -ITEM_DISPLAY_SCALE / 2, halfZ],
     [ITEM_DISPLAY_SCALE / 2, -ITEM_DISPLAY_SCALE / 2, halfZ],
     [ITEM_DISPLAY_SCALE / 2, ITEM_DISPLAY_SCALE / 2, halfZ],
     [-ITEM_DISPLAY_SCALE / 2, ITEM_DISPLAY_SCALE / 2, halfZ],
   ];
-  addQuad(positions, normals, uvs, indices, frontCorners, [0, 0, 1], [0, 0, 1, 1]);
+  addPickableQuad(group, material, frontCorners, [0, 0, 1], [0, 0, 1, 1], fullPick);
 
   const backCorners: [number, number, number][] = [
     [ITEM_DISPLAY_SCALE / 2, -ITEM_DISPLAY_SCALE / 2, -halfZ],
@@ -164,93 +202,105 @@ export async function buildItemExtrusion(
     [-ITEM_DISPLAY_SCALE / 2, ITEM_DISPLAY_SCALE / 2, -halfZ],
     [ITEM_DISPLAY_SCALE / 2, ITEM_DISPLAY_SCALE / 2, -halfZ],
   ];
-  addQuad(positions, normals, uvs, indices, backCorners, [0, 0, -1], [0, 0, 1, 1]);
+  addPickableQuad(group, material, backCorners, [0, 0, -1], [0, 0, 1, 1], {
+    cuboidIndex: 0,
+    faceIndex: 1,
+    face: itemFace(texturePath, fullFaceUv),
+  });
 
-  // Side walls along alpha edges (skip for large sprites — front/back only)
   const buildSideWalls = width * height <= MAX_SIDE_WALL_PIXELS;
   if (buildSideWalls) {
-  for (let y = 0; y < height; y += 1) {
-    for (let x = 0; x < width; x += 1) {
-      if (!grid.opaque(x, y)) continue;
-      const bounds = pixelBounds(x, y, grid);
-      const pixelUv = uvForPixel(x, y, grid);
+    let sideFaceIndex = 2;
+    for (let y = 0; y < height; y += 1) {
+      for (let x = 0; x < width; x += 1) {
+        if (!grid.opaque(x, y)) continue;
+        const bounds = pixelBounds(x, y, grid);
+        const pixelUv = uvForPixel(x, y, grid);
+        const faceUv = normalizedUvToFaceUv(pixelUv, grid);
+        const sidePick: FacePickData = {
+          cuboidIndex: 0,
+          faceIndex: sideFaceIndex,
+          face: itemFace(texturePath, faceUv),
+        };
+        sideFaceIndex += 1;
 
-      if (x === 0 || !grid.opaque(x - 1, y)) {
-        addQuad(
-          positions,
-          normals,
-          uvs,
-          indices,
-          [
-            [bounds.x0, bounds.y0, halfZ],
-            [bounds.x0, bounds.y0, -halfZ],
-            [bounds.x0, bounds.y1, -halfZ],
-            [bounds.x0, bounds.y1, halfZ],
-          ],
-          [-1, 0, 0],
-          pixelUv,
-        );
-      }
-      if (x === width - 1 || !grid.opaque(x + 1, y)) {
-        addQuad(
-          positions,
-          normals,
-          uvs,
-          indices,
-          [
-            [bounds.x1, bounds.y1, halfZ],
-            [bounds.x1, bounds.y1, -halfZ],
-            [bounds.x1, bounds.y0, -halfZ],
-            [bounds.x1, bounds.y0, halfZ],
-          ],
-          [1, 0, 0],
-          pixelUv,
-        );
-      }
-      if (y === 0 || !grid.opaque(x, y - 1)) {
-        addQuad(
-          positions,
-          normals,
-          uvs,
-          indices,
-          [
-            [bounds.x0, bounds.y0, halfZ],
-            [bounds.x1, bounds.y0, halfZ],
-            [bounds.x1, bounds.y0, -halfZ],
-            [bounds.x0, bounds.y0, -halfZ],
-          ],
-          [0, -1, 0],
-          pixelUv,
-        );
-      }
-      if (y === height - 1 || !grid.opaque(x, y + 1)) {
-        addQuad(
-          positions,
-          normals,
-          uvs,
-          indices,
-          [
-            [bounds.x0, bounds.y1, -halfZ],
-            [bounds.x1, bounds.y1, -halfZ],
-            [bounds.x1, bounds.y1, halfZ],
-            [bounds.x0, bounds.y1, halfZ],
-          ],
-          [0, 1, 0],
-          pixelUv,
-        );
+        if (x === 0 || !grid.opaque(x - 1, y)) {
+          addPickableQuad(
+            group,
+            material,
+            [
+              [bounds.x0, bounds.y0, halfZ],
+              [bounds.x0, bounds.y0, -halfZ],
+              [bounds.x0, bounds.y1, -halfZ],
+              [bounds.x0, bounds.y1, halfZ],
+            ],
+            [-1, 0, 0],
+            pixelUv,
+            sidePick,
+          );
+        }
+        if (x === width - 1 || !grid.opaque(x + 1, y)) {
+          addPickableQuad(
+            group,
+            material,
+            [
+              [bounds.x1, bounds.y1, halfZ],
+              [bounds.x1, bounds.y1, -halfZ],
+              [bounds.x1, bounds.y0, -halfZ],
+              [bounds.x1, bounds.y0, halfZ],
+            ],
+            [1, 0, 0],
+            pixelUv,
+            sidePick,
+          );
+        }
+        if (y === 0 || !grid.opaque(x, y - 1)) {
+          addPickableQuad(
+            group,
+            material,
+            [
+              [bounds.x0, bounds.y0, halfZ],
+              [bounds.x1, bounds.y0, halfZ],
+              [bounds.x1, bounds.y0, -halfZ],
+              [bounds.x0, bounds.y0, -halfZ],
+            ],
+            [0, -1, 0],
+            pixelUv,
+            sidePick,
+          );
+        }
+        if (y === height - 1 || !grid.opaque(x, y + 1)) {
+          addPickableQuad(
+            group,
+            material,
+            [
+              [bounds.x0, bounds.y1, -halfZ],
+              [bounds.x1, bounds.y1, -halfZ],
+              [bounds.x1, bounds.y1, halfZ],
+              [bounds.x0, bounds.y1, halfZ],
+            ],
+            [0, 1, 0],
+            pixelUv,
+            sidePick,
+          );
+        }
       }
     }
   }
-  }
 
-  const group = new THREE.Group();
-  const geometry = buildGeometryFromBuffers(positions, normals, uvs, indices);
-  const mesh = new THREE.Mesh(geometry, material);
-  attachFacePick(mesh, {
-    cuboidIndex: 0,
-    faceIndex: 0,
-    face: syntheticFace,
-  });
-  group.add(mesh);
   return group;
+}
+
+/** @internal Exported for unit tests — maps a grid cell to pixel-space face UV. */
+export function itemExtrusionFaceUvForPixel(
+  x: number,
+  y: number,
+  gridWidth: number,
+  gridHeight: number,
+): [number, number, number, number] {
+  const u0 = x / gridWidth;
+  const u1 = (x + 1) / gridWidth;
+  const v0 = y / gridHeight;
+  const v1 = (y + 1) / gridHeight;
+  return [u0 * gridWidth, v0 * gridHeight, u1 * gridWidth, v1 * gridHeight];
 }

@@ -12,8 +12,9 @@ use crate::source::open_source as load_source;
 use crate::state::{read_project, write_project, SharedState};
 
 use super::helpers::{
-    apply_texture_link_counts, patch_texture_model_index_for_paths, prepare_opened_project,
-    refresh_entry_id_index, refresh_index_cache, refresh_pack_format, rebuild_texture_model_index,
+    apply_texture_link_counts, clone_project_for_off_lock_work, patch_texture_model_index_for_paths,
+    prepare_opened_project, publish_project_work_result, refresh_entry_id_index,
+    refresh_index_cache, refresh_pack_format, rebuild_texture_model_index,
 };
 
 #[tauri::command]
@@ -61,9 +62,12 @@ pub async fn open_source(
     let path_for_task = source_path.clone();
     let app_for_task = app_handle.clone();
     let prepared = tauri::async_runtime::spawn_blocking(move || {
-        let source = load_source(&path_for_task)?;
-        let source_kind = source.source_kind();
-        let fingerprint = source_fingerprint(source.source_path())?;
+        let source_kind = if path_for_task.is_file() {
+            crate::dto::SourceKind::Jar
+        } else {
+            crate::dto::SourceKind::Folder
+        };
+        let fingerprint = source_fingerprint(&path_for_task)?;
         prepare_opened_project(
             &path_for_task,
             source_kind,
@@ -139,6 +143,7 @@ pub async fn reindex_project(
     on_event: tauri::ipc::Channel<IndexEvent>,
     changed_paths: Option<Vec<String>>,
     state: State<'_, SharedState>,
+    app_handle: tauri::AppHandle,
 ) -> CoreResult<crate::dto::ReindexResult> {
     let shared = state.inner().clone();
     let handle_id = handle.id;
@@ -174,6 +179,7 @@ pub async fn reindex_project(
             source_path,
             source_kind,
             on_event,
+            &app_handle,
         )
     })
     .await
@@ -191,6 +197,7 @@ fn reindex_project_blocking(
     source_path: std::path::PathBuf,
     source_kind: crate::dto::SourceKind,
     on_event: tauri::ipc::Channel<IndexEvent>,
+    app: &tauri::AppHandle,
 ) -> CoreResult<crate::dto::ReindexResult> {
     let source = load_source(&source_path)?;
     let changed = changed_paths.as_ref().filter(|paths| !paths.is_empty());
@@ -201,21 +208,25 @@ fn reindex_project_blocking(
         _ => source_fingerprint(&source_path)?,
     };
 
-    let entries = if let Some(paths) = changed.cloned() {
+    let entry_count = if let Some(paths) = changed.cloned() {
         let project_arc = {
             let app = state.read()?;
             super::helpers::project_for_handle(&app, ProjectHandle { id: handle_id })?
         };
-        let mut project = write_project(&project_arc)?;
-        let before = project.index.entries.len();
+        let mut scratch = {
+            let project = read_project(&project_arc)?;
+            clone_project_for_off_lock_work(&project)?
+        };
+        let before = scratch.index.entries.len();
         patch_entries_for_paths(
-            &mut project.index.entries,
+            &mut scratch.index.entries,
             source.as_ref(),
             &paths,
             Some(&on_event),
+            Some(app),
         )?;
-        prune_orphan_entries(&mut project.index.entries, source.as_ref())?;
-        if project.index.entries.is_empty() && before > 0 {
+        prune_orphan_entries(&mut scratch.index.entries, source.as_ref())?;
+        if scratch.index.entries.is_empty() && before > 0 {
             tracing::warn!(
                 changed_paths = paths.len(),
                 "incremental index patch emptied project — falling back to full reindex"
@@ -226,37 +237,39 @@ fn reindex_project_blocking(
                 &new_fingerprint,
                 &cancel,
                 &on_event,
-                None,
+                Some(app),
                 true,
             )?;
-            project.source = source;
-            project.index.entries = full_entries;
-            project.index.fingerprint = new_fingerprint.clone();
-            if let Ok(mut cache) = project.index.model_cache.lock() {
+            scratch.source = source;
+            scratch.index.entries = full_entries;
+            scratch.index.fingerprint = new_fingerprint.clone();
+            if let Ok(mut cache) = scratch.index.model_cache.lock() {
                 cache.clear();
             }
-            rebuild_texture_model_index(&mut project)?;
-            crate::catalog::build_project_catalog(&mut project, &db)?;
+            rebuild_texture_model_index(&mut scratch)?;
+            crate::catalog::build_project_catalog(&mut scratch, &db)?;
             refresh_index_cache(
                 &db,
                 &old_fingerprint,
                 &new_fingerprint,
-                &project.index.entries,
+                &scratch.index.entries,
             )?;
-            project.index.entries.len() as u64
         } else {
-            project.index.fingerprint = new_fingerprint.clone();
-            project.source = source;
+            scratch.index.fingerprint = new_fingerprint.clone();
+            scratch.source = source;
             refresh_index_cache(
                 &db,
                 &old_fingerprint,
                 &new_fingerprint,
-                &project.index.entries,
+                &scratch.index.entries,
             )?;
-            patch_texture_model_index_for_paths(&mut project, &paths)?;
-            crate::catalog::patch_project_catalog(&mut project, &db, &paths)?;
-            project.index.entries.len() as u64
+            patch_texture_model_index_for_paths(&mut scratch, &paths)?;
+            crate::catalog::patch_project_catalog(&mut scratch, &db, &paths)?;
         }
+        let count = scratch.index.entries.len() as u64;
+        let mut project = write_project(&project_arc)?;
+        publish_project_work_result(&mut project, scratch);
+        count
     } else {
         log_if_err(
             invalidate_index(&db, &old_fingerprint),
@@ -272,7 +285,7 @@ fn reindex_project_blocking(
             &new_fingerprint,
             &cancel,
             &on_event,
-            None,
+            Some(app),
             true,
         )?;
 
@@ -280,16 +293,22 @@ fn reindex_project_blocking(
             let app = state.read()?;
             super::helpers::project_for_handle(&app, ProjectHandle { id: handle_id })?
         };
-        let mut project = write_project(&project_arc)?;
-        project.source = load_source(&source_path)?;
-        project.index.entries = entries;
-        project.index.fingerprint = new_fingerprint.clone();
-        if let Ok(mut cache) = project.index.model_cache.lock() {
+        let mut scratch = {
+            let project = read_project(&project_arc)?;
+            clone_project_for_off_lock_work(&project)?
+        };
+        scratch.source = load_source(&source_path)?;
+        scratch.index.entries = entries;
+        scratch.index.fingerprint = new_fingerprint.clone();
+        if let Ok(mut cache) = scratch.index.model_cache.lock() {
             cache.clear();
         }
-        rebuild_texture_model_index(&mut project)?;
-        crate::catalog::build_project_catalog(&mut project, &db)?;
-        project.index.entries.len() as u64
+        rebuild_texture_model_index(&mut scratch)?;
+        crate::catalog::build_project_catalog(&mut scratch, &db)?;
+        let count = scratch.index.entries.len() as u64;
+        let mut project = write_project(&project_arc)?;
+        publish_project_work_result(&mut project, scratch);
+        count
     };
 
     if source_kind == crate::dto::SourceKind::Jar {
@@ -306,7 +325,7 @@ fn reindex_project_blocking(
     }
 
     Ok(crate::dto::ReindexResult {
-        asset_count: entries,
+        asset_count: entry_count,
         catalog_count: {
             let app = state.read()?;
             let arc = app.projects.get(&handle_id).ok_or(CoreError::ProjectNotFound)?;

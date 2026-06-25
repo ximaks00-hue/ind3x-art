@@ -13,6 +13,7 @@ import {
   type CatalogIconState,
 } from "./catalogIconCache";
 import {
+  abortCatalogIconPrefetches,
   cancelInvisibleIconBakes,
   getCatalogIconQueueDepth,
   scheduleCatalogIconBakes,
@@ -20,6 +21,7 @@ import {
 } from "./catalogIconPipeline";
 
 const PREFETCH_RING = 12;
+const ICON_SCHEDULE_DEBOUNCE_MS = 120;
 
 function prefetchEntries(
   entries: CatalogEntry[],
@@ -65,6 +67,13 @@ export function useCatalogIconPipeline(
   }, [handle?.id, queryRevision]);
 
   useEffect(() => {
+    if (!handle) return;
+    return () => {
+      abortCatalogIconPrefetches();
+    };
+  }, [handle?.id, queryRevision]);
+
+  useEffect(() => {
     if (!handle || (!visibleEntries.length && !selectedEntry)) return;
 
     const signature = [
@@ -74,31 +83,40 @@ export function useCatalogIconPipeline(
       visibleEntries.map((e) => e.iconKey).join("|"),
       prefetch.map((e) => e.iconKey).join("|"),
     ].join(";");
-    if (signature === signatureRef.current) return;
-    signatureRef.current = signature;
 
-    const keepKeys = new Set<string>();
-    for (const entry of [...visibleEntries, ...prefetch, ...(selectedEntry ? [selectedEntry] : [])]) {
-      keepKeys.add(catalogIconCacheKey(handle.id, entry.iconKey));
-    }
-    cancelInvisibleIconBakes(keepKeys);
+    const timer = window.setTimeout(() => {
+      if (signature === signatureRef.current) return;
+      signatureRef.current = signature;
 
-    const batches: IconBakeBatch[] = [];
-    if (selectedEntry) {
-      batches.push({ entries: [selectedEntry], priority: "selected" });
-    }
-    batches.push({ entries: visibleEntries, priority: "visible" });
-    if (prefetch.length) {
-      batches.push({ entries: prefetch, priority: "prefetch" });
-    }
+      const keepKeys = new Set<string>();
+      for (const entry of [...visibleEntries, ...prefetch, ...(selectedEntry ? [selectedEntry] : [])]) {
+        keepKeys.add(catalogIconCacheKey(handle.id, entry.iconKey));
+      }
+      cancelInvisibleIconBakes(keepKeys);
 
-    scheduleCatalogIconBakes(
-      batches,
-      handle,
-      mode,
-      iconCacheLimit,
-      textureCacheLimit,
-    );
+      const batches: IconBakeBatch[] = [];
+      if (selectedEntry) {
+        batches.push({ entries: [selectedEntry], priority: "selected" });
+      }
+      if (visibleEntries.length) {
+        batches.push({ entries: visibleEntries, priority: "visible" });
+      }
+      if (prefetch.length) {
+        batches.push({ entries: prefetch, priority: "prefetch" });
+      }
+
+      scheduleCatalogIconBakes(
+        batches,
+        handle,
+        mode,
+        iconCacheLimit,
+        textureCacheLimit,
+      );
+    }, ICON_SCHEDULE_DEBOUNCE_MS);
+
+    return () => {
+      window.clearTimeout(timer);
+    };
   }, [
     handle,
     queryRevision,

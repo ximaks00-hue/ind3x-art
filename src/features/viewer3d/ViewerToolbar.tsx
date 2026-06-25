@@ -1,6 +1,7 @@
-import { CAMERA_PRESETS, DISPLAY_SLOTS } from "../../lib/cameraPresets";
+import { DISPLAY_SLOTS } from "../../lib/cameraPresets";
 import { LIGHTING_PRESETS } from "../../lib/lightingPresets";
 import { exportViewerScreenshot } from "../../lib/exportScreenshot";
+import { Camera, Download } from "lucide-react";
 import type {
   AssetEntry,
   ModelRefInfo,
@@ -9,19 +10,13 @@ import type {
   VariantKey,
 } from "../../ipc/types";
 import { useInteractionStore } from "../../state/interactionStore";
-import { useSelectionStore } from "../../state/selectionStore";
-import {
-  useViewerStore,
-  CAMERA_PRESET_LABELS,
-  type LightingPreset,
-} from "../../state/viewerStore";
+import { useViewerStore, type LightingPreset } from "../../state/viewerStore";
 import {
   setViewerLightingPreset,
-  toggleViewerShowGrid,
   useViewerLightingPreset,
-  useViewerShowGrid,
 } from "../../state/viewerPreferencesSync";
 import { IconButton } from "../../ui/primitives/IconButton";
+import { Icon } from "../../ui/icons/Icon";
 import { Select } from "../../ui/primitives/Select";
 import { BIOME_TINT_PALETTES } from "./textureLoader";
 import { applyBiomeChange } from "./viewerTextureSync";
@@ -65,16 +60,9 @@ export function ViewerToolbar({
   onCubeWrapChange,
   hidden = false,
 }: ViewerToolbarProps) {
-  const interactionMode = useSelectionStore((s) => s.interactionMode);
-  const cameraPreset = useViewerStore((s) => s.cameraPreset);
   const storeDisplaySlot = useViewerStore((s) => s.displaySlot);
   const lightingPreset = useViewerLightingPreset();
-  const showGrid = useViewerShowGrid();
-  const uvDebugMode = useViewerStore((s) => s.uvDebugMode);
-  const setCameraPreset = useViewerStore((s) => s.setCameraPreset);
-  const resetCamera = useViewerStore((s) => s.resetCamera);
   const setStoreDisplaySlot = useViewerStore((s) => s.setDisplaySlot);
-  const setUvDebugMode = useViewerStore((s) => s.setUvDebugMode);
 
   const comparatorMode = useInteractionStore((s) => s.comparatorMode);
   const cycleComparator = useInteractionStore((s) => s.cycleComparator);
@@ -185,32 +173,6 @@ export function ViewerToolbar({
       </div>
 
       <div className={styles.group}>
-        <span className={styles.groupLabel}>Camera</span>
-        <div className={styles.btnRow}>
-          {CAMERA_PRESETS.map((preset) => (
-            <IconButton
-              key={preset.id}
-              label={`${CAMERA_PRESET_LABELS[preset.id]} (${preset.hotkey})`}
-              className={cameraPreset === preset.id ? styles.btnActive : styles.btn}
-              onClick={() => setCameraPreset(preset.id)}
-            >
-              {preset.label}
-            </IconButton>
-          ))}
-          <IconButton
-            label="Free camera (5)"
-            className={cameraPreset === "free" ? styles.btnActive : styles.btn}
-            onClick={() => setCameraPreset("free")}
-          >
-            Free
-          </IconButton>
-          <IconButton label="Reset view" className={styles.btn} onClick={resetCamera}>
-            ↺
-          </IconButton>
-        </div>
-      </div>
-
-      <div className={styles.group}>
         <span className={styles.groupLabel}>Light</span>
         <Select
           className={styles.select}
@@ -242,7 +204,7 @@ export function ViewerToolbar({
             disabled={!renderable}
             onClick={() => renderable && captureCompareBefore(renderable)}
           >
-            📷
+            <Icon icon={Camera} size={16} />
           </IconButton>
         </div>
       </div>
@@ -254,31 +216,10 @@ export function ViewerToolbar({
           className={styles.btn}
           onClick={() => void exportViewerScreenshot()}
         >
-          ⤓
+          <Icon icon={Download} size={16} />
         </IconButton>
       </div>
 
-      <div className={styles.groupEnd}>
-        <IconButton
-          label="Toggle floor grid"
-          className={showGrid ? styles.btnActive : styles.btn}
-          onClick={() => toggleViewerShowGrid()}
-        >
-          ⊞
-        </IconButton>
-        {import.meta.env.DEV && (
-          <IconButton
-            label="UV lock debug"
-            className={uvDebugMode ? styles.btnActive : styles.btn}
-            onClick={() => setUvDebugMode(!uvDebugMode)}
-          >
-            UV
-          </IconButton>
-        )}
-        <span className={styles.modeBadge} data-mode={interactionMode}>
-          {interactionMode === "orbit" ? "Orbit" : "Paint"}
-        </span>
-      </div>
     </div>
   );
 }

@@ -72,14 +72,14 @@ fn user_facing_message(err: &CoreError) -> String {
     match err {
         CoreError::Io(io) => user_facing_io_message(io),
         CoreError::Cache(_) => "cache operation failed".to_string(),
-        CoreError::Archive(msg) => msg.clone(),
+        CoreError::Archive(msg) => redact_absolute_paths(msg),
         CoreError::Cancelled => "operation cancelled".to_string(),
         CoreError::ProjectNotFound => "project not found".to_string(),
         CoreError::AssetNotFound(path) => format!("asset not found: {path}"),
         CoreError::ModelNotFound(id) => format!("model not found: {id}"),
-        CoreError::InvalidPack(msg) => msg.clone(),
-        CoreError::InvalidInput(msg) => msg.clone(),
-        CoreError::Unavailable(msg) => msg.clone(),
+        CoreError::InvalidPack(msg) => redact_absolute_paths(msg),
+        CoreError::InvalidInput(msg) => redact_absolute_paths(msg),
+        CoreError::Unavailable(msg) => redact_absolute_paths(msg),
         CoreError::Internal(msg) => redact_absolute_paths(msg),
     }
 }
@@ -193,6 +193,17 @@ mod tests {
     fn internal_payload_redacts_windows_paths() {
         let err = CoreError::Internal(
             "failed to open C:\\Users\\Max\\secret\\pack.jar: access denied".to_string(),
+        );
+        let payload = err.to_payload();
+        assert!(payload.message.contains("<path>"));
+        assert!(!payload.message.contains("Users"));
+    }
+
+    #[test]
+    fn archive_payload_redacts_windows_paths() {
+        let err = CoreError::Archive(
+            "Cannot open archive C:\\Users\\Secret\\pack.zip: invalid central directory"
+                .to_string(),
         );
         let payload = err.to_payload();
         assert!(payload.message.contains("<path>"));

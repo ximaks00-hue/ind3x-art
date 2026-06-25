@@ -66,6 +66,7 @@ describe("useCatalogQuery", () => {
       { id: 1 },
       { category: null, namespace: null, search: null, fuzzy: true },
       { offset: 0, limit: CATALOG_PAGE_SIZE },
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
     );
     expect(useCatalogStore.getState().entries).toHaveLength(1);
     expect(useCatalogStore.getState().total).toBe(1);
@@ -92,6 +93,7 @@ describe("useCatalogQuery", () => {
       { id: 1 },
       expect.objectContaining({ search: "stone", fuzzy: true }),
       expect.any(Object),
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
     );
   });
 });

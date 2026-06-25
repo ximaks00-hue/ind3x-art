@@ -3,63 +3,64 @@
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: var(--space-3);
+  gap: var(--space-4);
   height: 100%;
+  width: 100%;
+  max-width: 480px;
+  margin: auto;
   padding: var(--space-6);
+  border-radius: var(--radius-lg);
+  border: var(--border-hairline);
+  box-shadow: var(--elevation-1);
+  background: color-mix(in srgb, var(--color-bg-panel) 88%, transparent);
 }
 
-.skeletonMesh {
+.voxelCube {
   position: relative;
-  width: 140px;
-  height: 120px;
+  width: 64px;
+  height: 64px;
+  transform: rotateX(-28deg) rotateY(38deg);
+  transform-style: preserve-3d;
+  animation: loadingPulse 1.6s ease-in-out infinite;
 }
 
-.block {
+.face {
   position: absolute;
-  left: 50%;
-  top: 50%;
-  width: 72px;
-  height: 72px;
-  margin: -36px 0 0 -36px;
-  border-radius: 4px;
-  background: linear-gradient(
-    110deg,
-    var(--color-bg-panel) 8%,
-    color-mix(in srgb, var(--color-accent) 18%, var(--color-bg-panel)) 18%,
-    var(--color-bg-panel) 33%
-  );
-  background-size: 200% 100%;
-  animation: shimmer 1.2s ease-in-out infinite;
-  border: 1px solid var(--color-border);
+  width: 64px;
+  height: 64px;
+  border: 1px solid color-mix(in srgb, var(--color-accent) 50%, var(--color-border));
+  background: color-mix(in srgb, var(--color-accent) 12%, var(--color-bg-panel));
+  opacity: 0.9;
 }
 
-.block[data-offset] {
-  width: 48px;
-  height: 48px;
-  margin: -8px 0 0 12px;
-  opacity: 0.55;
-  animation-delay: 0.15s;
+.face[data-face="front"] {
+  transform: translateZ(32px);
 }
 
-.block[data-small] {
-  width: 28px;
-  height: 28px;
-  margin: 28px 0 0 -48px;
-  opacity: 0.35;
-  animation-delay: 0.3s;
+.face[data-face="side"] {
+  transform: rotateY(90deg) translateZ(32px);
+  filter: brightness(0.85);
 }
 
-.label {
-  margin: 0;
-  font-size: 13px;
-  color: var(--color-text-secondary);
+.face[data-face="top"] {
+  transform: rotateX(90deg) translateZ(32px);
+  filter: brightness(1.1);
 }
 
-@keyframes shimmer {
-  0% {
-    background-position: 100% 0;
-  }
+@keyframes loadingPulse {
+  0%,
   100% {
-    background-position: -100% 0;
+    opacity: 0.6;
+    transform: rotateX(-28deg) rotateY(38deg) scale(0.94);
+  }
+  50% {
+    opacity: 1;
+    transform: rotateX(-28deg) rotateY(38deg) scale(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .voxelCube {
+    animation: none;
   }
 }

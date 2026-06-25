@@ -66,9 +66,10 @@ describe("catalogIconPipeline failures", () => {
     );
   });
 
-  it("shouldBakeTier1 is fallback-only in auto mode", async () => {
+  it("shouldBakeTier1 is primary path in auto mode", async () => {
     const { shouldBakeTier1 } = await import("./catalogIconRules");
-    expect(shouldBakeTier1(entry, "auto")).toBe(false);
+    expect(shouldBakeTier1(entry, "auto")).toBe(true);
     expect(shouldBakeTier1(entry, "preview")).toBe(true);
+    expect(shouldBakeTier1(entry, "3d")).toBe(false);
   });
 });

@@ -13,7 +13,8 @@ describe("onboarding hooks regression", () => {
       onboardingCompleted: false,
       onboardingTourStep: 0,
       studioOnboardingCompleted: false,
-      studioOnboardingTourStep: 0,
+      studioInAppOnboardingCompleted: false,
+      studioInAppOnboardingTourStep: 0,
       workspaceMode: "studio",
       sessionCount: 1,
       dismissedHints: [],
@@ -22,13 +23,17 @@ describe("onboarding hooks regression", () => {
 
   it("OnboardingTour survives project open mid-tour without crashing", () => {
     const { rerender } = render(<OnboardingTour />);
-    useProjectStore.setState({ handle: { id: 42 } });
+    useProjectStore.setState({ handle: { id: 42 }, indexStatus: "done" } as Partial<
+      ReturnType<typeof useProjectStore.getState>
+    >);
     expect(() => rerender(<OnboardingTour />)).not.toThrow();
   });
 
   it("TooltipHints survives project open mid-session without crashing", () => {
     const { rerender } = render(<TooltipHints />);
-    useProjectStore.setState({ handle: { id: 42 } });
+    useProjectStore.setState({ handle: { id: 42 }, indexStatus: "done" } as Partial<
+      ReturnType<typeof useProjectStore.getState>
+    >);
     expect(() => rerender(<TooltipHints />)).not.toThrow();
   });
 });

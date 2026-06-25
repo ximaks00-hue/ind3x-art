@@ -6,8 +6,8 @@
 
 .btn,
 .btnActive {
-  font-size: 10px;
-  font-weight: 600;
+  font-size: var(--text-2xs);
+  font-weight: var(--font-weight-semibold);
   padding: 4px 8px;
   border-radius: var(--radius-sm);
   border: 1px solid var(--color-border);
@@ -26,8 +26,15 @@
   background: var(--color-bg-accent-subtle);
 }
 
+.btn:focus-visible,
+.btnActive:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring-inset);
+  transition: box-shadow var(--transition-focus);
+}
+
 .select {
   max-width: 56px;
-  font-size: 10px;
+  font-size: var(--text-2xs);
   padding: 2px 4px;
 }

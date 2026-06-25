@@ -42,6 +42,13 @@ import { useAppBootstrap } from "./useAppBootstrap";
 describe("useAppBootstrap", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(ipc.ping).mockResolvedValue("pong");
+    vi.mocked(ipc.getAppInfo).mockResolvedValue({
+      name: "inD3X Art",
+      version: "0.1.0",
+      target: "test",
+      profile: "debug",
+    });
   });
 
   it("loads app info and marks IPC healthy on mount", async () => {
@@ -57,17 +64,21 @@ describe("useAppBootstrap", () => {
   });
 
   it("marks IPC unhealthy when bootstrap fails", async () => {
-    vi.mocked(ipc.ping).mockRejectedValueOnce(new Error("ipc down"));
+    vi.mocked(ipc.ping).mockRejectedValue(new Error("ipc down"));
+    vi.mocked(ipc.getAppInfo).mockRejectedValue(new Error("ipc down"));
 
     renderHook(() => useAppBootstrap());
 
-    await waitFor(() => {
-      expect(setIpcHealthy).toHaveBeenCalledWith(false);
-      expect(pushToast).toHaveBeenCalledWith(
-        "Backend unreachable — restart the app",
-        "error",
-      );
-    });
+    await waitFor(
+      () => {
+        expect(setIpcHealthy).toHaveBeenCalledWith(false);
+        expect(pushToast).toHaveBeenCalledWith(
+          "Backend unreachable — restart the app",
+          "error",
+        );
+      },
+      { timeout: 5000 },
+    );
   });
 
   it("syncs viewer preferences after successful bootstrap", async () => {

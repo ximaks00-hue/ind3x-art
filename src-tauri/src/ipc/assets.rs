@@ -80,7 +80,7 @@ pub fn get_asset_details(
 
 #[tauri::command]
 #[specta::specta]
-pub fn get_texture_previews_batch(
+pub async fn get_texture_previews_batch(
     handle: ProjectHandle,
     asset_paths: Vec<String>,
     max_size: Option<u32>,
@@ -95,36 +95,42 @@ pub fn get_texture_previews_batch(
             MAX_TEXTURE_PREVIEW_BATCH
         )));
     }
-    let app = state.read()?;
-    let arc = project_for_handle(&app, handle)?;
-    let project = read_project(&arc)?;
-    let valid_textures = indexed_texture_paths(&project);
-    let size = clamp_texture_preview_size(max_size);
-    let mut out = Vec::with_capacity(asset_paths.len());
-    for path in asset_paths {
-        touch_ipc_request(&state, ipc_request_id)?;
-        let preview = if valid_textures.contains(path.as_str()) {
-            match project.source.read(&path) {
-                Ok(bytes) => match decode_texture_preview(&bytes, size) {
-                    Ok(preview) => Some(preview),
+    let shared = state.inner().clone();
+    let handle_for_task = handle.clone();
+    let result = tauri::async_runtime::spawn_blocking(move || {
+        let app = shared.read()?;
+        let arc = project_for_handle(&app, handle_for_task)?;
+        let project = read_project(&arc)?;
+        let valid_textures = indexed_texture_paths(&project);
+        let size = clamp_texture_preview_size(max_size);
+        let mut out = Vec::with_capacity(asset_paths.len());
+        for path in asset_paths {
+            let preview = if valid_textures.contains(path.as_str()) {
+                match project.source.read(&path) {
+                    Ok(bytes) => match decode_texture_preview(&bytes, size) {
+                        Ok(preview) => Some(preview),
+                        Err(error) => {
+                            tracing::debug!(path = %path, %error, "texture preview decode failed");
+                            None
+                        }
+                    },
                     Err(error) => {
-                        tracing::debug!(path = %path, %error, "texture preview decode failed");
+                        tracing::debug!(path = %path, %error, "texture read failed for preview batch");
                         None
                     }
-                },
-                Err(error) => {
-                    tracing::debug!(path = %path, %error, "texture read failed for preview batch");
-                    None
                 }
-            }
-        } else {
-            None
-        };
-        out.push(TexturePreviewBatch { path, preview });
-    }
+            } else {
+                None
+            };
+            out.push(TexturePreviewBatch { path, preview });
+        }
+        Ok(out)
+    })
+    .await
+    .map_err(|e| CoreError::Internal(format!("get_texture_previews_batch task failed: {e}")))?;
     touch_ipc_request(&state, ipc_request_id)?;
     finish_ipc_request_opt(&state, ipc_request_id);
-    Ok(out)
+    result
 }
 
 #[tauri::command]
@@ -174,15 +180,20 @@ pub fn get_texture_preview(
     handle: ProjectHandle,
     asset_path: String,
     max_size: Option<u32>,
+    ipc_request_id: Option<u64>,
     state: State<'_, SharedState>,
 ) -> CoreResult<TexturePreview> {
+    touch_ipc_request(&state, ipc_request_id)?;
     let app = state.read()?;
     let arc = project_for_handle(&app, handle)?;
     let project = read_project(&arc)?;
     require_indexed_texture(&project, &asset_path)?;
 
     let bytes = project.source.read(&asset_path)?;
-    decode_texture_preview(&bytes, clamp_texture_preview_size(max_size))
+    let preview = decode_texture_preview(&bytes, clamp_texture_preview_size(max_size))?;
+    touch_ipc_request(&state, ipc_request_id)?;
+    finish_ipc_request_opt(&state, ipc_request_id);
+    Ok(preview)
 }
 
 #[tauri::command]
@@ -250,8 +261,10 @@ pub fn list_variants(
 pub async fn models_for_texture(
     handle: ProjectHandle,
     asset_path: String,
+    ipc_request_id: Option<u64>,
     state: State<'_, SharedState>,
 ) -> CoreResult<Vec<ModelRefInfo>> {
+    touch_ipc_request(&state, ipc_request_id)?;
     let indexed = {
         let app = state.read()?;
         let arc = project_for_handle(&app, handle.clone())?;
@@ -259,6 +272,7 @@ pub async fn models_for_texture(
         texture_index::models_for_texture_path(&project.index.texture_model_index, &asset_path)
     };
     if !indexed.is_empty() {
+        finish_ipc_request_opt(&state, ipc_request_id);
         return Ok(indexed);
     }
 
@@ -266,7 +280,7 @@ pub async fn models_for_texture(
     let handle_id = handle.id;
     let asset_path_for_task = asset_path.clone();
 
-    tauri::async_runtime::spawn_blocking(move || {
+    let result = tauri::async_runtime::spawn_blocking(move || {
         let project_arc = {
             let app = shared.read()?;
             super::helpers::project_for_handle(&app, ProjectHandle { id: handle_id })?
@@ -279,7 +293,9 @@ pub async fn models_for_texture(
         ))
     })
     .await
-    .map_err(|e| CoreError::Internal(format!("models_for_texture task failed: {e}")))?
+    .map_err(|e| CoreError::Internal(format!("models_for_texture task failed: {e}")))?;
+    finish_ipc_request_opt(&state, ipc_request_id);
+    result
 }
 
 #[tauri::command]
@@ -289,8 +305,10 @@ pub async fn resolve_renderable(
     asset_path: String,
     variant_key: Option<String>,
     linked_model_path: Option<String>,
+    ipc_request_id: Option<u64>,
     state: State<'_, SharedState>,
 ) -> CoreResult<RenderableModel> {
+    touch_ipc_request(&state, ipc_request_id)?;
     let resolve_path = linked_model_path.as_deref().unwrap_or(asset_path.as_str());
     let needs_texture_index_rebuild = {
         let app = state.read()?;
@@ -325,8 +343,38 @@ pub async fn resolve_renderable(
         .map_err(|e| CoreError::Internal(format!("resolve_renderable rebuild failed: {e}")))??;
     }
 
+    let shared = state.inner().clone();
+    let handle_id = handle.id;
+    let asset_path_for_task = asset_path.clone();
+    let variant_key_for_task = variant_key.clone();
+    let linked_model_path_for_task = linked_model_path.clone();
+    let out = tauri::async_runtime::spawn_blocking(move || {
+        resolve_renderable_blocking(
+            &shared,
+            handle_id,
+            &asset_path_for_task,
+            variant_key_for_task.as_deref(),
+            linked_model_path_for_task.as_deref(),
+        )
+    })
+    .await
+    .map_err(|e| CoreError::Internal(format!("resolve_renderable task failed: {e}")))?;
+    touch_ipc_request(&state, ipc_request_id)?;
+    finish_ipc_request_opt(&state, ipc_request_id);
+    out
+}
+
+#[allow(clippy::too_many_arguments)]
+fn resolve_renderable_blocking(
+    state: &SharedState,
+    handle_id: u64,
+    asset_path: &str,
+    variant_key: Option<&str>,
+    linked_model_path: Option<&str>,
+) -> CoreResult<RenderableModel> {
+    let resolve_path = linked_model_path.unwrap_or(asset_path);
     let app = state.read()?;
-    let arc = project_for_handle(&app, handle)?;
+    let arc = project_for_handle(&app, ProjectHandle { id: handle_id })?;
     let project = read_project(&arc)?;
 
     let entry = project
@@ -344,7 +392,7 @@ pub async fn resolve_renderable(
     match entry.kind {
         AssetKind::Texture => {
             let models =
-                texture_index::models_for_texture_path(&project.index.texture_model_index, &asset_path);
+                texture_index::models_for_texture_path(&project.index.texture_model_index, asset_path);
             if let Some(first) = models.first() {
                 let (ns, path) = if let Some((a, b)) = first.model_id.split_once(':') {
                     (a.to_string(), b.to_string())
@@ -354,42 +402,42 @@ pub async fn resolve_renderable(
                 let resolved = registry.resolve_model(&ns, &path)?;
                 compile_renderable(&resolved, &ns, None, &pack, &registry)
             } else {
-                compile_texture_preview(&asset_path, &registry)
+                compile_texture_preview(asset_path, &registry)
             }
         }
         AssetKind::BlockModel | AssetKind::ItemModel => {
-            let (ns, model_path) = model_id_from_asset_path(&asset_path)
+            let (ns, model_path) = model_id_from_asset_path(resolve_path)
                 .ok_or_else(|| CoreError::InvalidInput("invalid model path".to_string()))?;
             let resolved = registry.resolve_model(&ns, &model_path)?;
             compile_renderable(&resolved, &ns, None, &pack, &registry)
         }
         AssetKind::Blockstate => {
-            let (ns, block_name) = blockstate_id_from_asset_path(&asset_path)
+            let (ns, block_name) = blockstate_id_from_asset_path(resolve_path)
                 .ok_or_else(|| CoreError::InvalidInput("invalid blockstate path".to_string()))?;
             let blockstate = registry.load_blockstate(&ns, &block_name)?;
 
             if blockstate.multipart.is_some() && blockstate.variants.is_empty() {
                 let state = variant_key
-                    .as_ref()
-                    .map(|key| parse_variant_state(key))
+                    .map(parse_variant_state)
                     .unwrap_or_default();
                 let variants = resolve_multipart_models(&blockstate, &state);
                 if variants.is_empty() {
-                    return Err(CoreError::InvalidInput(
+                    Err(CoreError::InvalidInput(
                         "no multipart models matched".to_string(),
-                    ));
+                    ))
+                } else {
+                    compile_multipart_renderable(&mut registry, &ns, &variants, &pack)
                 }
-                return compile_multipart_renderable(&mut registry, &ns, &variants, &pack);
+            } else {
+                let variants = collect_variant_models(&blockstate);
+                let (variant, _) = variants
+                    .into_iter()
+                    .find(|(_, key)| variant_key.is_none_or(|vk| vk == key))
+                    .ok_or_else(|| CoreError::InvalidInput("no variants in blockstate".to_string()))?;
+                let (m_ns, m_path) = normalize_model_ref(&variant.model, &ns);
+                let resolved = registry.resolve_model(&m_ns, &m_path)?;
+                compile_renderable(&resolved, &m_ns, Some(&variant), &pack, &registry)
             }
-
-            let variants = collect_variant_models(&blockstate);
-            let (variant, _) = variants
-                .into_iter()
-                .find(|(_, key)| variant_key.as_ref().is_none_or(|vk| vk == key))
-                .ok_or_else(|| CoreError::InvalidInput("no variants in blockstate".to_string()))?;
-            let (m_ns, m_path) = normalize_model_ref(&variant.model, &ns);
-            let resolved = registry.resolve_model(&m_ns, &m_path)?;
-            compile_renderable(&resolved, &m_ns, Some(&variant), &pack, &registry)
         }
         _ => Err(CoreError::InvalidInput(
             "asset kind cannot be rendered".to_string(),

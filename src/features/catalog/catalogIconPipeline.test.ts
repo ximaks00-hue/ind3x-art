@@ -34,12 +34,14 @@ describe("catalogIconPipeline", () => {
     resetCatalogIconPipeline();
   });
 
-  it("auto mode upgrades all entries to tier-2 3D", () => {
+  it("auto mode upgrades only selected entries to tier-2 3D", () => {
     const block = sampleEntry();
     const item = sampleEntry({ kind: "item", id: "minecraft:stick" });
-    expect(shouldUpgradeTo3d(block, "auto")).toBe(true);
-    expect(shouldUpgradeTo3d(item, "auto")).toBe(true);
-    expect(shouldBakeTier1(block, "auto")).toBe(false);
+    expect(shouldUpgradeTo3d(block, "auto", "selected")).toBe(true);
+    expect(shouldUpgradeTo3d(item, "auto", "selected")).toBe(true);
+    expect(shouldUpgradeTo3d(block, "auto", "visible")).toBe(false);
+    expect(shouldUpgradeTo3d(block, "auto", "prefetch")).toBe(false);
+    expect(shouldBakeTier1(block, "auto", "visible")).toBe(true);
   });
 
   it("preview mode uses tier-1 only", () => {
@@ -48,10 +50,11 @@ describe("catalogIconPipeline", () => {
     expect(shouldBakeTier1(block, "preview")).toBe(true);
   });
 
-  it("auto mode upgrades texture-less entries to tier-2", () => {
+  it("auto mode uses tier-1 for visible grid cells without textures", () => {
     const entry = sampleEntry({ texturePaths: [] });
-    expect(shouldUpgradeTo3d(entry, "auto")).toBe(true);
-    expect(shouldBakeTier1(entry, "auto")).toBe(false);
+    expect(shouldUpgradeTo3d(entry, "auto", "visible")).toBe(false);
+    expect(shouldBakeTier1(entry, "auto", "visible")).toBe(true);
+    expect(shouldUpgradeTo3d(entry, "auto", "selected")).toBe(true);
   });
 
   it("preview mode never upgrades to tier-2", () => {

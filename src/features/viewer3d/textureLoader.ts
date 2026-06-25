@@ -225,11 +225,9 @@ export function refreshTextureFromCanvas(
   const key = cacheKey(handle, path);
   const existing = cache.get(key);
   if (existing) {
-    existing.image = canvas;
-    existing.needsUpdate = true;
-    touchCachedTexture(key, existing);
-    syncAnimationFrame(key);
-    return;
+    totalCacheBytes -= estimateTextureBytes(existing);
+    existing.dispose();
+    cache.delete(key);
   }
 
   const texture = new THREE.Texture(canvas);
@@ -238,6 +236,7 @@ export function refreshTextureFromCanvas(
   texture.colorSpace = THREE.SRGBColorSpace;
   texture.needsUpdate = true;
   touchCachedTexture(key, texture);
+  syncAnimationFrame(key);
 }
 
 export function tickAnimatedTextures(deltaSeconds: number): void {

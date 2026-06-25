@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useId, useState } from "react";
+import { Star } from "lucide-react";
 import type { CatalogEntry } from "../../ipc/types";
 import { useProjectStore } from "../../state/projectStore";
 import {
@@ -10,6 +11,7 @@ import { useDocumentRevision } from "../editor/documentStore";
 import { useSettingsStore } from "../../state/settingsStore";
 import { CatalogIcon } from "./CatalogIcon";
 import { CatalogCellCompare } from "./CatalogCellCompare";
+import { Icon } from "../../ui/icons/Icon";
 import { catalogIconCacheKey, clearCatalogIconFailure } from "./catalogIconCache";
 import { scheduleCatalogIconBakes } from "./catalogIconPipeline";
 import { useCatalogIconStatus } from "./useCatalogIconPipeline";
@@ -17,6 +19,9 @@ import styles from "./CatalogCell.module.css";
 
 interface CatalogCellProps {
   entry: CatalogEntry;
+  columnIndex: number;
+  rowIndex: number;
+  showLabels: boolean;
   selected: boolean;
   focused: boolean;
   pinned?: boolean;
@@ -26,6 +31,9 @@ interface CatalogCellProps {
 
 export function CatalogCell({
   entry,
+  columnIndex,
+  rowIndex,
+  showLabels,
   selected,
   focused,
   pinned = false,
@@ -33,7 +41,6 @@ export function CatalogCell({
   onTogglePin,
 }: CatalogCellProps) {
   const handle = useProjectStore((s) => s.handle);
-  const showLabels = useSettingsStore((s) => s.catalogShowCellLabels);
   const iconMode = useSettingsStore((s) => s.catalogIconMode);
   const iconCacheLimit = useSettingsStore((s) => s.catalogIconCacheLimit);
   const textureCacheLimit = useSettingsStore((s) => s.textureCacheLimit);
@@ -44,13 +51,8 @@ export function CatalogCell({
   const isDirty = catalogEntryIsDirty(entry);
   const initial = entry.displayName.trim().charAt(0).toUpperCase() || "?";
   const warnings = getCatalogEntryWarnings(entry, iconBakeError);
-  const tooltipLines = [
-    entry.displayName,
-    entry.id,
-    entry.namespace,
-    ...warnings,
-  ];
-  const title = tooltipLines.join("\n");
+  const flipTooltip = columnIndex >= 6;
+  const tooltipId = useId();
 
   const retryIconBake = (event: React.MouseEvent) => {
     if (!iconBakeError || !handle) return;
@@ -70,16 +72,24 @@ export function CatalogCell({
     if (event.key === "Enter" || event.key === " ") {
       event.preventDefault();
       onClick();
+      return;
+    }
+    if (event.key.toLowerCase() === "p" && event.shiftKey && onTogglePin) {
+      event.preventDefault();
+      onTogglePin();
     }
   };
 
   return (
-    <div className={styles.cellHost}>
+    <div className={`${styles.cellHost} ${showLabels ? styles.cellHostLabeled : ""}`}>
       <div
         role="gridcell"
         tabIndex={focused ? 0 : -1}
+        aria-colindex={columnIndex + 1}
         className={[
           styles.cell,
+          styles.cellEnter,
+          showLabels ? styles.cellLabeled : "",
           selected ? styles.selected : "",
           focused ? styles.focused : "",
           catalogEntryHasWarnings(entry, iconBakeError) ? styles.warned : "",
@@ -88,6 +98,7 @@ export function CatalogCell({
         ]
           .filter(Boolean)
           .join(" ")}
+        style={{ "--row": rowIndex } as React.CSSProperties}
         onClick={onClick}
         onKeyDown={onCellKeyDown}
         onMouseEnter={() => setCompareHover(true)}
@@ -112,13 +123,14 @@ export function CatalogCell({
               }
             : undefined
         }
-        title={title}
+        title={tooltipOpen ? undefined : warnings[0] ?? undefined}
         aria-label={entry.displayName}
+        aria-describedby={tooltipOpen ? tooltipId : undefined}
         aria-selected={selected}
       >
         {pinned ? (
           <span className={styles.pinBadge} aria-label="Pinned">
-            ★
+            <Icon icon={Star} size={16} />
           </span>
         ) : null}
         {isDirty ? (
@@ -127,7 +139,7 @@ export function CatalogCell({
             title="Unsaved texture changes"
             aria-label="Dirty"
           >
-            ●
+            <span className="status-dot status-dot--pulse" aria-hidden />
           </span>
         ) : null}
         {warnings.length > 0 && !iconBakeError ? (
@@ -140,7 +152,11 @@ export function CatalogCell({
         {showLabels ? <span className={styles.label}>{entry.displayName}</span> : null}
       </div>
       {tooltipOpen ? (
-        <div className={styles.tooltip} role="tooltip">
+        <div
+          id={tooltipId}
+          className={`${styles.tooltip} ${flipTooltip ? styles.tooltipFlip : ""}`}
+          role="tooltip"
+        >
           <div className={styles.tooltipTitle}>{entry.displayName}</div>
           <div className={styles.tooltipMeta}>{entry.id}</div>
           <div className={styles.tooltipMeta}>{entry.namespace}</div>

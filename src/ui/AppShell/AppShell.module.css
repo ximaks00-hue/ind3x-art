@@ -4,9 +4,41 @@
   width: 100%;
   height: 100%;
   background:
-    radial-gradient(ellipse 80% 50% at 8% -5%, rgba(99, 140, 255, 0.1), transparent 55%),
-    radial-gradient(ellipse 60% 40% at 95% 0%, rgba(45, 212, 191, 0.06), transparent 50%),
-    radial-gradient(ellipse 50% 30% at 50% 100%, rgba(99, 140, 255, 0.04), transparent 60%),
+    radial-gradient(
+      ellipse 80% 50% at 8% -5%,
+      color-mix(in srgb, var(--color-accent) 10%, transparent),
+      transparent 55%
+    ),
+    radial-gradient(
+      ellipse 60% 40% at 95% 0%,
+      color-mix(in srgb, var(--color-accent-teal) 6%, transparent),
+      transparent 50%
+    ),
+    radial-gradient(
+      ellipse 50% 30% at 50% 100%,
+      color-mix(in srgb, var(--color-accent) 4%, transparent),
+      transparent 60%
+    ),
+    var(--color-bg-base);
+}
+
+[data-theme="light"] .shell {
+  background:
+    radial-gradient(
+      ellipse 80% 50% at 8% -5%,
+      color-mix(in srgb, var(--color-accent) 14%, transparent),
+      transparent 55%
+    ),
+    radial-gradient(
+      ellipse 60% 40% at 95% 0%,
+      color-mix(in srgb, var(--color-accent-teal) 8%, transparent),
+      transparent 50%
+    ),
+    radial-gradient(
+      ellipse 50% 30% at 50% 100%,
+      color-mix(in srgb, var(--color-accent) 6%, transparent),
+      transparent 60%
+    ),
     var(--color-bg-base);
 }
 
@@ -14,8 +46,9 @@
   height: var(--titlebar-height);
   flex-shrink: 0;
   border-bottom: 1px solid var(--color-border-panel);
-  background: color-mix(in srgb, var(--color-bg-elevated) 72%, transparent);
-  backdrop-filter: blur(20px) saturate(1.2);
+  background: var(--glass-panel-bg);
+  backdrop-filter: var(--glass-panel-blur);
+  -webkit-backdrop-filter: var(--glass-panel-blur);
   box-shadow: var(--shadow-panel-outer);
 }
 
@@ -23,27 +56,53 @@
   display: grid;
   flex: 1;
   min-height: 0;
+  transition: grid-template-columns var(--dur-normal) var(--ease-emphasized);
+}
+
+.panelInner,
+.centerInner {
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  animation: workspaceCrossFade var(--dur-normal) var(--ease-emphasized);
 }
 
 .resizeHandle {
+  position: relative;
   cursor: col-resize;
   background: transparent;
   border-right: 1px solid var(--color-border-panel);
-  transition: background var(--transition-fast);
+  transition:
+    background var(--transition-fast),
+    box-shadow var(--transition-fast);
+}
+
+.resizeHandle::after {
+  content: "";
+  position: absolute;
+  inset: 0 -4px;
+  cursor: col-resize;
 }
 
 .resizeHandle:hover,
 .resizeHandle:focus-visible {
-  background: var(--color-bg-accent-subtle);
+  background: color-mix(in srgb, var(--color-accent) 60%, transparent);
+  box-shadow: 0 0 8px color-mix(in srgb, var(--color-accent) 40%, transparent);
+  outline: none;
 }
 
 .leftPanel,
 .rightPanel {
   min-width: 0;
   min-height: 0;
+  display: flex;
+  flex-direction: column;
   background: var(--color-bg-panel);
   box-shadow: var(--shadow-panel-outer);
   position: relative;
+  overflow: hidden;
 }
 
 .leftPanel::before,
@@ -87,12 +146,27 @@
   border-radius: var(--radius-sm);
   background: transparent;
   color: var(--color-text-muted);
+  transition:
+    background var(--transition-fast),
+    border-color var(--transition-fast),
+    color var(--transition-fast),
+    transform var(--transition-spring),
+    box-shadow var(--transition-focus);
 }
 
 .railBtn:hover {
   color: var(--color-text-primary);
   background: var(--color-bg-panel-hover);
   border-color: var(--color-border-strong);
+}
+
+.railBtn:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+.railBtn:active:not(:disabled) {
+  transform: scale(0.96);
 }
 
 .center {
@@ -125,18 +199,28 @@
   padding: 0;
   border: 1px solid var(--color-border);
   border-radius: var(--radius-sm);
-  background: color-mix(in srgb, var(--color-bg-panel) 88%, transparent);
+  background: var(--glass-chip-bg);
   color: var(--color-text-muted);
-  backdrop-filter: blur(8px);
+  backdrop-filter: var(--glass-chip-blur);
+  -webkit-backdrop-filter: var(--glass-chip-blur);
+  box-shadow: var(--elevation-1);
   opacity: 0;
   pointer-events: none;
-  transition: opacity var(--transition-fast);
+  transition:
+    opacity var(--dur-fast) var(--ease-standard),
+    transform var(--dur-instant) var(--ease-spring),
+    box-shadow var(--transition-focus);
 }
 
 .center:hover .collapseBtn,
 .collapseBtn:focus-visible {
   opacity: 1;
   pointer-events: auto;
+  outline: none;
+  box-shadow: var(--focus-ring);
+  transition:
+    opacity var(--transition-fast),
+    box-shadow var(--transition-focus);
 }
 
 .collapseBtn[data-edge="left"] {
@@ -161,6 +245,17 @@
   box-shadow:
     var(--shadow-panel-outer),
     inset 0 0 0 1px var(--color-border-panel);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .workspace {
+    transition: none;
+  }
+
+  .panelInner,
+  .centerInner {
+    animation: none;
+  }
 }
 
 @media (max-width: 1200px) {

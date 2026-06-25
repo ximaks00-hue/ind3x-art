@@ -2,9 +2,15 @@ import type { AssetEntry, CatalogCategory, CatalogEntry } from "../../ipc/types"
 import { getDirtyTexturePaths } from "../editor/documentStore";
 
 export const CATALOG_GRID_COLS = 9;
-/** Fixed catalog panel width for 9×40px cells + gaps + padding. */
+/** Fixed catalog panel width — inner grid uses fr units to absorb scrollbar width. */
 export const CATALOG_PANEL_WIDTH = 416;
 export const CATALOG_CELL_SIZE = 40;
+export const CATALOG_ROW_GAP = 4;
+export const CATALOG_LABEL_EXTRA = 14;
+
+export function catalogRowHeight(showLabels: boolean): number {
+  return CATALOG_CELL_SIZE + CATALOG_ROW_GAP + (showLabels ? CATALOG_LABEL_EXTRA : 0);
+}
 
 export const CATALOG_CATEGORIES: CatalogCategory[] = [
   "building",

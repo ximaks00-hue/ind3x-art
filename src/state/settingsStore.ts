@@ -47,6 +47,8 @@ interface SettingsState {
   onboardingTourStep: number;
   studioOnboardingCompleted: boolean;
   studioOnboardingTourStep: number;
+  studioInAppOnboardingCompleted: boolean;
+  studioInAppOnboardingTourStep: number;
   sessionCount: number;
   dismissedHints: string[];
   lastSessionPath: string | null;
@@ -90,6 +92,8 @@ interface SettingsState {
   setOnboardingTourStep: (step: number) => void;
   completeStudioOnboarding: () => void;
   setStudioOnboardingTourStep: (step: number) => void;
+  completeStudioInAppOnboarding: () => void;
+  setStudioInAppOnboardingTourStep: (step: number) => void;
   restartStudioOnboarding: () => void;
   incrementSessionCount: () => void;
   dismissHint: (hintId: string) => void;
@@ -131,6 +135,8 @@ export const useSettingsStore = create<SettingsState>()(
       onboardingTourStep: 0,
       studioOnboardingCompleted: false,
       studioOnboardingTourStep: 0,
+      studioInAppOnboardingCompleted: false,
+      studioInAppOnboardingTourStep: 0,
       sessionCount: 0,
       dismissedHints: [],
       lastSessionPath: null,
@@ -223,8 +229,17 @@ export const useSettingsStore = create<SettingsState>()(
         set({ studioOnboardingCompleted: true, studioOnboardingTourStep: 0 }),
       setStudioOnboardingTourStep: (studioOnboardingTourStep) =>
         set({ studioOnboardingTourStep }),
+      completeStudioInAppOnboarding: () =>
+        set({ studioInAppOnboardingCompleted: true, studioInAppOnboardingTourStep: 0 }),
+      setStudioInAppOnboardingTourStep: (studioInAppOnboardingTourStep) =>
+        set({ studioInAppOnboardingTourStep }),
       restartStudioOnboarding: () =>
-        set({ studioOnboardingCompleted: false, studioOnboardingTourStep: 0 }),
+        set({
+          studioOnboardingCompleted: false,
+          studioOnboardingTourStep: 0,
+          studioInAppOnboardingCompleted: false,
+          studioInAppOnboardingTourStep: 0,
+        }),
       incrementSessionCount: () => set({ sessionCount: get().sessionCount + 1 }),
       dismissHint: (hintId) => {
         const dismissed = get().dismissedHints;
@@ -269,6 +284,8 @@ export const useSettingsStore = create<SettingsState>()(
         onboardingTourStep: state.onboardingTourStep,
         studioOnboardingCompleted: state.studioOnboardingCompleted,
         studioOnboardingTourStep: state.studioOnboardingTourStep,
+        studioInAppOnboardingCompleted: state.studioInAppOnboardingCompleted,
+        studioInAppOnboardingTourStep: state.studioInAppOnboardingTourStep,
         sessionCount: state.sessionCount,
         dismissedHints: state.dismissedHints,
         lastSessionPath: state.lastSessionPath,

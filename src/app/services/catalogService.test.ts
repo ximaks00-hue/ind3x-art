@@ -30,7 +30,7 @@ describe("catalogService", () => {
     const filter = { category: null, namespace: null, search: "stone", fuzzy: false };
     const page = { offset: 0, limit: 50 };
     await queryCatalog(handle, filter, page);
-    expect(ipcMock.queryCatalog).toHaveBeenCalledWith(handle, filter, page);
+    expect(ipcMock.queryCatalog).toHaveBeenCalledWith(handle, filter, page, null);
   });
 
   it("delegates getCatalogFacets to ipc", async () => {
@@ -47,13 +47,14 @@ describe("catalogService", () => {
       "minecraft:test_stone",
       "icon",
       null,
+      null,
     );
   });
 
   it("delegates getCatalogEntry to ipc", async () => {
     ipcMock.getCatalogEntry.mockResolvedValue({ id: "minecraft:test_stone" });
     await getCatalogEntry(handle, "minecraft:test_stone");
-    expect(ipcMock.getCatalogEntry).toHaveBeenCalledWith(handle, "minecraft:test_stone");
+    expect(ipcMock.getCatalogEntry).toHaveBeenCalledWith(handle, "minecraft:test_stone", null);
   });
 
   it("rejects empty catalog entry id", async () => {

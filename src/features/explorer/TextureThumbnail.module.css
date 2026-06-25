@@ -26,7 +26,7 @@
 }
 
 .fadeIn {
-  animation: thumbFade 180ms ease-out;
+  animation: thumbFade var(--transition-enter);
 }
 
 @keyframes thumbFade {

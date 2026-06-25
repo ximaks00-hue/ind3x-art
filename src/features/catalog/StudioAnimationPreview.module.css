@@ -9,7 +9,7 @@
 }
 
 .btn {
-  font-size: 10px;
+  font-size: var(--text-2xs);
   line-height: 1;
   min-width: 20px;
   padding: 2px 4px;
@@ -25,8 +25,14 @@
   color: var(--color-text-primary);
 }
 
+.btn:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring-inset);
+  transition: box-shadow var(--transition-focus);
+}
+
 .badge {
-  font-size: 10px;
+  font-size: var(--text-2xs);
   font-variant-numeric: tabular-nums;
   color: var(--color-text-muted);
   min-width: 3.5rem;

@@ -16,7 +16,7 @@ export function StatusBarFps() {
       <span className={styles.sep} aria-hidden>
         |
       </span>
-      <span className={styles.segment}>{fps} FPS</span>
+      <span className={`${styles.segment} ${styles.metric}`}>{fps} FPS</span>
     </>
   );
 }

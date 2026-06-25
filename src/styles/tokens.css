@@ -1,20 +1,77 @@
-:root,
-[data-theme="dark"] {
-  color-scheme: dark;
-
+/* Typography — theme-agnostic scale (Epic A1) */
+:root {
   --font-sans: "Inter", system-ui, -apple-system, sans-serif;
   --font-mono: "JetBrains Mono", ui-monospace, "Cascadia Code", monospace;
 
-  --text-xs: 0.6875rem;
-  --text-sm: 0.8125rem;
-  --text-md: 0.875rem;
-  --text-lg: 1rem;
-  --text-xl: 1.125rem;
-  --text-panel-title: 0.8125rem;
-  --text-caption: 0.6875rem;
+  /* Size scale */
+  --text-4xs: 0.5rem; /*  8px — badge glyphs */
+  --text-3xs: 0.5625rem; /*  9px — dense cell labels */
+  --text-2xs: 0.625rem; /* 10px — micro labels, badges */
+  --text-xs: 0.6875rem; /* 11px — captions */
+  --text-compact: 0.75rem; /* 12px — compact labels, tooltip titles */
+  --text-sm: 0.8125rem; /* 13px — body UI */
+  --text-md: 0.875rem; /* 14px — secondary emphasis */
+  --text-lg: 1rem; /* 16px — section titles */
+  --text-xl: 1.125rem; /* 18px — panel headings */
+  --text-2xl: 1.375rem; /* 22px — screen titles */
+
+  /* Semantic aliases */
+  --text-panel-title: var(--text-sm);
+  --text-caption: var(--text-xs);
+
+  /* Weights */
   --font-weight-normal: 400;
   --font-weight-medium: 500;
   --font-weight-semibold: 600;
+  --font-weight-strong: 650;
+
+  /* Line heights */
+  --leading-tight: 1.15;
+  --leading-snug: 1.3;
+  --leading-normal: 1.5;
+
+  /* Tracking (optical correction) */
+  --tracking-tight: -0.01em;
+  --tracking-normal: 0;
+  --tracking-wide: 0.03em;
+  --tracking-caps: 0.06em;
+
+  /* Legacy aliases — prefer --text-* in new CSS */
+  --font-size-xs: var(--text-xs);
+  --font-size-sm: var(--text-sm);
+  --font-size-md: var(--text-md);
+  --font-size-lg: var(--text-lg);
+
+  /* Motion (Epic A4) */
+  --ease-standard: cubic-bezier(0.2, 0, 0, 1);
+  --ease-decelerate: cubic-bezier(0, 0, 0, 1);
+  --ease-accelerate: cubic-bezier(0.3, 0, 1, 1);
+  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+  --ease-emphasized: cubic-bezier(0.2, 0, 0, 1.2);
+
+  --dur-instant: 80ms;
+  --dur-fast: 120ms;
+  --dur-normal: 200ms;
+  --dur-slow: 320ms;
+
+  --transition-fast: var(--dur-fast) var(--ease-standard);
+  --transition-normal: var(--dur-normal) var(--ease-standard);
+  --transition-enter: var(--dur-normal) var(--ease-decelerate);
+  --transition-exit: var(--dur-fast) var(--ease-accelerate);
+  --transition-spring: var(--dur-fast) var(--ease-spring);
+  --transition-focus: var(--dur-instant) var(--ease-standard);
+
+  /* Texture editor checkerboard (Epic E5) */
+  --checker-size: 12px;
+
+  /* Accent glow (Epic G3) */
+  --shadow-accent-glow: 0 0 12px color-mix(in srgb, var(--color-accent) 25%, transparent);
+  --shadow-accent-glow-strong: 0 0 16px color-mix(in srgb, var(--color-accent) 32%, transparent);
+}
+
+:root,
+[data-theme="dark"] {
+  color-scheme: dark;
 
   --color-bg-base: #090a0d;
   --color-bg-elevated: #101218;
@@ -25,6 +82,7 @@
   --color-bg-accent-subtle: rgba(99, 140, 255, 0.12);
   --color-bg-success-subtle: rgba(45, 212, 191, 0.12);
 
+  --color-surface-1: #181b24;
   --color-surface-2: #1c2030;
   --color-surface-3: #242938;
 
@@ -35,6 +93,10 @@
   --color-text-primary: #f2f4f8;
   --color-text-secondary: #9aa3b2;
   --color-text-muted: #6b7280;
+
+  /* Legacy aliases — prefer --text-* / --color-text-primary in new CSS */
+  --color-bg-app: var(--color-bg-base);
+  --color-text: var(--color-text-primary);
 
   --color-accent: #638cff;
   --color-accent-hover: #7a9dff;
@@ -47,6 +109,32 @@
   --color-error: var(--color-danger);
 
   --focus-ring: 0 0 0 2px var(--color-bg-base), 0 0 0 4px var(--color-accent);
+  --focus-ring-inset: inset 0 0 0 2px var(--color-accent);
+
+  /* Elevation ladder (Epic A2) */
+  --elevation-0: none;
+  --elevation-1:
+    0 1px 2px rgba(0, 0, 0, 0.4),
+    inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  --elevation-2:
+    0 8px 24px rgba(0, 0, 0, 0.45),
+    0 0 0 1px var(--color-border),
+    inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  --elevation-3:
+    0 24px 56px rgba(0, 0, 0, 0.6),
+    0 0 0 1px var(--color-border-strong),
+    inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  --border-hairline: 1px solid rgba(255, 255, 255, 0.05);
+
+  /* Glass / blur (Epic A3) */
+  --scrim: color-mix(in srgb, var(--color-bg-base) 55%, transparent);
+  --scrim-blur: blur(8px) saturate(1.1);
+  --glass-panel-bg: color-mix(in srgb, var(--color-bg-elevated) 72%, transparent);
+  --glass-panel-blur: blur(20px) saturate(1.3);
+  --glass-popover-bg: color-mix(in srgb, var(--color-bg-elevated) 90%, transparent);
+  --glass-popover-blur: blur(24px) saturate(1.4);
+  --glass-chip-bg: color-mix(in srgb, var(--color-bg-elevated) 80%, transparent);
+  --glass-chip-blur: blur(10px) saturate(1.2);
 
   --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
   --shadow-md: 0 12px 32px rgba(0, 0, 0, 0.5);
@@ -69,14 +157,19 @@
   --space-5: 20px;
   --space-6: 24px;
 
-  --transition-fast: 120ms ease;
-  --transition-normal: 200ms ease;
-
   --titlebar-height: 48px;
   --statusbar-height: 30px;
   --panel-width-left: 280px;
   --panel-width-right: 300px;
   --panel-rail-width: 28px;
+
+  --toast-ttl: 4200ms;
+
+  --tooltip-show-delay: 400ms;
+  --tooltip-hide-delay: 100ms;
+
+  --checker-c1: color-mix(in srgb, var(--color-border) 100%, transparent);
+  --checker-c2: var(--color-bg-input);
 }
 
 [data-theme="light"] {
@@ -90,6 +183,7 @@
   --color-bg-accent-subtle: rgba(79, 116, 230, 0.1);
   --color-bg-success-subtle: rgba(13, 148, 136, 0.1);
 
+  --color-surface-1: #f6f8fc;
   --color-surface-2: #f0f3fa;
   --color-surface-3: #e8ecf4;
 
@@ -110,6 +204,30 @@
   --color-error: var(--color-danger);
 
   --focus-ring: 0 0 0 2px var(--color-bg-elevated), 0 0 0 4px var(--color-accent);
+  --focus-ring-inset: inset 0 0 0 2px var(--color-accent);
+
+  /* Elevation ladder (Epic A2) */
+  --elevation-0: none;
+  --elevation-1:
+    0 1px 2px rgba(15, 23, 42, 0.06),
+    0 1px 1px rgba(15, 23, 42, 0.04);
+  --elevation-2:
+    0 8px 24px rgba(15, 23, 42, 0.1),
+    0 0 0 1px var(--color-border);
+  --elevation-3:
+    0 24px 56px rgba(15, 23, 42, 0.16),
+    0 0 0 1px var(--color-border-strong);
+  --border-hairline: 1px solid rgba(15, 23, 42, 0.06);
+
+  /* Glass / blur (Epic A3) */
+  --scrim: color-mix(in srgb, var(--color-bg-base) 55%, transparent);
+  --scrim-blur: blur(8px) saturate(1.1);
+  --glass-panel-bg: color-mix(in srgb, var(--color-bg-elevated) 78%, transparent);
+  --glass-panel-blur: blur(20px) saturate(1.25);
+  --glass-popover-bg: color-mix(in srgb, var(--color-bg-panel) 92%, transparent);
+  --glass-popover-blur: blur(24px) saturate(1.35);
+  --glass-chip-bg: color-mix(in srgb, var(--color-bg-elevated) 85%, transparent);
+  --glass-chip-blur: blur(10px) saturate(1.15);
 
   --shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.06);
   --shadow-md: 0 12px 32px rgba(15, 23, 42, 0.12);
@@ -119,6 +237,9 @@
   --shadow-panel-outer: 0 1px 0 rgba(15, 23, 42, 0.06), 0 4px 16px rgba(15, 23, 42, 0.04);
   --panel-header-bg: color-mix(in srgb, var(--color-bg-panel) 95%, transparent);
   --color-bg-canvas: #f4f6fb;
+
+  --checker-c1: color-mix(in srgb, var(--color-border) 90%, transparent);
+  --checker-c2: var(--color-bg-input);
 }
 
 [data-theme="high-contrast"] {
@@ -132,6 +253,7 @@
   --color-bg-accent-subtle: rgba(99, 140, 255, 0.25);
   --color-bg-success-subtle: rgba(45, 212, 191, 0.25);
 
+  --color-surface-1: #141414;
   --color-surface-2: #1a1a1a;
   --color-surface-3: #262626;
 
@@ -153,6 +275,28 @@
   --color-danger: #fca5a5;
 
   --focus-ring: 0 0 0 2px #000000, 0 0 0 4px #ffffff;
+  --focus-ring-inset: inset 0 0 0 2px #ffffff;
+
+  /* Elevation ladder — border-only depth (Epic A2) */
+  --elevation-0: none;
+  --elevation-1: 0 0 0 1px rgba(255, 255, 255, 0.2);
+  --elevation-2:
+    0 0 0 1px rgba(255, 255, 255, 0.35),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.08);
+  --elevation-3:
+    0 0 0 2px rgba(255, 255, 255, 0.45),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.12);
+  --border-hairline: 1px solid rgba(255, 255, 255, 0.28);
+
+  /* Glass / blur off — opaque surfaces (Epic A3) */
+  --scrim: color-mix(in srgb, var(--color-bg-base) 85%, transparent);
+  --scrim-blur: none;
+  --glass-panel-bg: var(--color-bg-elevated);
+  --glass-panel-blur: none;
+  --glass-popover-bg: var(--color-bg-panel);
+  --glass-popover-blur: none;
+  --glass-chip-bg: var(--color-bg-elevated);
+  --glass-chip-blur: none;
 
   --shadow-sm: none;
   --shadow-md: 0 0 0 1px rgba(255, 255, 255, 0.2);
@@ -162,4 +306,7 @@
   --shadow-panel-outer: 0 0 0 1px rgba(255, 255, 255, 0.2);
   --panel-header-bg: var(--color-bg-panel);
   --color-bg-canvas: #000000;
+
+  --checker-c1: rgba(255, 255, 255, 0.22);
+  --checker-c2: var(--color-bg-input);
 }

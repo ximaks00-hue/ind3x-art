@@ -78,6 +78,12 @@ export function floodFillAlgorithm(input: FloodFillInput): WorkerPixelChange[] {
   const stack: number[] = [startY * width + startX];
   const after: RgbaTuple = [fillR, fillG, fillB, fillA];
 
+  const tryPush = (pos: number) => {
+    if (stack.length < MAX_FLOOD_FILL_PIXELS && !visited[pos]) {
+      stack.push(pos);
+    }
+  };
+
   while (stack.length > 0) {
     if (changes.length >= MAX_FLOOD_FILL_PIXELS) break;
     const pos = stack.pop()!;
@@ -103,10 +109,10 @@ export function floodFillAlgorithm(input: FloodFillInput): WorkerPixelChange[] {
       changes.push({ x, y, before, after });
     }
 
-    if (x > 0) stack.push(pos - 1);
-    if (x < width - 1) stack.push(pos + 1);
-    if (y > 0) stack.push(pos - width);
-    if (y < height - 1) stack.push(pos + width);
+    if (x > 0) tryPush(pos - 1);
+    if (x < width - 1) tryPush(pos + 1);
+    if (y > 0) tryPush(pos - width);
+    if (y < height - 1) tryPush(pos + width);
   }
 
   return changes;

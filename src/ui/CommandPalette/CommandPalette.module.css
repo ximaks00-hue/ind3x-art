@@ -1,21 +1,11 @@
 .overlay {
-  position: fixed;
-  inset: 0;
+  composes: modal-overlay-top from global;
   z-index: 1000;
-  display: grid;
-  place-content: start center;
-  padding-top: 12vh;
-  background: color-mix(in srgb, var(--color-bg-base) 55%, transparent);
-  backdrop-filter: blur(8px) saturate(1.1);
 }
 
 .dialog {
+  composes: modal-dialog from global;
   width: min(560px, calc(100vw - 32px));
-  border-radius: var(--radius-lg);
-  border: 1px solid var(--color-border-strong);
-  background: color-mix(in srgb, var(--color-bg-panel) 96%, transparent);
-  backdrop-filter: blur(16px);
-  box-shadow: var(--shadow-lg);
   overflow: hidden;
 }
 
@@ -26,11 +16,13 @@
   border-bottom: 1px solid var(--color-border);
   background: transparent;
   color: var(--color-text-primary);
-  font-size: 14px;
+  font-size: var(--text-md);
 }
 
-.input:focus {
+.input:focus-visible {
   outline: none;
+  box-shadow: var(--focus-ring-inset);
+  transition: box-shadow var(--transition-focus);
 }
 
 .list {
@@ -42,15 +34,17 @@
 }
 
 .groupLabel {
+  composes: label-caps from global;
+  position: sticky;
+  top: 0;
+  z-index: 1;
   display: flex;
   align-items: center;
   gap: var(--space-2);
   padding: var(--space-2) var(--space-3) var(--space-1);
-  font-size: 10px;
-  font-weight: 650;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--color-text-muted);
+  background: color-mix(in srgb, var(--glass-popover-bg) 94%, var(--color-bg-panel));
+  backdrop-filter: var(--glass-popover-blur);
+  -webkit-backdrop-filter: var(--glass-popover-blur);
 }
 
 .itemMain {
@@ -79,20 +73,46 @@
   background: transparent;
   color: var(--color-text-primary);
   text-align: left;
-  font-size: 13px;
+  font-size: var(--text-sm);
+  cursor: pointer;
+  transition:
+    background var(--dur-fast),
+    box-shadow var(--dur-fast);
 }
 
-.item:hover,
+.itemEnter {
+  animation: paletteItemIn var(--transition-enter) backwards;
+  animation-delay: calc(min(var(--stagger, 0), 8) * 12ms);
+}
+
+.item:hover:not(.itemActive) {
+  background: var(--color-bg-panel-hover);
+}
+
 .itemActive {
   background: var(--color-bg-accent-subtle);
+  box-shadow: inset 3px 0 0 var(--color-accent);
+}
+
+.item:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring-inset);
+}
+
+.itemActive:focus-visible {
+  outline: none;
+  box-shadow:
+    inset 3px 0 0 var(--color-accent),
+    var(--focus-ring-inset);
 }
 
 .shortcut {
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: var(--text-2xs);
+  font-variant-numeric: tabular-nums;
   color: var(--color-text-muted);
   border: 1px solid var(--color-border);
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   padding: 2px 6px;
   background: var(--color-bg-input);
 }
@@ -101,7 +121,7 @@
   padding: var(--space-4);
   text-align: center;
   color: var(--color-text-muted);
-  font-size: 12px;
+  font-size: var(--text-compact);
 }
 
 .footer {
@@ -109,6 +129,12 @@
   gap: var(--space-3);
   padding: var(--space-2) var(--space-4);
   border-top: 1px solid var(--color-border);
-  font-size: 10px;
+  font-size: var(--text-2xs);
   color: var(--color-text-muted);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .itemEnter {
+    animation: none;
+  }
 }

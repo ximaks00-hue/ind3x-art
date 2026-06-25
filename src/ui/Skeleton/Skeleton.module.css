@@ -2,9 +2,9 @@
   display: block;
   background: linear-gradient(
     90deg,
-    var(--color-surface-3, #2a2d36) 25%,
-    var(--color-surface-2, #1e2029) 50%,
-    var(--color-surface-3, #2a2d36) 75%
+    var(--color-surface-3) 25%,
+    var(--color-surface-2) 50%,
+    var(--color-surface-3) 75%
   );
   background-size: 200% 100%;
   animation: shimmer 1.4s infinite linear;
@@ -22,6 +22,13 @@
 .block {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  padding: 12px;
+  gap: var(--space-2);
+  padding: var(--space-3);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .skeleton {
+    animation: none;
+    background: var(--color-surface-2);
+  }
 }

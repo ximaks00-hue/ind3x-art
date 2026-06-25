@@ -15,6 +15,24 @@ export interface FaceZoomRequest {
   tick: number;
 }
 
+/** Cap in-memory texture meta entries for long single-project sessions (VIEW-001). */
+const MAX_ACTIVE_TEXTURE_META = 256;
+const metaAccessOrder: string[] = [];
+
+function touchMetaPath(path: string): void {
+  const idx = metaAccessOrder.indexOf(path);
+  if (idx >= 0) metaAccessOrder.splice(idx, 1);
+  metaAccessOrder.push(path);
+}
+
+function evictOverflowMeta(meta: Record<string, TextureMetaInfo>): Record<string, TextureMetaInfo> {
+  while (metaAccessOrder.length > MAX_ACTIVE_TEXTURE_META) {
+    const oldest = metaAccessOrder.shift();
+    if (oldest) delete meta[oldest];
+  }
+  return meta;
+}
+
 interface ViewerState {
   cameraPreset: CameraPreset;
   cameraPresetTick: number;
@@ -94,10 +112,17 @@ export const useViewerStore = create<ViewerState>((set) => ({
   setUvDebugMode: (uvDebugMode) => set({ uvDebugMode }),
   setDisplaySlot: (displaySlot) => set({ displaySlot }),
   setActiveTextureMeta: (meta) =>
-    set((state) => ({
-      activeTextureMeta: { ...state.activeTextureMeta, ...meta },
-    })),
-  clearActiveTextureMeta: () => set({ activeTextureMeta: {} }),
+    set((state) => {
+      const next = { ...state.activeTextureMeta, ...meta };
+      for (const path of Object.keys(meta)) {
+        touchMetaPath(path);
+      }
+      return { activeTextureMeta: evictOverflowMeta(next) };
+    }),
+  clearActiveTextureMeta: () => {
+    metaAccessOrder.length = 0;
+    return set({ activeTextureMeta: {} });
+  },
   consumeFaceZoomRequest: () => set({ faceZoomRequest: null }),
   setCurrentRenderable: (currentRenderable) => set({ currentRenderable }),
   setVram: (vramTextures, vramGeometries) => set({ vramTextures, vramGeometries }),

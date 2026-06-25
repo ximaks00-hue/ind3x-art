@@ -133,7 +133,70 @@ const globalListeners = new Set<Listener>();
 const inflightKeys = new Set<string>();
 const failureMessages = new Map<string, string>();
 const progressByKey = new Map<string, CatalogIconProgress>();
+const snapshotByKey = new Map<string, CatalogIconState>();
 const MAX_ICON_METADATA_KEYS = 1024;
+
+/** Shared immutable snapshots for useSyncExternalStore stability. */
+const IDLE_ICON_STATE: CatalogIconState = Object.freeze({
+  src: null,
+  status: "idle",
+  error: null,
+});
+
+const BAKING_ICON_STATE: CatalogIconState = Object.freeze({
+  src: null,
+  status: "baking",
+  error: null,
+});
+
+function invalidateIconStateSnapshots(keys: Iterable<string>): void {
+  for (const key of keys) {
+    snapshotByKey.delete(key);
+  }
+}
+
+function stableIconState(key: string, limit: number): CatalogIconState {
+  const url = getCatalogIconCache(limit).get(key)?.url ?? null;
+  if (url) {
+    const phase = progressByKey.get(key);
+    const status: CatalogIconStatus = phase === "low" ? "low" : "ready";
+    const cached = snapshotByKey.get(key);
+    if (
+      cached &&
+      cached.src === url &&
+      cached.status === status &&
+      cached.error === null
+    ) {
+      return cached;
+    }
+    const next: CatalogIconState = { src: url, status, error: null };
+    snapshotByKey.set(key, next);
+    return next;
+  }
+
+  const failure = failureMessages.get(key);
+  if (failure) {
+    const cached = snapshotByKey.get(key);
+    if (
+      cached &&
+      cached.src === null &&
+      cached.status === "failed" &&
+      cached.error === failure
+    ) {
+      return cached;
+    }
+    const next: CatalogIconState = { src: null, status: "failed", error: failure };
+    snapshotByKey.set(key, next);
+    return next;
+  }
+
+  if (inflightKeys.has(key)) {
+    return BAKING_ICON_STATE;
+  }
+
+  snapshotByKey.delete(key);
+  return IDLE_ICON_STATE;
+}
 
 function pruneCatalogIconKeyMetadata(key: string): void {
   progressByKey.delete(key);
@@ -191,6 +254,7 @@ export function subscribeCatalogIconCache(listener: Listener): () => void {
 }
 
 function notifyCatalogIconKeys(keys: Iterable<string>): void {
+  invalidateIconStateSnapshots(keys);
   const notified = new Set<Listener>();
   for (const key of keys) {
     const subs = keyListeners.get(key);
@@ -214,6 +278,7 @@ export function resetCatalogIconCache(): void {
   inflightKeys.clear();
   failureMessages.clear();
   progressByKey.clear();
+  snapshotByKey.clear();
   keyListeners.clear();
 }
 
@@ -297,24 +362,8 @@ export function readCatalogIconState(
   limit: number,
 ): CatalogIconState {
   if (!handleId) {
-    return { src: null, status: "idle", error: null };
+    return IDLE_ICON_STATE;
   }
   const key = catalogIconCacheKey(handleId, iconKey);
-  const url = getCatalogIconCache(limit).get(key)?.url ?? null;
-  if (url) {
-    const phase = progressByKey.get(key);
-    return {
-      src: url,
-      status: phase === "low" ? "low" : "ready",
-      error: null,
-    };
-  }
-  const failure = failureMessages.get(key);
-  if (failure) {
-    return { src: null, status: "failed", error: failure };
-  }
-  if (inflightKeys.has(key)) {
-    return { src: null, status: "baking", error: null };
-  }
-  return { src: null, status: "idle", error: null };
+  return stableIconState(key, limit);
 }

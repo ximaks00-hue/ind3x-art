@@ -10,6 +10,8 @@ pub struct AppInfo {
     pub target: String,
     pub profile: String,
     pub log_dir: Option<String>,
+    /// True when sled could not open the on-disk cache (e.g. second app instance).
+    pub cache_ephemeral: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
@@ -439,6 +441,13 @@ pub struct CatalogEntry {
     #[serde(default)]
     pub variant_keys: Vec<String>,
     pub presentation: CatalogPresentation,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct CatalogIconCacheBatch {
+    pub icon_key: String,
+    pub png_base64: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default, Type)]

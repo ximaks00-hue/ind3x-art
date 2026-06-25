@@ -333,11 +333,12 @@ export function createE2eMockIpc() {
 
   const appInfo: AppInfo = {
     name: "inD3X Art",
-    version: "0.3.5-e2e",
+    version: "0.3.6-e2e",
     identifier: "com.ind3x.art",
     target: "e2e-mock",
     profile: "test",
     logDir: "/tmp/ind3x-art-e2e",
+    cacheEphemeral: false,
   };
 
   async function openFixtureProject() {
@@ -550,14 +551,28 @@ export function createE2eMockIpc() {
       };
     },
     closeSource: async (handle: ProjectHandle) => {
-      if (currentHandle?.id !== handle.id) return;
-      currentHandle = null;
       const { useProjectStore } = await import("../state/projectStore");
+      const activeHandle = useProjectStore.getState().handle;
+      if (activeHandle?.id !== handle.id) {
+        if (currentHandle?.id === handle.id) currentHandle = null;
+        return;
+      }
+      currentHandle = null;
+      const { clearTextureCache } = await import("../features/viewer3d/textureLoader");
+      clearTextureCache(handle);
+      const { invalidateProjectCaches } = await import("../app/projectCacheInvalidation");
+      invalidateProjectCaches();
       useProjectStore.getState().clearProject();
       const { useCatalogStore } = await import("../features/catalog/catalogStore");
       useCatalogStore.getState().reset();
       const { clearTextureDocuments } = await import("../features/editor/textureDocument");
       clearTextureDocuments();
+      const { useViewerStore } = await import("../state/viewerStore");
+      useViewerStore.getState().clearActiveTextureMeta();
+      const { useEditorStore } = await import("../state/editorStore");
+      useEditorStore.getState().resetEditorSession();
+      const { useInteractionStore } = await import("../state/interactionStore");
+      useInteractionStore.getState().resetInteractionState();
     },
     cancelIndex: async () => undefined,
     cancelIpcRequest: async (requestId: number) => {
@@ -608,6 +623,16 @@ export function createE2eMockIpc() {
       if (!entry) throw new Error(`Catalog entry not found: ${entryId}`);
       return entry;
     },
+    getCatalogEntriesBatch: async (
+      _handle: ProjectHandle,
+      entryIds: string[],
+      ipcRequestId?: number | null,
+    ): Promise<CatalogEntry[]> => {
+      assertIpcRequestActive(ipcRequestId);
+      return entryIds
+        .map((id) => catalogById.get(id))
+        .filter((entry): entry is CatalogEntry => entry !== undefined);
+    },
     getCatalogFacets: async (): Promise<{
       byCategory: { key: string; count: number }[];
     }> => {
@@ -644,6 +669,14 @@ export function createE2eMockIpc() {
     rebuildProjectCatalog: async () => undefined,
     getProjectFingerprint: async () => "e2e-fingerprint",
     getCatalogIconCache: async () => null,
+    getCatalogIconCacheBatch: async (
+      _handle: ProjectHandle,
+      iconKeys: string[],
+      ipcRequestId?: number | null,
+    ) => {
+      assertIpcRequestActive(ipcRequestId);
+      return iconKeys.map((iconKey) => ({ iconKey, pngBase64: null }));
+    },
     setCatalogIconCache: async () => undefined,
     invalidateCatalogIconsForTextures: async () => [],
     getAssetEntry: async (

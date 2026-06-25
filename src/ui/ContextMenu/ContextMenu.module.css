@@ -2,7 +2,7 @@
   background: var(--color-surface-2);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  box-shadow: var(--elevation-2);
   padding: 4px;
   min-width: 180px;
   outline: none;
@@ -19,12 +19,18 @@
   border-radius: var(--radius-sm);
   cursor: pointer;
   color: var(--color-text-primary);
-  font-size: 12px;
+  font-size: var(--text-compact);
   text-align: left;
 }
 
 .item:hover:not(:disabled) {
   background: var(--color-accent-muted, rgba(100, 140, 255, 0.12));
+}
+
+.item:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring-inset);
+  transition: box-shadow var(--transition-focus);
 }
 
 .item:disabled {
@@ -33,8 +39,10 @@
 }
 
 .icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   width: 16px;
-  text-align: center;
   flex-shrink: 0;
 }
 
@@ -43,7 +51,7 @@
 }
 
 .shortcut {
-  font-size: 10px;
+  font-size: var(--text-2xs);
   color: var(--color-text-muted);
   margin-left: auto;
 }

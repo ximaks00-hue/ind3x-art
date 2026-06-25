@@ -1,4 +1,7 @@
+import { AlertTriangle, Check } from "lucide-react";
+
 import { useUiStore } from "../../state/uiStore";
+import { Icon } from "../icons/Icon";
 import { StatusBarFps } from "./StatusBarFps";
 import styles from "./StatusBar.module.css";
 
@@ -26,6 +29,15 @@ interface StatusBarProps {
   cameraPreset?: string;
 }
 
+function DirtyIndicator({ label }: { label: string }) {
+  return (
+    <span className={styles.dirty}>
+      <span className="status-dot status-dot--pulse" aria-hidden />
+      {label}
+    </span>
+  );
+}
+
 export function StatusBar({
   ipcHealthy,
   assetCount,
@@ -51,12 +63,13 @@ export function StatusBar({
 }: StatusBarProps) {
   const saveFlashTick = useUiStore((s) => s.saveFlashTick);
 
-  const indexLabel =
-    indexStatus === "done" && assetCount != null
-      ? `✓ ${assetCount.toLocaleString()} assets`
-      : indexStatus === "running"
-        ? "indexing…"
-        : indexStatus;
+  const indexRunning = indexStatus === "running";
+  const indexDone = indexStatus === "done" && assetCount != null;
+  const indexLabel = indexDone
+    ? `${assetCount.toLocaleString()} assets`
+    : indexRunning
+      ? "indexing…"
+      : indexStatus;
 
   const catalogLabel =
     catalogQueryError != null
@@ -83,7 +96,7 @@ export function StatusBar({
           {creativeParts.map((part, i) => (
             <span key={part}>
               {i > 0 ? <span className={styles.dotSep}> · </span> : null}
-              <span className={part === "dirty" ? styles.dirty : undefined}>{part}</span>
+              {part === "dirty" ? <DirtyIndicator label="dirty" /> : part}
             </span>
           ))}
         </span>
@@ -92,9 +105,6 @@ export function StatusBar({
   }
 
   const segments: string[] = [];
-  segments.push(`IPC ${ipcHealthy ? "●" : "○"}`);
-  segments.push(`Index ${indexLabel}`);
-
   if (workspaceLabel) segments.push(workspaceLabel);
   if (catalogLabel) segments.push(catalogLabel);
   if (catalogEntryLabel) segments.push(catalogEntryLabel);
@@ -126,13 +136,33 @@ export function StatusBar({
       className={`${styles.bar}${saveFlashTick > 0 ? ` ${styles.saveFlash}` : ""}`}
       aria-label="Application status"
     >
-      {segments.map((segment, i) => (
+      <span className={styles.segment}>
+        <span className={styles.ipcStatus} data-healthy={ipcHealthy}>
+          <span
+            className={`status-dot${ipcHealthy ? "" : " status-dot--pulse"}`}
+            aria-hidden
+          />
+          IPC {ipcHealthy ? "ok" : "offline"}
+        </span>
+      </span>
+      <span className={styles.segment}>
+        <span className={styles.sep} aria-hidden>
+          |
+        </span>
+        <span className={indexRunning ? styles.indexing : undefined}>
+          {indexRunning ? (
+            <span className="status-dot status-dot--breathe" aria-hidden />
+          ) : indexDone ? (
+            <Icon icon={Check} size={16} className={styles.statusIcon} aria-hidden />
+          ) : null}
+          Index {indexLabel}
+        </span>
+      </span>
+      {segments.map((segment) => (
         <span key={segment} className={styles.segment}>
-          {i > 0 && (
-            <span className={styles.sep} aria-hidden>
-              |
-            </span>
-          )}
+          <span className={styles.sep} aria-hidden>
+            |
+          </span>
           <span
             className={
               segment.startsWith("Dirty:")
@@ -141,10 +171,21 @@ export function StatusBar({
                   ? styles.modeBadge
                   : segment === "catalog error"
                     ? styles.catalogError
-                    : undefined
+                    : segment.startsWith("Zoom ") || segment.startsWith("(")
+                      ? styles.metric
+                      : undefined
             }
           >
-            {segment}
+            {segment.startsWith("Dirty:") ? (
+              <DirtyIndicator label={segment} />
+            ) : segment === "catalog error" ? (
+              <>
+                <Icon icon={AlertTriangle} size={16} className={styles.statusIcon} aria-hidden />
+                {segment}
+              </>
+            ) : (
+              segment
+            )}
           </span>
         </span>
       ))}

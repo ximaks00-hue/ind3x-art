@@ -48,6 +48,12 @@ export function useAppBootstrap() {
         if (cancelled) return;
         setAppInfo(info);
         setIpcHealthy(pong === "pong");
+        if (info.cacheEphemeral) {
+          pushToast(
+            "Another window has the cache open — icons and index won't persist this session",
+            "info",
+          );
+        }
       } catch (error) {
         if (attempt + 1 < maxAttempts && !cancelled) {
           await new Promise<void>((resolve) => setTimeout(resolve, 400 * (attempt + 1)));

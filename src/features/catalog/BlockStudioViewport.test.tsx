@@ -119,7 +119,7 @@ describe("BlockStudioViewport", () => {
     expect(screen.getByText("Stone")).toBeTruthy();
   });
 
-  it("shows flat texture preview for texture-only entries", () => {
+  it("shows flat texture preview for texture-only entries without a model", () => {
     render(
       <BlockStudioViewport
         model={null}
@@ -136,6 +136,25 @@ describe("BlockStudioViewport", () => {
     expect(screen.getByTestId("studio-texture-preview")).toBeTruthy();
     expect(screen.getByText(/Texture-only entry/)).toBeTruthy();
     expect(screen.queryByTestId("scene3d")).toBeNull();
+  });
+
+  it("renders 3D cube for texture-only entries when a model is available", () => {
+    render(
+      <BlockStudioViewport
+        model={model}
+        handle={handle}
+        entry={textureEntry}
+        variants={[]}
+        variantKey={undefined}
+        onVariantChange={vi.fn()}
+        biome="plains"
+        onBiomeChange={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByTestId("scene3d")).toBeTruthy();
+    expect(screen.queryByTestId("studio-texture-preview")).toBeNull();
+    expect(screen.queryByText(/Texture-only entry/)).toBeNull();
   });
 
   it("shows resolve error and biome controls", () => {

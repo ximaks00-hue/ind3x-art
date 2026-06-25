@@ -55,6 +55,14 @@ export const commands = {
     typedError<CatalogEntry, CoreError>(
       __TAURI_INVOKE("get_catalog_entry", { handle, entryId, ipcRequestId }),
     ),
+  getCatalogEntriesBatch: (
+    handle: ProjectHandle,
+    entryIds: string[],
+    ipcRequestId: number | null,
+  ) =>
+    typedError<CatalogEntry[], CoreError>(
+      __TAURI_INVOKE("get_catalog_entries_batch", { handle, entryIds, ipcRequestId }),
+    ),
   getCatalogFacets: (handle: ProjectHandle) =>
     typedError<CatalogFacets, CoreError>(
       __TAURI_INVOKE("get_catalog_facets", { handle }),
@@ -82,6 +90,14 @@ export const commands = {
   getCatalogIconCache: (handle: ProjectHandle, iconKey: string) =>
     typedError<string | null, CoreError>(
       __TAURI_INVOKE("get_catalog_icon_cache", { handle, iconKey }),
+    ),
+  getCatalogIconCacheBatch: (
+    handle: ProjectHandle,
+    iconKeys: string[],
+    ipcRequestId: number | null,
+  ) =>
+    typedError<CatalogIconCacheBatch[], CoreError>(
+      __TAURI_INVOKE("get_catalog_icon_cache_batch", { handle, iconKeys, ipcRequestId }),
     ),
   setCatalogIconCache: (handle: ProjectHandle, iconKey: string, pngBase64: string) =>
     typedError<null, CoreError>(
@@ -119,9 +135,14 @@ export const commands = {
     typedError<null, CoreError>(
       __TAURI_INVOKE("reveal_asset_in_folder", { handle, assetPath }),
     ),
-  getTexturePreview: (handle: ProjectHandle, assetPath: string, maxSize: number | null) =>
+  getTexturePreview: (
+    handle: ProjectHandle,
+    assetPath: string,
+    maxSize: number | null,
+    ipcRequestId: number | null,
+  ) =>
     typedError<TexturePreview, CoreError>(
-      __TAURI_INVOKE("get_texture_preview", { handle, assetPath, maxSize }),
+      __TAURI_INVOKE("get_texture_preview", { handle, assetPath, maxSize, ipcRequestId }),
     ),
   getTexture: (handle: ProjectHandle, texturePath: string) =>
     typedError<TexturePreview, CoreError>(
@@ -185,15 +206,20 @@ export const commands = {
     typedError<VariantKey[], CoreError>(
       __TAURI_INVOKE("list_variants", { handle, assetPath, ipcRequestId }),
     ),
-  modelsForTexture: (handle: ProjectHandle, assetPath: string) =>
+  modelsForTexture: (
+    handle: ProjectHandle,
+    assetPath: string,
+    ipcRequestId: number | null,
+  ) =>
     typedError<ModelRefInfo[], CoreError>(
-      __TAURI_INVOKE("models_for_texture", { handle, assetPath }),
+      __TAURI_INVOKE("models_for_texture", { handle, assetPath, ipcRequestId }),
     ),
   resolveRenderable: (
     handle: ProjectHandle,
     assetPath: string,
     variantKey: string | null,
     linkedModelPath: string | null,
+    ipcRequestId: number | null,
   ) =>
     typedError<RenderableModel, CoreError>(
       __TAURI_INVOKE("resolve_renderable", {
@@ -201,6 +227,7 @@ export const commands = {
         assetPath,
         variantKey,
         linkedModelPath,
+        ipcRequestId,
       }),
     ),
   readRecentLogs: (maxLines: number | null) =>
@@ -216,6 +243,8 @@ export type AppInfo = {
   target: string;
   profile: string;
   logDir: string | null;
+  // True when sled could not open the on-disk cache (e.g. second app instance).
+  cacheEphemeral: boolean;
 };
 
 export type AssetDetails = {
@@ -333,6 +362,11 @@ export type CatalogFilter = {
   namespace: string | null;
   search: string | null;
   fuzzy?: boolean;
+};
+
+export type CatalogIconCacheBatch = {
+  iconKey: string;
+  pngBase64: string | null;
 };
 
 export type CatalogPage = {

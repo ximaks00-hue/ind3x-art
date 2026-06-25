@@ -10,10 +10,10 @@
 }
 
 .label {
-  font-size: 10px;
-  font-weight: 650;
+  font-size: var(--text-2xs);
+  font-weight: var(--font-weight-strong);
   text-transform: uppercase;
-  letter-spacing: 0.05em;
+  letter-spacing: var(--tracking-wide);
   color: var(--color-text-muted);
 }
 
@@ -25,7 +25,7 @@
 
 .btn,
 .mirrorBtn {
-  font-size: 10px;
+  font-size: var(--text-2xs);
   padding: 3px 8px;
   border-radius: var(--radius-sm);
   border: 1px solid var(--color-border);
@@ -53,7 +53,7 @@
 }
 
 .mirrorLabel {
-  font-size: 9px;
+  font-size: var(--text-3xs);
   color: var(--color-text-muted);
 }
 
@@ -61,4 +61,11 @@
   display: inline-flex;
   flex-wrap: wrap;
   gap: 4px;
+}
+
+.btn:focus-visible,
+.mirrorBtn:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring-inset);
+  transition: box-shadow var(--transition-focus);
 }

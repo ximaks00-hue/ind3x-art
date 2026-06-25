@@ -22,24 +22,47 @@ export function useCatalogSessionRestore() {
   const studioSelectedCatalogId = useSettingsStore((s) => s.studioSelectedCatalogId);
   const studioCatalogCategory = useSettingsStore((s) => s.studioCatalogCategory);
   const setStudioCatalogCategory = useSettingsStore((s) => s.setStudioCatalogCategory);
+  const workspaceMode = useSettingsStore((s) => s.workspaceMode);
 
   const sessionRestoredRef = useRef(false);
   const restoreAbortRef = useRef<AbortController | null>(null);
+  const prevWorkspaceRef = useRef(workspaceMode);
   const { selectEntry } = useCatalogSelection();
+
+  useEffect(() => {
+    const prev = prevWorkspaceRef.current;
+    prevWorkspaceRef.current = workspaceMode;
+    if (prev !== "studio" && workspaceMode === "studio") {
+      sessionRestoredRef.current = false;
+      if (studioSelectedCatalogId || studioCatalogCategory) {
+        setSessionRestorePending(true);
+      }
+    }
+  }, [
+    workspaceMode,
+    studioSelectedCatalogId,
+    studioCatalogCategory,
+    setSessionRestorePending,
+  ]);
 
   useEffect(() => {
     restoreAbortRef.current?.abort();
     restoreAbortRef.current = new AbortController();
     sessionRestoredRef.current = false;
-    setSessionRestorePending(true);
+    if (!useCatalogStore.getState().sessionRestorePending) {
+      setSessionRestorePending(true);
+    }
     return () => {
       restoreAbortRef.current?.abort();
     };
   }, [handle?.id, setSessionRestorePending]);
 
   const finishSessionRestore = useCallback(() => {
+    if (sessionRestoredRef.current) return;
     sessionRestoredRef.current = true;
-    setSessionRestorePending(false);
+    if (useCatalogStore.getState().sessionRestorePending) {
+      setSessionRestorePending(false);
+    }
   }, [setSessionRestorePending]);
 
   useEffect(() => {

@@ -1,5 +1,6 @@
 import { open } from "@tauri-apps/plugin-dialog";
 
+import { throwIfAborted } from "../../ipc/abortable";
 import { ipc } from "../../ipc/client";
 import type { ProjectHandle } from "../../ipc/types";
 import {
@@ -12,8 +13,11 @@ import { canvasToPngBase64Async } from "../editor/textureEncodeWorkerClient";
 export async function exportTextureToFolder(
   handle: ProjectHandle,
   texturePath: string,
+  options?: { signal?: AbortSignal },
 ): Promise<{ exported: boolean; folder?: string }> {
+  throwIfAborted(options?.signal);
   await ensureTextureDocument(handle, texturePath);
+  throwIfAborted(options?.signal);
   const canvas = getTextureCanvas(texturePath);
   if (!canvas) {
     throw new Error("Texture is not loaded");
@@ -28,7 +32,9 @@ export async function exportTextureToFolder(
     return { exported: false };
   }
 
+  throwIfAborted(options?.signal);
   const pngBase64 = await canvasToPngBase64Async(canvas);
+  throwIfAborted(options?.signal);
   await ipc.saveTextures(
     handle,
     [{ path: texturePath, pngBase64 }],
