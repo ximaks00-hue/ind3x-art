@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Channel } from "@tauri-apps/api/core";
 
 import { rebuildProjectCatalog } from "../../app/services/catalogService";
+import { transitionToWorkspaceMode } from "../../app/useWorkspaceMode";
 import {
   invalidateProjectIndex,
   reindexProject,
@@ -100,7 +101,6 @@ function ViewerPanelBody({
   const indexProgress = useProjectStore((s) => s.indexProgress);
   const indexStage = useProjectStore((s) => s.indexStage);
   const recentProjects = useSettingsStore((s) => s.recentProjects);
-  const setWorkspaceMode = useSettingsStore((s) => s.setWorkspaceMode);
   const pushToast = useUiStore((s) => s.pushToast);
   const setInteractionMode = useSelectionStore((s) => s.setInteractionMode);
   const setComparatorMode = useInteractionStore((s) => s.setComparatorMode);
@@ -234,9 +234,9 @@ function ViewerPanelBody({
   }, []);
 
   const handleOpenClassic = useCallback(() => {
-    setWorkspaceMode("classic");
+    transitionToWorkspaceMode("classic");
     pushToast("Switched to Classic mode", "info");
-  }, [pushToast, setWorkspaceMode]);
+  }, [pushToast]);
 
   const catalogLanguage = useSettingsStore((s) => s.catalogLanguage);
   const handleRetryCatalog = useCallback(() => {

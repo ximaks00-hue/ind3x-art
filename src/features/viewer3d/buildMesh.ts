@@ -65,13 +65,13 @@ export function shouldCullFace(
     case "up":
       return to[1] >= 16;
     case "north":
-      return from[2] <= 0 && to[2] >= 16;
+      return from[2] <= 0;
     case "south":
-      return from[2] <= 0 && to[2] >= 16;
+      return to[2] >= 16;
     case "west":
-      return from[0] <= 0 && to[0] >= 16;
+      return from[0] <= 0;
     case "east":
-      return from[0] <= 0 && to[0] >= 16;
+      return to[0] >= 16;
     default:
       return false;
   }
@@ -387,12 +387,18 @@ export function buildFaceOverlayNode(
     : cuboidGroup;
 }
 
-export function disposeObject3D(object: Object3D): void {
+export function disposeObject3D(object: Object3D, options?: { disposeMaps?: boolean }): void {
+  const disposeMaps = options?.disposeMaps ?? false;
   object.traverse((child) => {
     if (child instanceof Mesh) {
       child.geometry.dispose();
       const materials = Array.isArray(child.material) ? child.material : [child.material];
-      for (const material of materials) material.dispose();
+      for (const material of materials) {
+        if (disposeMaps && "map" in material && material.map) {
+          material.map.dispose();
+        }
+        material.dispose();
+      }
     }
   });
 }

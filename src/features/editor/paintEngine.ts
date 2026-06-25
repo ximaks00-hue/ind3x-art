@@ -65,7 +65,7 @@ export async function paintStroke(
       color,
       ctx.fillTolerance ?? 0,
     );
-    commitChanges(handle, texturePath, changes, true, "Fill");
+    commitChanges(handle, texturePath, changes, true, "Fill", true);
     return point;
   }
 
@@ -124,7 +124,7 @@ export async function paintLine(
     ctx.brushOpacity,
     ctx.pixelPerfectLine ?? false,
   );
-  commitChanges(handle, texturePath, changes, true, "Line");
+  commitChanges(handle, texturePath, changes, true, "Line", true);
 }
 
 export function applyPixelPatch(
@@ -228,5 +228,5 @@ export function commitShapeAt(
             brushSize,
             brushOpacity,
           );
-  commitChanges(handle, texturePath, changes, true, TOOL_LABELS[tool]);
+  commitChanges(handle, texturePath, changes, true, TOOL_LABELS[tool], true);
 }

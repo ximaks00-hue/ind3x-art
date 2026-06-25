@@ -15,6 +15,20 @@ pub struct JarSource {
     archive: Mutex<Option<(SystemTime, ZipArchive<File>)>>,
 }
 
+/// Read one zip entry without holding the shared archive mutex (parallel-safe).
+pub fn read_zip_entry(jar_path: &Path, entry_path: &str) -> CoreResult<Vec<u8>> {
+    let needle = normalize_zip_path(entry_path);
+    let file = File::open(jar_path)?;
+    let mut archive = ZipArchive::new(file)
+        .map_err(|e| CoreError::Internal(format!("invalid zip/jar: {e}")))?;
+    let mut entry = archive
+        .by_name(&needle)
+        .map_err(|_| CoreError::AssetNotFound(needle))?;
+    let mut buf = Vec::new();
+    entry.read_to_end(&mut buf)?;
+    Ok(buf)
+}
+
 impl JarSource {
     pub fn new(path: &Path) -> CoreResult<Self> {
         if !path.is_file() {
@@ -30,22 +44,49 @@ impl JarSource {
     }
 
     pub fn invalidate_cache(&self) {
-        if let Ok(mut guard) = self.archive.lock() {
-            *guard = None;
+        match self.archive.lock() {
+            Ok(mut guard) => *guard = None,
+            Err(poisoned) => {
+                tracing::warn!("recovering poisoned jar archive mutex");
+                *poisoned.into_inner() = None;
+            }
         }
     }
 
     /// Count blockstate JSON paths without building the full entry list.
     pub fn count_blockstate_paths(&self) -> CoreResult<usize> {
-        self.count_zip_paths(|name| name.contains("/blockstates/") && name.ends_with(".json"))
+        Ok(self.count_blockstate_and_lang_paths()?.0)
     }
 
     /// Count lang JSON paths under assets without building the full entry list.
     pub fn count_lang_paths(&self) -> CoreResult<usize> {
-        self.count_zip_paths(|name| {
-            name.starts_with("assets/")
-                && name.contains("/lang/")
-                && name.ends_with(".json")
+        Ok(self.count_blockstate_and_lang_paths()?.1)
+    }
+
+    /// Single zip traversal for cache-trust metrics.
+    pub fn count_blockstate_and_lang_paths(&self) -> CoreResult<(usize, usize)> {
+        self.with_archive(|archive| {
+            let mut blockstates = 0usize;
+            let mut langs = 0usize;
+            for i in 0..archive.len() {
+                let file = archive
+                    .by_index(i)
+                    .map_err(|e| CoreError::Internal(format!("zip entry read failed: {e}")))?;
+                if file.is_dir() {
+                    continue;
+                }
+                let name = normalize_zip_path(file.name());
+                if name.contains("/blockstates/") && name.ends_with(".json") {
+                    blockstates += 1;
+                }
+                if name.starts_with("assets/")
+                    && name.contains("/lang/")
+                    && name.ends_with(".json")
+                {
+                    langs += 1;
+                }
+            }
+            Ok((blockstates, langs))
         })
     }
 
@@ -77,10 +118,13 @@ impl JarSource {
             .modified()
             .unwrap_or(SystemTime::UNIX_EPOCH);
 
-        let mut guard = self
-            .archive
-            .lock()
-            .map_err(|_| CoreError::Internal("jar archive lock poisoned".to_string()))?;
+        let mut guard = match self.archive.lock() {
+            Ok(guard) => guard,
+            Err(poisoned) => {
+                tracing::warn!("recovering poisoned jar archive mutex");
+                poisoned.into_inner()
+            }
+        };
 
         let needs_reload = guard
             .as_ref()
@@ -130,14 +174,6 @@ impl AssetSource for JarSource {
     }
 
     fn read(&self, path: &str) -> CoreResult<Vec<u8>> {
-        let needle = normalize_zip_path(path);
-        self.with_archive(|archive| {
-            let mut file = archive
-                .by_name(&needle)
-                .map_err(|_| CoreError::AssetNotFound(needle))?;
-            let mut buf = Vec::new();
-            file.read_to_end(&mut buf)?;
-            Ok(buf)
-        })
+        read_zip_entry(&self.path, path)
     }
 }

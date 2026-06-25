@@ -4,11 +4,15 @@ import type { ProjectHandle } from "../../ipc/types";
 import { ipc } from "../../ipc/client";
 import { mapWithConcurrency } from "../../lib/mapWithConcurrency";
 import { invalidateCatalogIconsForTextures } from "../catalog/catalogIconInvalidation";
-import { refreshTextureFromCanvas } from "../viewer3d/textureLoader";
+import {
+  disposeViewerTexture,
+  refreshTextureFromCanvas,
+  releaseCanvasElement,
+} from "../viewer3d/textureLoader";
+import { useProjectStore } from "../../state/projectStore";
 import {
   activeLayer,
   applyChangesToDoc,
-  canvasToPngBase64,
   compositeDocument,
   getLayer,
   inBounds,
@@ -22,6 +26,7 @@ import {
   type TextureDoc,
   type TextureLayer,
 } from "./textureDocumentCore";
+import { canvasToPngBase64Async } from "./textureEncodeWorkerClient";
 
 export type { BlendMode, PixelChange, Rgba, TextureLayer } from "./textureDocumentCore";
 
@@ -39,6 +44,58 @@ const pendingLoads = new Map<string, Promise<TextureDoc>>();
 let lifecycleVersion = 0;
 let docAccessOrder: string[] = [];
 let docLimit = 24;
+
+const ICON_INVALIDATE_DEBOUNCE_MS = 400;
+const pendingIconPaths = new Map<string, Set<string>>();
+let iconInvalidateTimer: ReturnType<typeof setTimeout> | undefined;
+
+function scheduleIconInvalidation(handle: ProjectHandle, path: string): void {
+  const key = String(handle.id);
+  let paths = pendingIconPaths.get(key);
+  if (!paths) {
+    paths = new Set();
+    pendingIconPaths.set(key, paths);
+  }
+  paths.add(path);
+  if (iconInvalidateTimer) clearTimeout(iconInvalidateTimer);
+  iconInvalidateTimer = setTimeout(() => {
+    iconInvalidateTimer = undefined;
+    flushIconInvalidations();
+  }, ICON_INVALIDATE_DEBOUNCE_MS);
+}
+
+export function flushIconInvalidations(handle?: ProjectHandle | null): void {
+  if (iconInvalidateTimer) {
+    clearTimeout(iconInvalidateTimer);
+    iconInvalidateTimer = undefined;
+  }
+  if (handle) {
+    const paths = pendingIconPaths.get(String(handle.id));
+    if (paths && paths.size > 0) {
+      void invalidateCatalogIconsForTextures(handle, [...paths]);
+      pendingIconPaths.delete(String(handle.id));
+    }
+    return;
+  }
+  for (const [key, paths] of pendingIconPaths) {
+    if (paths.size === 0) continue;
+    void invalidateCatalogIconsForTextures({ id: Number(key) }, [...paths]);
+  }
+  pendingIconPaths.clear();
+}
+
+function disposeTextureDoc(path: string, doc: TextureDoc): void {
+  const handle = useProjectStore.getState().handle;
+  if (handle) {
+    disposeViewerTexture(handle, path);
+  }
+  for (const layer of doc.layers) {
+    layer.pixelCache = null;
+    releaseCanvasElement(layer.canvas);
+  }
+  releaseCanvasElement(doc.compositeCanvas);
+  releaseCanvasElement(doc.originalCanvas);
+}
 
 export function setTextureDocumentCacheLimit(limit: number): void {
   docLimit = Math.max(4, limit);
@@ -59,6 +116,7 @@ function evictCleanTextureDocuments(): void {
       const doc = docs.get(path);
       if (!doc) continue;
       if (!evicted && !doc.dirty) {
+        disposeTextureDoc(path, doc);
         docs.delete(path);
         pendingLoads.delete(path);
         evicted = true;
@@ -153,9 +211,16 @@ export function subscribeTextureDocuments(listener: () => void): () => void {
 export function clearTextureDocuments(): void {
   lifecycleVersion += 1;
   clipboard = null;
-  docsMap().clear();
+  const docs = docsMap();
+  for (const [path, doc] of docs) {
+    disposeTextureDoc(path, doc);
+  }
+  docs.clear();
   pendingLoads.clear();
   docAccessOrder = [];
+  if (iconInvalidateTimer) clearTimeout(iconInvalidateTimer);
+  iconInvalidateTimer = undefined;
+  pendingIconPaths.clear();
   notify();
 }
 
@@ -487,7 +552,7 @@ export async function snapshotForSave(
 ): Promise<{ path: string; pngBase64: string } | null> {
   const canvas = getTextureCanvas(path);
   if (!canvas) return null;
-  return { path, pngBase64: await canvasToPngBase64(canvas) };
+  return { path, pngBase64: await canvasToPngBase64Async(canvas) };
 }
 
 export function commitChanges(
@@ -496,6 +561,7 @@ export function commitChanges(
   changes: PixelChange[],
   recordUndo = true,
   label = "edit",
+  flushIcons = false,
 ): void {
   const doc = docsMap().get(path);
   if (!doc) return;
@@ -503,7 +569,10 @@ export function commitChanges(
   applyChanges(doc, changes, recordUndo, label);
   if (handle) {
     refreshTextureFromCanvas(handle, path, doc.compositeCanvas);
-    void invalidateCatalogIconsForTextures(handle, [path]);
+    scheduleIconInvalidation(handle, path);
+    if (flushIcons) {
+      flushIconInvalidations(handle);
+    }
   }
   notify();
 }
@@ -545,7 +614,8 @@ export function undoTexture(handle: ProjectHandle | null, path: string): boolean
   doc.dirty = doc.revision !== doc.savedRevision;
   if (handle) {
     refreshTextureFromCanvas(handle, path, doc.compositeCanvas);
-    void invalidateCatalogIconsForTextures(handle, [path]);
+    scheduleIconInvalidation(handle, path);
+    flushIconInvalidations(handle);
   }
   notify();
   return true;
@@ -561,7 +631,8 @@ export function redoTexture(handle: ProjectHandle | null, path: string): boolean
   doc.dirty = doc.revision !== doc.savedRevision;
   if (handle) {
     refreshTextureFromCanvas(handle, path, doc.compositeCanvas);
-    void invalidateCatalogIconsForTextures(handle, [path]);
+    scheduleIconInvalidation(handle, path);
+    flushIconInvalidations(handle);
   }
   notify();
   return true;
@@ -672,7 +743,7 @@ export async function collectDirtyTextureEntries(): Promise<
     if (!canvas || !doc) return null;
     return {
       path,
-      pngBase64: await canvasToPngBase64(canvas),
+      pngBase64: await canvasToPngBase64Async(canvas),
       revision: doc.revision,
     };
   });
@@ -707,7 +778,7 @@ export async function collectDeltaTextureEntries(): Promise<
     if (!doc.dirtyBox) {
       entries.push({
         path,
-        pngBase64: await canvasToPngBase64(canvas),
+        pngBase64: await canvasToPngBase64Async(canvas),
         x: 0,
         y: 0,
         w: canvas.width,
@@ -724,7 +795,7 @@ export async function collectDeltaTextureEntries(): Promise<
     crop.height = h;
     const ctx = crop.getContext("2d")!;
     ctx.drawImage(canvas, x0, y0, w, h, 0, 0, w, h);
-    entries.push({ path, pngBase64: await canvasToPngBase64(crop), x: x0, y: y0, w, h });
+    entries.push({ path, pngBase64: await canvasToPngBase64Async(crop), x: x0, y: y0, w, h });
   }
   return entries;
 }

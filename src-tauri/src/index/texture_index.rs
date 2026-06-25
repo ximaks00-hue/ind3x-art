@@ -78,6 +78,63 @@ pub fn build_texture_model_index(
     index
 }
 
+/// True when changed paths can alter texture ↔ model links (not plain texture PNG writes).
+pub fn paths_affect_texture_model_index(paths: &[String]) -> bool {
+    paths.iter().any(|raw| {
+        let path = raw.replace('\\', "/");
+        path.contains("/models/") || path.contains("/blockstates/")
+    })
+}
+
+/// Update inverted index for model/blockstate paths touched by an incremental refresh.
+pub fn patch_texture_model_index(
+    registry: &mut ModelRegistry<'_>,
+    entries: &[AssetEntry],
+    index: &mut HashMap<String, Vec<ModelRefInfo>>,
+    changed_paths: &[String],
+) {
+    use std::collections::HashSet;
+
+    let changed: HashSet<String> = changed_paths
+        .iter()
+        .map(|p| crate::source::normalize_zip_path(p))
+        .collect();
+
+    let rebuild: Vec<&AssetEntry> = entries
+        .iter()
+        .filter(|e| changed.contains(&e.path))
+        .filter(|e| {
+            matches!(
+                e.kind,
+                AssetKind::BlockModel | AssetKind::ItemModel | AssetKind::Blockstate
+            )
+        })
+        .collect();
+
+    if rebuild.is_empty() {
+        return;
+    }
+
+    for entry in &rebuild {
+        for models in index.values_mut() {
+            models.retain(|m| m.path != entry.path);
+        }
+    }
+
+    let owned: Vec<AssetEntry> = rebuild.into_iter().cloned().collect();
+    let patch = build_texture_model_index(registry, &owned);
+    for (texture_path, models) in patch {
+        let slot = index.entry(texture_path).or_default();
+        for model in models {
+            if !slot.iter().any(|m| m.model_id == model.model_id) {
+                slot.push(model);
+            }
+        }
+        slot.sort_by(|a, b| a.label.cmp(&b.label));
+        slot.dedup_by(|a, b| a.model_id == b.model_id);
+    }
+}
+
 /// Lookup models for a texture path using the inverted index, with stem fallback.
 pub fn models_for_texture_path(
     index: &HashMap<String, Vec<ModelRefInfo>>,

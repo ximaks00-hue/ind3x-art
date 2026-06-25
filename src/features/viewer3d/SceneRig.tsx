@@ -5,6 +5,7 @@ import * as THREE from "three";
 import { CAMERA_PRESET_TRANSFORMS, type CameraPreset } from "../../lib/cameraPresets";
 import { easeOutCubic } from "../../lib/elementRotation";
 import { useViewerStore } from "../../state/viewerStore";
+import { setViewerFps } from "../../state/viewerFps";
 import { tickAnimatedTextures } from "./textureLoader";
 
 const TRANSITION_MS = 200;
@@ -23,7 +24,6 @@ export function SceneRig() {
   const presetTick = useViewerStore((s) => s.cameraPresetTick);
   const cameraResetTick = useViewerStore((s) => s.cameraResetTick);
   const faceZoomRequest = useViewerStore((s) => s.faceZoomRequest);
-  const setFps = useViewerStore((s) => s.setFps);
   const animRef = useRef<CameraAnim | null>(null);
   const lookTarget = useRef(new THREE.Vector3(0, 0, 0));
   const fpsAccum = useRef(0);
@@ -86,7 +86,7 @@ export function SceneRig() {
     fpsFrames.current += 1;
     fpsTimer.current += delta;
     if (fpsTimer.current >= 0.5) {
-      setFps(Math.round(fpsFrames.current / fpsAccum.current));
+      setViewerFps(Math.round(fpsFrames.current / fpsAccum.current));
       fpsAccum.current = 0;
       fpsFrames.current = 0;
       fpsTimer.current = 0;

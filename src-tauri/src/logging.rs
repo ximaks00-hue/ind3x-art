@@ -72,3 +72,13 @@ pub fn install_panic_hook() {
         tracing::error!("application panic: {info}");
     }));
 }
+
+pub fn show_fatal_startup_error(message: &str) {
+    tracing::error!("{message}");
+    eprintln!("inD3X Art failed to start: {message}");
+    rfd::MessageDialog::new()
+        .set_title("inD3X Art")
+        .set_description(message)
+        .set_level(rfd::MessageLevel::Error)
+        .show();
+}

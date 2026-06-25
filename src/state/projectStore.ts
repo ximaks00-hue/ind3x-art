@@ -19,6 +19,7 @@ interface ProjectState {
   sourceKind: OpenSourceResult["sourceKind"] | null;
   assets: AssetEntry[];
   assetTotal: number;
+  indexTotal: number;
   queryOffset: number;
   queryTotal: number;
   queryLoading: boolean;
@@ -75,6 +76,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
   sourceKind: null,
   assets: [],
   assetTotal: 0,
+  indexTotal: 0,
   queryOffset: 0,
   queryTotal: 0,
   queryLoading: false,
@@ -102,6 +104,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       sourcePath: result.sourcePath,
       sourceKind: result.sourceKind,
       assetTotal: result.entryCount,
+      indexTotal: result.entryCount,
       queryTotal: result.entryCount,
       fromCache: result.fromCache,
       indexStatus: "done",
@@ -141,6 +144,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       sourcePath: result.sourcePath,
       sourceKind: result.sourceKind,
       assetTotal: result.entryCount,
+      indexTotal: result.entryCount,
       queryTotal: result.entryCount,
       fromCache: result.fromCache,
       indexStatus: "running",
@@ -159,6 +163,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       sourceKind: null,
       assets: [],
       assetTotal: 0,
+      indexTotal: 0,
       queryOffset: 0,
       queryTotal: 0,
       queryLoading: false,
@@ -206,7 +211,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     set({
       indexProgress: total > 0 ? Math.round((scanned / total) * 100) : 0,
       indexStage: stage,
-      assetTotal: total > 0 ? total : get().assetTotal,
+      indexTotal: total > 0 ? total : get().indexTotal,
     }),
   setFromCache: (fromCache) => set({ fromCache }),
   setIpcHealthy: (ipcHealthy) => set({ ipcHealthy }),

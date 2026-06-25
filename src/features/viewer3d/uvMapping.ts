@@ -67,6 +67,57 @@ function inverseRotateST(s: number, t: number, rotation: number): [number, numbe
   return [rs, rt];
 }
 
+function bilinearUv(
+  p00: [number, number],
+  p10: [number, number],
+  p11: [number, number],
+  p01: [number, number],
+  s: number,
+  t: number,
+): [number, number] {
+  const u =
+    (1 - s) * (1 - t) * p00[0] +
+    s * (1 - t) * p10[0] +
+    s * t * p11[0] +
+    (1 - s) * t * p01[0];
+  const v =
+    (1 - s) * (1 - t) * p00[1] +
+    s * (1 - t) * p10[1] +
+    s * t * p11[1] +
+    (1 - s) * t * p01[1];
+  return [u, v];
+}
+
+/** Invert bilinear quad mapping (s,t) ∈ [0,1]² → texture UV. */
+function solveQuadSt(
+  hitU: number,
+  hitV: number,
+  corners: [number, number][],
+): [number, number] {
+  const [p00, p10, p11, p01] = corners;
+  let s = 0.5;
+  let t = 0.5;
+  for (let i = 0; i < 12; i += 1) {
+    const [u, v] = bilinearUv(p00, p10, p11, p01, s, t);
+    const du = u - hitU;
+    const dv = v - hitV;
+    if (du * du + dv * dv < 1e-10) break;
+
+    const duDs = (1 - t) * (p10[0] - p00[0]) + t * (p11[0] - p01[0]);
+    const duDt = (1 - s) * (p01[0] - p00[0]) + s * (p11[0] - p10[0]);
+    const dvDs = (1 - t) * (p10[1] - p00[1]) + t * (p11[1] - p01[1]);
+    const dvDt = (1 - s) * (p01[1] - p00[1]) + s * (p11[1] - p10[1]);
+    const det = duDs * dvDt - duDt * dvDs;
+    if (Math.abs(det) < 1e-12) break;
+
+    s -= (du * dvDt - dv * duDt) / det;
+    t -= (dv * duDs - du * dvDt) / det;
+    s = Math.min(1, Math.max(0, s));
+    t = Math.min(1, Math.max(0, t));
+  }
+  return [s, t];
+}
+
 export function hitUvToPixel(
   hitU: number,
   hitV: number,
@@ -74,22 +125,10 @@ export function hitUvToPixel(
   modelRotation?: ModelRotation,
 ): [number, number] {
   const corners = faceThreeUvs(face, modelRotation);
-  const uMinT = Math.min(...corners.map(([u]) => u));
-  const uMaxT = Math.max(...corners.map(([u]) => u));
-  const vMinT = Math.min(...corners.map(([, v]) => v));
-  const vMaxT = Math.max(...corners.map(([, v]) => v));
-
-  const spanU = uMaxT - uMinT || 1;
-  const spanV = vMaxT - vMinT || 1;
-  const s = (hitU - uMinT) / spanU;
-  const t = (hitV - vMinT) / spanV;
+  const [s, t] = solveQuadSt(hitU, hitV, corners);
 
   const rotation = effectiveFaceRotation(face, modelRotation);
-  const [ms, mt] = inverseRotateST(
-    Math.min(1, Math.max(0, s)),
-    Math.min(1, Math.max(0, t)),
-    rotation,
-  );
+  const [ms, mt] = inverseRotateST(s, t, rotation);
 
   const [u1, v1, u2, v2] = face.uv;
   const uMin = Math.min(u1, u2);

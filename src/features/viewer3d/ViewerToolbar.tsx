@@ -227,7 +227,7 @@ export function ViewerToolbar({
         <IconButton
           label="Export screenshot"
           className={styles.btn}
-          onClick={() => exportViewerScreenshot()}
+          onClick={() => void exportViewerScreenshot()}
         >
           ⤓
         </IconButton>

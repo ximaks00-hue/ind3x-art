@@ -1,6 +1,7 @@
 import type { Channel } from "@tauri-apps/api/core";
 
 import { commands } from "./bindings";
+import { base64ToUint8Array } from "./binary";
 import type {
   AssetDetails,
   AssetEntry,
@@ -203,8 +204,8 @@ export const spectaCommands = {
   getTexture: (...args: Parameters<typeof commands.getTexture>) =>
     unwrap<TexturePreview>(commands.getTexture(...args)),
   getTextureBinary: async (...args: Parameters<typeof commands.getTextureBinary>) => {
-    const bytes = await unwrap<number[]>(commands.getTextureBinary(...args));
-    return new Uint8Array(bytes);
+    const base64 = await unwrap<string>(commands.getTextureBinary(...args));
+    return base64ToUint8Array(base64);
   },
   saveTextureMcmeta: (...args: Parameters<typeof commands.saveTextureMcmeta>) =>
     unwrap<void>(commands.saveTextureMcmeta(...args)),

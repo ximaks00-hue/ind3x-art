@@ -6,7 +6,7 @@ Open a JAR or folder, browse assets with fuzzy search, preview block models in r
 
 **Stack:** Tauri 2 · Rust · React 19 · TypeScript · Three.js · Vitest · Playwright
 
-**Current version:** 0.3.2 — see [CHANGELOG.md](CHANGELOG.md)
+**Current version:** 0.3.4 — see [CHANGELOG.md](CHANGELOG.md)
 
 [![CI](https://github.com/ximaks00-hue/ind3x-art/actions/workflows/ci.yml/badge.svg)](https://github.com/ximaks00-hue/ind3x-art/actions/workflows/ci.yml)
 [![Release](https://github.com/ximaks00-hue/ind3x-art/actions/workflows/release.yml/badge.svg)](https://github.com/ximaks00-hue/ind3x-art/actions/workflows/release.yml)
@@ -125,19 +125,19 @@ e2e/                    Playwright smoke + integration/
 
 ```powershell
 .\scripts\build-windows.ps1 -Bundles nsis
-# → src-tauri\target\release\bundle\nsis\inD3X Art_0.3.2_x64-setup.exe
+# → src-tauri\target\release\bundle\nsis\inD3X Art_0.3.4_x64-setup.exe
 ```
 
 **Linux (AppImage)**
 
 ```bash
 ./scripts/build-linux.sh
-# → src-tauri/target/release/bundle/appimage/inD3X Art_0.3.2_amd64.AppImage
+# → src-tauri/target/release/bundle/appimage/inD3X Art_0.3.4_amd64.AppImage
 ```
 
 Full distribution notes: **[docs/DISTRIBUTION.md](docs/DISTRIBUTION.md)**
 
-Tagged releases (`git tag v0.3.2 && git push origin v0.3.2`) are built automatically by GitHub Actions and uploaded to [Releases](https://github.com/ximaks00-hue/ind3x-art/releases).
+Tagged releases (`git tag v0.3.4 && git push origin v0.3.4`) are built automatically by GitHub Actions and uploaded to [Releases](https://github.com/ximaks00-hue/ind3x-art/releases).
 
 ### Code signing (optional)
 

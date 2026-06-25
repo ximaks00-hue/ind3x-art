@@ -9,6 +9,7 @@ export async function withProgressToast<T>(
 ): Promise<T> {
   const started = performance.now();
   let toastShown = false;
+  let failed = false;
   const timer = window.setTimeout(() => {
     toastShown = true;
     useUiStore.getState().pushToast(`${label}…`, "info");
@@ -16,9 +17,12 @@ export async function withProgressToast<T>(
 
   try {
     return await work();
+  } catch (error) {
+    failed = true;
+    throw error;
   } finally {
     window.clearTimeout(timer);
-    if (toastShown) {
+    if (toastShown && !failed) {
       const ms = Math.round(performance.now() - started);
       useUiStore.getState().pushToast(`${label} done (${ms}ms)`, "success");
     }

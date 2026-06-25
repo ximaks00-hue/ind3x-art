@@ -47,10 +47,12 @@ const inflight = new Set<string>();
 interface QueuedTask {
   priority: number;
   key: string;
+  generation: number;
   run: () => Promise<void>;
 }
 const queue: QueuedTask[] = [];
 let activeWorkers = 0;
+let pipelineGeneration = 0;
 
 type IconRendererModule = typeof import("./CatalogIconRenderer");
 
@@ -139,7 +141,8 @@ export function scheduleCatalogIconBakes(
 
       inflight.add(key);
       markCatalogIconInflight(key);
-      enqueue(PRIORITY_RANK[batch.priority], key, async () => {
+      const generation = pipelineGeneration;
+      enqueue(PRIORITY_RANK[batch.priority], key, generation, async () => {
         try {
           await bakeCatalogIconForEntry(
             entry,
@@ -147,10 +150,13 @@ export function scheduleCatalogIconBakes(
             mode,
             iconCacheLimit,
             textureCacheLimit,
+            generation,
           );
         } finally {
           inflight.delete(key);
-          clearCatalogIconInflight(key);
+          if (generation === pipelineGeneration) {
+            clearCatalogIconInflight(key);
+          }
         }
       });
     }
@@ -207,13 +213,15 @@ async function bakeCatalogIconForEntry(
   mode: CatalogIconMode,
   iconCacheLimit: number,
   textureCacheLimit: number,
+  generation: number,
 ): Promise<void> {
   const key = catalogIconCacheKey(handle.id, entry.iconKey);
   const cache = getCatalogIconCache(iconCacheLimit);
   const errors: string[] = [];
+  const stale = () => generation !== pipelineGeneration;
 
   const write = (url: string | null, tier: CatalogIconTier) => {
-    if (!url) return false;
+    if (stale() || !url) return false;
     const existing = cache.get(key);
     if (existing && existing.tier > tier) return true;
     cache.set(key, { url, tier });
@@ -229,19 +237,23 @@ async function bakeCatalogIconForEntry(
   };
 
   const sledHit = await loadSledIcon(handle, entry.iconKey);
+  if (stale()) return;
   if (sledHit && write(sledHit, 2)) return;
 
   if (shouldUpgradeTo3d(entry, mode)) {
     const low = await bakeTier2Gui(handle, entry.id, ICON_LOW_RES);
+    if (stale()) return;
     if (low.url) write(low.url, 1);
 
     const tier2 = await bakeTier2Gui(handle, entry.id, ICON_PIXEL_SIZE);
+    if (stale()) return;
     if (tier2.url && write(tier2.url, 2)) return;
     if (tier2.error) errors.push(tier2.error);
 
     const texturePath = entry.texturePaths[0];
     if (texturePath) {
       const tier1 = await bakeTier1Preview(handle, texturePath, textureCacheLimit);
+      if (stale()) return;
       if (tier1.url && write(tier1.url, 1)) return;
       if (tier1.error) errors.push(tier1.error);
     }
@@ -249,12 +261,13 @@ async function bakeCatalogIconForEntry(
     const texturePath = entry.texturePaths[0];
     if (texturePath) {
       const tier1 = await bakeTier1Preview(handle, texturePath, textureCacheLimit);
+      if (stale()) return;
       if (tier1.url && write(tier1.url, 1)) return;
       if (tier1.error) errors.push(tier1.error);
     }
   }
 
-  if (errors.length > 0) {
+  if (!stale() && errors.length > 0) {
     setCatalogIconFailure(key, `Icon bake failed: ${errors[0]}`);
   }
 }
@@ -283,8 +296,13 @@ function compareQueuedTasks(a: QueuedTask, b: QueuedTask): number {
   return a.priority - b.priority || a.key.localeCompare(b.key);
 }
 
-function enqueue(priority: number, key: string, task: () => Promise<void>): void {
-  const item: QueuedTask = { priority, key, run: task };
+function enqueue(
+  priority: number,
+  key: string,
+  generation: number,
+  task: () => Promise<void>,
+): void {
+  const item: QueuedTask = { priority, key, generation, run: task };
   let lo = 0;
   let hi = queue.length;
   while (lo < hi) {
@@ -300,18 +318,24 @@ async function pumpQueue(): Promise<void> {
   while (activeWorkers < MAX_INFLIGHT && queue.length > 0) {
     const task = queue.shift();
     if (!task) break;
+    if (task.generation !== pipelineGeneration) continue;
     activeWorkers++;
-    void task.run().finally(() => {
-      activeWorkers--;
-      void pumpQueue();
-    });
+    void task
+      .run()
+      .finally(() => {
+        activeWorkers--;
+        void pumpQueue();
+      });
   }
 }
 
 export function resetCatalogIconPipeline(): void {
+  pipelineGeneration += 1;
   queue.length = 0;
+  for (const key of inflight) {
+    clearCatalogIconInflight(key);
+  }
   inflight.clear();
-  activeWorkers = 0;
   void loadIconRenderer().then((renderer) => renderer.disposeCatalogIconRenderer());
 }
 

@@ -54,6 +54,20 @@ describe("shouldCullFace", () => {
     expect(shouldCullFace("up", [0, 8, 0], [16, 16, 16])).toBe(true);
     expect(shouldCullFace("up", [0, 0, 0], [16, 8, 16])).toBe(false);
   });
+
+  it("culls north/south faces on the correct Z boundary", () => {
+    expect(shouldCullFace("north", [0, 0, 0], [16, 16, 8])).toBe(true);
+    expect(shouldCullFace("north", [0, 0, 8], [16, 16, 16])).toBe(false);
+    expect(shouldCullFace("south", [0, 0, 8], [16, 16, 16])).toBe(true);
+    expect(shouldCullFace("south", [0, 0, 0], [16, 16, 8])).toBe(false);
+  });
+
+  it("culls west/east faces on the correct X boundary", () => {
+    expect(shouldCullFace("west", [0, 0, 0], [8, 16, 16])).toBe(true);
+    expect(shouldCullFace("west", [8, 0, 0], [16, 16, 16])).toBe(false);
+    expect(shouldCullFace("east", [8, 0, 0], [16, 16, 16])).toBe(true);
+    expect(shouldCullFace("east", [0, 0, 0], [8, 16, 16])).toBe(false);
+  });
 });
 
 describe("isFacePickData", () => {

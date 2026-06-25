@@ -5,6 +5,8 @@ use image::GenericImageView;
 use crate::dto::TexturePreview;
 use crate::error::{CoreError, CoreResult};
 
+use super::safe_decode::decode_png_with_limits;
+
 pub const MAX_TEXTURE_PREVIEW_SIZE: u32 = 512;
 pub const DEFAULT_TEXTURE_PREVIEW_SIZE: u32 = 32;
 pub const MAX_TEXTURE_PREVIEW_BATCH: usize = 256;
@@ -16,8 +18,7 @@ pub fn clamp_texture_preview_size(max_size: Option<u32>) -> u32 {
 }
 
 pub fn encode_texture_full(bytes: &[u8]) -> CoreResult<TexturePreview> {
-    let img = image::load_from_memory(bytes)
-        .map_err(|e| CoreError::Internal(format!("texture decode failed: {e}")))?;
+    let img = decode_png_with_limits(bytes)?;
     let (w, h) = img.dimensions();
     Ok(TexturePreview {
         width: w,
@@ -28,8 +29,7 @@ pub fn encode_texture_full(bytes: &[u8]) -> CoreResult<TexturePreview> {
 
 pub fn decode_texture_preview(bytes: &[u8], max_size: u32) -> CoreResult<TexturePreview> {
     let max_size = max_size.clamp(1, MAX_TEXTURE_PREVIEW_SIZE);
-    let img = image::load_from_memory(bytes)
-        .map_err(|e| CoreError::Internal(format!("texture decode failed: {e}")))?;
+    let img = decode_png_with_limits(bytes)?;
 
     let (w, h) = img.dimensions();
     let resized = if w > max_size || h > max_size {

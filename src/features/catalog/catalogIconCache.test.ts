@@ -10,6 +10,7 @@ import {
   clearCatalogIconFailure,
   readCatalogIconState,
   subscribeCatalogIconCache,
+  subscribeCatalogIconKey,
 } from "./catalogIconCache";
 
 describe("catalogIconCache", () => {
@@ -45,7 +46,20 @@ describe("catalogIconCache", () => {
     expect(cache.bytesUsed).toBeGreaterThan(800);
   });
 
-  it("notifies subscribers on set", () => {
+  it("notifies key-scoped subscribers on set", () => {
+    const keyListener = vi.fn();
+    const otherListener = vi.fn();
+    const key = catalogIconCacheKey(1, "minecraft:stone:");
+    const unsubKey = subscribeCatalogIconKey(key, keyListener);
+    const unsubOther = subscribeCatalogIconKey("other:key", otherListener);
+    getCatalogIconCache(64).set(key, { url: "data:x", tier: 1 });
+    expect(keyListener).toHaveBeenCalled();
+    expect(otherListener).not.toHaveBeenCalled();
+    unsubKey();
+    unsubOther();
+  });
+
+  it("notifies global subscribers on set", () => {
     const listener = vi.fn();
     const unsub = subscribeCatalogIconCache(listener);
     getCatalogIconCache(64).set("k", { url: "data:x", tier: 1 });
@@ -53,13 +67,13 @@ describe("catalogIconCache", () => {
     unsub();
   });
 
-  it("notifies subscribers when failure is cleared", () => {
+  it("notifies key-scoped subscribers when failure is cleared", () => {
     const key = catalogIconCacheKey(1, "minecraft:stone:");
     setCatalogIconFailure(key, "bake failed");
     expect(readCatalogIconState(1, "minecraft:stone:", 64).status).toBe("failed");
 
     const listener = vi.fn();
-    const unsub = subscribeCatalogIconCache(listener);
+    const unsub = subscribeCatalogIconKey(key, listener);
     clearCatalogIconFailure(key);
     expect(listener).toHaveBeenCalled();
     expect(readCatalogIconState(1, "minecraft:stone:", 64).status).toBe("idle");

@@ -25,7 +25,6 @@ interface ViewerState {
   showVignette: boolean;
   showDevOverlay: boolean;
   uvDebugMode: boolean;
-  fps: number;
   displaySlot: DisplaySlot;
   activeTextureMeta: Record<string, TextureMetaInfo>;
   currentRenderable: RenderableModel | null;
@@ -43,7 +42,6 @@ interface ViewerState {
   setShowVignette: (show: boolean) => void;
   setShowDevOverlay: (show: boolean) => void;
   setUvDebugMode: (enabled: boolean) => void;
-  setFps: (fps: number) => void;
   setDisplaySlot: (slot: DisplaySlot) => void;
   setActiveTextureMeta: (meta: Record<string, TextureMetaInfo>) => void;
   setCurrentRenderable: (model: RenderableModel | null) => void;
@@ -61,7 +59,6 @@ export const useViewerStore = create<ViewerState>((set) => ({
   showVignette: true,
   showDevOverlay: false,
   uvDebugMode: false,
-  fps: 0,
   displaySlot: "gui",
   activeTextureMeta: {},
   currentRenderable: null,
@@ -93,7 +90,6 @@ export const useViewerStore = create<ViewerState>((set) => ({
   setShowVignette: (showVignette) => set({ showVignette }),
   setShowDevOverlay: (showDevOverlay) => set({ showDevOverlay }),
   setUvDebugMode: (uvDebugMode) => set({ uvDebugMode }),
-  setFps: (fps) => set({ fps }),
   setDisplaySlot: (displaySlot) => set({ displaySlot }),
   setActiveTextureMeta: (activeTextureMeta) => set({ activeTextureMeta }),
   setCurrentRenderable: (currentRenderable) => set({ currentRenderable }),

@@ -12,6 +12,7 @@ import {
 import { isTauri } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useWindowChrome } from "../../hooks/useWindowChrome";
+import { useWorkspaceMode } from "../../app/useWorkspaceMode";
 import type { Theme, WorkspaceMode } from "../../state/settingsStore";
 import { useSettingsStore } from "../../state/settingsStore";
 import { Icon } from "../icons/Icon";
@@ -57,9 +58,8 @@ export function TitleBar({
     cycleTheme,
     toggleFocusMode,
     focusMode,
-    workspaceMode,
-    setWorkspaceMode,
   } = useSettingsStore();
+  const { workspaceMode, setWorkspaceMode } = useWorkspaceMode();
   const ThemeIcon = THEME_ICONS[theme];
 
   const onBrandDoubleClick = () => {

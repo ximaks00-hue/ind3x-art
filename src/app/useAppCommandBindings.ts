@@ -1,6 +1,7 @@
 import { useCallback, useMemo } from "react";
 
 import { useAppCommands } from "../commands/useAppCommands";
+import { transitionToWorkspaceMode, toggleWorkspaceMode } from "./useWorkspaceMode";
 import {
   exportViewerScreenshot,
   type ScreenshotExportOptions,
@@ -47,8 +48,6 @@ export function useAppCommandBindings(
   const setNamespaceFilter = useProjectStore((s) => s.setNamespaceFilter);
   const toggleTheme = useSettingsStore((s) => s.toggleTheme);
   const setTheme = useSettingsStore((s) => s.setTheme);
-  const setWorkspaceMode = useSettingsStore((s) => s.setWorkspaceMode);
-  const toggleWorkspaceMode = useSettingsStore((s) => s.toggleWorkspaceMode);
   const restartStudioOnboarding = useSettingsStore((s) => s.restartStudioOnboarding);
   const toggleFocusMode = useSettingsStore((s) => s.toggleFocusMode);
   const clearRecentProjects = useSettingsStore((s) => s.clearRecentProjects);
@@ -62,8 +61,8 @@ export function useAppCommandBindings(
   const pushToast = useUiStore((s) => s.pushToast);
 
   const handleExportScreenshot = useCallback(
-    (options?: ScreenshotExportOptions) => {
-      const ok = exportViewerScreenshot(options);
+    async (options?: ScreenshotExportOptions) => {
+      const ok = await exportViewerScreenshot(options);
       if (ok) {
         pushToast("Screenshot exported", "success");
       } else {
@@ -122,7 +121,7 @@ export function useAppCommandBindings(
         toggleViewerShowVignette();
       },
       onToggleFocusMode: toggleFocusMode,
-      onSetWorkspaceMode: setWorkspaceMode,
+      onSetWorkspaceMode: transitionToWorkspaceMode,
       onToggleWorkspaceMode: toggleWorkspaceMode,
       onRestartStudioOnboarding: () => {
         restartStudioOnboarding();
@@ -154,8 +153,6 @@ export function useAppCommandBindings(
       cycleComparator,
       setCameraPreset,
       toggleFocusMode,
-      setWorkspaceMode,
-      toggleWorkspaceMode,
       restartStudioOnboarding,
       setKindFilter,
       setNamespaceFilter,

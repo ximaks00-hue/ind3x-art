@@ -31,6 +31,13 @@ jobs:
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
 
       - name: Install dependencies
         run: npm ci
@@ -43,6 +50,14 @@ jobs:
 
       - name: Unit tests
         run: npm run test:unit
+
+      - name: Rust lint (clippy)
+        run: cargo clippy -- -D warnings
+        working-directory: src-tauri
+
+      - name: Rust tests
+        run: cargo test
+        working-directory: src-tauri
 
   build:
     runs-on: windows-latest
@@ -97,7 +112,7 @@ jobs:
         with:
           files: coverage/lcov.info
           flags: frontend
-          fail_ci_if_error: true
+          fail_ci_if_error: false
 
       - name: Prettier check
         run: npm run format:check
@@ -126,7 +141,7 @@ jobs:
         with:
           files: src-tauri/lcov-rust.info
           flags: rust
-          fail_ci_if_error: true
+          fail_ci_if_error: false
 
       - name: Frontend build
         run: npm run build

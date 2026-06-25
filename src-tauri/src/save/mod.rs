@@ -5,7 +5,9 @@ use base64::{engine::general_purpose::STANDARD, Engine};
 
 use crate::dto::{SaveMode, SaveOptions, SourceKind, TextureSaveEntry};
 use crate::error::{CoreError, CoreResult};
-use crate::source::{normalize_zip_path, safe_join_under_root};
+use crate::source::{
+    canonical_root, ensure_write_path_under_root, normalize_zip_path, safe_join_under_root,
+};
 
 pub mod backup;
 pub mod folder;
@@ -24,7 +26,7 @@ pub struct DecodedTexture {
 }
 
 /// Max decoded PNG size accepted from frontend save payloads.
-pub const MAX_TEXTURE_DECODE_BYTES: usize = 16 * 1024 * 1024;
+pub const MAX_TEXTURE_DECODE_BYTES: usize = crate::image::MAX_TEXTURE_COMPRESSED_BYTES;
 /// Max base64 string length for `decode_texture_entry` (~16 MiB decoded).
 const MAX_TEXTURE_BASE64_LEN: usize = (MAX_TEXTURE_DECODE_BYTES / 3) * 4 + 4;
 
@@ -37,7 +39,7 @@ pub fn decode_texture_entry(path: String, png_base64: String) -> CoreResult<Deco
     let bytes = STANDARD
         .decode(png_base64.as_bytes())
         .map_err(|e| CoreError::Internal(format!("texture base64 decode failed: {e}")))?;
-    validate_png(&bytes)?;
+    crate::image::validate_png_bytes(&bytes)?;
     Ok(DecodedTexture {
         path: normalize_zip_path(&path),
         bytes,
@@ -45,17 +47,7 @@ pub fn decode_texture_entry(path: String, png_base64: String) -> CoreResult<Deco
 }
 
 pub fn validate_png(bytes: &[u8]) -> CoreResult<()> {
-    if !bytes.starts_with(b"\x89PNG") {
-        return Err(CoreError::InvalidInput("not a valid PNG".to_string()));
-    }
-    if bytes.len() > MAX_TEXTURE_DECODE_BYTES {
-        return Err(CoreError::InvalidInput(format!(
-            "png exceeds max size of {MAX_TEXTURE_DECODE_BYTES} bytes"
-        )));
-    }
-    image::load_from_memory(bytes)
-        .map_err(|e| CoreError::Internal(format!("invalid png texture: {e}")))?;
-    Ok(())
+    crate::image::validate_png_bytes(bytes)
 }
 
 pub fn backup_jar(jar_path: &Path) -> CoreResult<PathBuf> {
@@ -214,11 +206,11 @@ pub fn save_textures_to_source(
 
     match source_kind {
         SourceKind::Jar => {
+            let saved_paths: Vec<String> = textures.iter().map(|t| t.path.clone()).collect();
             let replacements: HashMap<String, Vec<u8>> = textures
                 .into_iter()
                 .map(|t| (t.path, t.bytes))
                 .collect();
-            let saved_paths: Vec<String> = replacements.keys().cloned().collect();
             let backup = backup_jar(source_path)?;
             rebuild_jar_atomic(source_path, &replacements)?;
             Ok((saved_paths, Some(backup.to_string_lossy().to_string())))
@@ -243,6 +235,7 @@ pub fn save_textures_to_source(
             let mut manifest = FolderSaveSessionManifest::default();
             let mut staged: Vec<(PathBuf, PathBuf, String)> =
                 Vec::with_capacity(textures.len());
+            let root_canonical = canonical_root(source_path)?;
 
             for texture in &textures {
                 let rel = normalize_zip_path(&texture.path);
@@ -271,8 +264,9 @@ pub fn save_textures_to_source(
                     if let Some(parent) = dest.parent() {
                         std::fs::create_dir_all(parent)?;
                     }
-                    std::fs::rename(&staged_path, &dest).or_else(|_| {
-                        std::fs::copy(&staged_path, &dest)?;
+                    let verified = ensure_write_path_under_root(&root_canonical, &dest)?;
+                    std::fs::rename(&staged_path, &verified).or_else(|_| {
+                        std::fs::copy(&staged_path, &verified)?;
                         std::fs::remove_file(&staged_path)?;
                         Ok::<(), std::io::Error>(())
                     })?;
@@ -310,6 +304,12 @@ mod tests {
         base64::engine::general_purpose::STANDARD
             .decode("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==")
             .unwrap()
+    }
+
+    #[test]
+    fn rejects_short_png_signature() {
+        let err = super::validate_png(b"\x89PNG").expect_err("short signature");
+        assert!(format!("{err:?}").contains("valid PNG"));
     }
 
     #[test]

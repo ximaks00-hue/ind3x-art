@@ -1,6 +1,6 @@
 //! File-system watcher using the `notify` crate.
 //! Watches a source path and emits Tauri events when it changes externally.
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -13,10 +13,87 @@ use crate::dto::SourceKind;
 pub const EVENT_SOURCE_CHANGED: &str = "source-changed";
 pub const EVENT_CACHE_INVALIDATED: &str = "cache-invalidated";
 
+const DEBOUNCE_MS: u64 = 300;
+
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct SourceChangedPayload {
     pub path: String,
     pub kind: String,
+}
+
+struct DebouncerState {
+    paths: HashSet<String>,
+    kind: String,
+    generation: u64,
+}
+
+#[derive(Clone)]
+struct WatchDebouncer {
+    app: AppHandle,
+    state: Arc<Mutex<DebouncerState>>,
+}
+
+impl WatchDebouncer {
+    fn new(app: AppHandle) -> Self {
+        Self {
+            app,
+            state: Arc::new(Mutex::new(DebouncerState {
+                paths: HashSet::new(),
+                kind: "modify".to_string(),
+                generation: 0,
+            })),
+        }
+    }
+
+    fn note_change(&self, relative: String, kind: &str) {
+        let generation = {
+            let mut guard = match self.state.lock() {
+                Ok(guard) => guard,
+                Err(poisoned) => poisoned.into_inner(),
+            };
+            guard.paths.insert(relative);
+            guard.kind = kind.to_string();
+            guard.generation += 1;
+            guard.generation
+        };
+
+        let debouncer = self.clone();
+        std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(DEBOUNCE_MS));
+            debouncer.flush(generation);
+        });
+    }
+
+    fn flush(&self, generation: u64) {
+        let (paths, kind) = {
+            let mut guard = match self.state.lock() {
+                Ok(guard) => guard,
+                Err(poisoned) => poisoned.into_inner(),
+            };
+            if guard.generation != generation {
+                return;
+            }
+            let paths: Vec<String> = guard.paths.drain().collect();
+            let kind = guard.kind.clone();
+            guard.generation += 1;
+            (paths, kind)
+        };
+
+        if paths.is_empty() {
+            return;
+        }
+
+        for path in paths {
+            let _ = self.app.emit(
+                EVENT_SOURCE_CHANGED,
+                SourceChangedPayload {
+                    path,
+                    kind: kind.clone(),
+                },
+            );
+        }
+        let _ = self.app.emit(EVENT_CACHE_INVALIDATED, ());
+    }
 }
 
 pub struct SourceWatcher {
@@ -32,7 +109,6 @@ pub(crate) fn relative_pack_path(watch_root: &Path, changed: &Path) -> String {
 
 impl SourceWatcher {
     pub fn new(app: AppHandle, source_path: PathBuf) -> notify::Result<Self> {
-        let app_clone = app.clone();
         let watch_root = if source_path.is_dir() {
             source_path.clone()
         } else {
@@ -42,6 +118,7 @@ impl SourceWatcher {
                 .unwrap_or_else(|| source_path.clone())
         };
 
+        let debouncer = WatchDebouncer::new(app);
         let watch_root_for_events = watch_root.clone();
         let mut watcher = RecommendedWatcher::new(
             move |res: notify::Result<Event>| {
@@ -57,15 +134,8 @@ impl SourceWatcher {
                         if relative.starts_with(".ind3x-") {
                             continue;
                         }
-                        let _ = app_clone.emit(
-                            EVENT_SOURCE_CHANGED,
-                            SourceChangedPayload {
-                                path: relative,
-                                kind: kind_str.to_string(),
-                            },
-                        );
+                        debouncer.note_change(relative, kind_str);
                     }
-                    let _ = app_clone.emit(EVENT_CACHE_INVALIDATED, ());
                 }
             },
             Config::default().with_poll_interval(Duration::from_secs(2)),

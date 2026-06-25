@@ -86,20 +86,22 @@ impl<'a> ModelRegistry<'a> {
         if !visited.insert(model_id.clone()) {
             return Err(CoreError::Internal(format!("model cycle at {model_id}")));
         }
-        if visited.len() > MAX_PARENT_DEPTH {
-            return Err(CoreError::Internal(format!(
-                "model parent depth exceeded for {model_id}"
-            )));
-        }
 
         let raw = self.load_raw_model(namespace, model_path)?;
         let mut chain: Vec<RawModel> = vec![raw];
 
         let mut current_ns = namespace.to_string();
+        let mut parent_depth = 0usize;
 
         for _ in 0..MAX_PARENT_DEPTH {
             let parent = chain.last().and_then(|m| m.parent.clone());
             let Some(parent) = parent else { break };
+            parent_depth += 1;
+            if parent_depth > MAX_PARENT_DEPTH {
+                return Err(CoreError::Internal(format!(
+                    "model parent depth exceeded for {model_id}"
+                )));
+            }
             let parent = normalize_model_path(&parent, &self.pack);
             let (p_ns, p_path) = normalize_model_ref(&parent, &current_ns);
             current_ns = p_ns;
@@ -129,7 +131,7 @@ impl<'a> ModelRegistry<'a> {
                 ambient_occlusion = ao;
             }
             if let Some(parent) = &model.parent {
-                if parent.contains("generated") || parent == "builtin/generated" {
+                if is_item_generated_parent(parent, namespace, &self.pack) {
                     is_item_generated = true;
                 }
             }
@@ -312,6 +314,12 @@ pub fn find_models_for_texture(
 
     results.sort_by(|a, b| a.label.cmp(&b.label));
     Ok(results)
+}
+
+fn is_item_generated_parent(parent: &str, namespace: &str, pack: &PackInfo) -> bool {
+    let normalized = normalize_model_path(parent, pack);
+    let (p_ns, p_path) = normalize_model_ref(&normalized, namespace);
+    p_path == "item/generated" || (p_ns == "builtin" && p_path == "generated")
 }
 
 fn asset_kind_label(kind: AssetKind) -> &'static str {

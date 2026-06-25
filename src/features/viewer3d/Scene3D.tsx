@@ -1,10 +1,11 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { Canvas, useThree } from "@react-three/fiber";
 import { OrbitControls } from "@react-three/drei";
 
 import type { ProjectHandle, RenderableModel } from "../../ipc/types";
 import { useSelectionStore } from "../../state/selectionStore";
 import { useViewerStore } from "../../state/viewerStore";
+import { getViewerFps, subscribeViewerFps } from "../../state/viewerFps";
 import { FaceHighlight } from "./FaceHighlight";
 import { FaceRaycaster } from "./FaceRaycaster";
 import { FaceShapePreview } from "./FaceShapePreview";
@@ -71,7 +72,7 @@ interface DevOverlayProps {
 }
 
 function DevOverlay({ model }: DevOverlayProps) {
-  const fps = useViewerStore((s) => s.fps);
+  const fps = useSyncExternalStore(subscribeViewerFps, getViewerFps, () => 0);
   const vramTextures = useViewerStore((s) => s.vramTextures);
   const vramGeometries = useViewerStore((s) => s.vramGeometries);
   const showDevOverlay = useViewerShowDevOverlay();

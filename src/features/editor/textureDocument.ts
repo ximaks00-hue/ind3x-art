@@ -12,6 +12,7 @@ export {
   commitChanges,
   copyRegion,
   ensureTextureDocument,
+  flushIconInvalidations,
   getActiveLayerContext,
   getActiveLayerId,
   getActiveLayerCanvas,

@@ -5,21 +5,24 @@ mod project;
 pub use project::{arc_catalog, build_catalog_id_index, CatalogState, IndexState, SaveState};
 
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, RwLock};
 
 use sled::Db;
 
-use crate::dto::{AppInfo, ProjectHandle, SourceKind};
+use crate::dto::{AppInfo, ProjectHandle};
 use crate::error::{CoreError, CoreResult};
 use crate::logging;
 use crate::model::types::ResolvedModel;
 use crate::source::AssetSource;
 
+/// Bump when on-disk sled layout or cache semantics change.
+pub const CACHE_SCHEMA_VERSION: &str = "v2";
+
 pub struct Project {
     pub source_path: PathBuf,
-    pub source_kind: SourceKind,
+    pub source_kind: crate::dto::SourceKind,
     pub pack_format: Option<u32>,
     pub source: Box<dyn AssetSource>,
     pub index: IndexState,
@@ -36,8 +39,8 @@ pub struct AppState {
 }
 
 impl AppState {
-    pub fn new() -> CoreResult<Self> {
-        let db = open_cache_db()?;
+    pub fn new(cache_root: PathBuf) -> CoreResult<Self> {
+        let db = open_cache_db(&cache_root)?;
 
         Ok(Self {
             next_handle: AtomicU64::new(1),
@@ -100,44 +103,37 @@ pub fn test_app_state() -> CoreResult<AppState> {
     })
 }
 
-fn open_cache_db() -> CoreResult<Db> {
-    let base = std::env::temp_dir().join("ind3x-art-cache");
-    std::fs::create_dir_all(&base).map_err(CoreError::from)?;
-    prune_legacy_cache_dirs(&base);
-    let db_path = base.join("index-v1");
+pub fn open_cache_db(app_cache_root: &Path) -> CoreResult<Db> {
+    let cache_root = app_cache_root
+        .join("ind3x-art")
+        .join("cache")
+        .join(CACHE_SCHEMA_VERSION);
+    std::fs::create_dir_all(&cache_root).map_err(CoreError::from)?;
+    note_legacy_temp_cache();
+    let db_path = cache_root.join("sled");
     sled::open(db_path).map_err(CoreError::from)
 }
 
-fn prune_legacy_cache_dirs(base: &std::path::Path) {
-    let Ok(read_dir) = std::fs::read_dir(base) else {
-        return;
-    };
-    for entry in read_dir.flatten() {
-        let Ok(file_type) = entry.file_type() else {
-            continue;
-        };
-        if !file_type.is_dir() {
-            continue;
-        }
-        let name = entry.file_name();
-        let name = name.to_string_lossy();
-        if name == "index-v1" {
-            continue;
-        }
-        if name.chars().all(|c| c.is_ascii_digit()) {
-            if let Err(err) = std::fs::remove_dir_all(entry.path()) {
-                tracing::warn!(path = %entry.path().display(), error = %err, "failed to prune legacy cache dir");
-            }
-        }
+fn note_legacy_temp_cache() {
+    let legacy = std::env::temp_dir().join("ind3x-art-cache");
+    if legacy.exists() {
+        tracing::info!(
+            path = %legacy.display(),
+            "legacy temp cache directory found; app cache uses versioned path instead"
+        );
     }
 }
 
 pub fn lock_model_cache(
     cache: &std::sync::Mutex<HashMap<String, Arc<ResolvedModel>>>,
 ) -> CoreResult<std::sync::MutexGuard<'_, HashMap<String, Arc<ResolvedModel>>>> {
-    cache
-        .lock()
-        .map_err(|_| CoreError::Internal("model cache poisoned".into()))
+    match cache.lock() {
+        Ok(guard) => Ok(guard),
+        Err(poisoned) => {
+            tracing::warn!("recovering poisoned model cache mutex");
+            Ok(poisoned.into_inner())
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -149,14 +145,56 @@ impl SharedState {
     }
 
     pub fn read(&self) -> CoreResult<std::sync::RwLockReadGuard<'_, AppState>> {
-        self.0
-            .read()
-            .map_err(|_| CoreError::Internal("state poisoned".into()))
+        match self.0.read() {
+            Ok(guard) => Ok(guard),
+            Err(poisoned) => {
+                tracing::warn!("recovering poisoned app state read lock");
+                Ok(poisoned.into_inner())
+            }
+        }
     }
 
     pub fn write(&self) -> CoreResult<std::sync::RwLockWriteGuard<'_, AppState>> {
-        self.0
-            .write()
-            .map_err(|_| CoreError::Internal("state poisoned".into()))
+        match self.0.write() {
+            Ok(guard) => Ok(guard),
+            Err(poisoned) => {
+                tracing::warn!("recovering poisoned app state write lock");
+                Ok(poisoned.into_inner())
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod lock_recovery_tests {
+    use super::*;
+
+    #[test]
+    fn shared_state_recovers_poisoned_rwlock() {
+        let state = SharedState::new(test_app_state().expect("test state"));
+        let arc = state.0.clone();
+        let handle = std::thread::spawn(move || {
+            let _guard = arc.write().expect("write lock");
+            panic!("simulate poison");
+        });
+        let _ = handle.join();
+
+        let guard = state.read().expect("read after poison recovery");
+        assert_eq!(guard.next_handle.load(std::sync::atomic::Ordering::Relaxed), 1);
+    }
+
+    #[test]
+    fn lock_model_cache_recovers_poisoned_mutex() {
+        let cache = std::sync::Mutex::new(HashMap::<String, Arc<ResolvedModel>>::new());
+        let arc = std::sync::Arc::new(cache);
+        let arc_clone = arc.clone();
+        let handle = std::thread::spawn(move || {
+            let _guard = arc_clone.lock().expect("mutex lock");
+            panic!("simulate poison");
+        });
+        let _ = handle.join();
+
+        let guard = lock_model_cache(&arc).expect("mutex after poison recovery");
+        assert!(guard.is_empty());
     }
 }

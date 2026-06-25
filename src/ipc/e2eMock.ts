@@ -332,7 +332,7 @@ export function createE2eMockIpc() {
 
   const appInfo: AppInfo = {
     name: "inD3X Art",
-    version: "0.3.2-e2e",
+    version: "0.3.4-e2e",
     identifier: "com.ind3x.art",
     target: "e2e-mock",
     profile: "test",
@@ -367,8 +367,8 @@ export function createE2eMockIpc() {
   }
 
   async function setWorkspaceMode(mode: WorkspaceMode) {
-    const { useSettingsStore } = await import("../state/settingsStore");
-    useSettingsStore.getState().setWorkspaceMode(mode);
+    const { transitionToWorkspaceMode } = await import("../app/useWorkspaceMode");
+    transitionToWorkspaceMode(mode);
   }
 
   async function openStudioFixture() {

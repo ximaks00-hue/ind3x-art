@@ -5,6 +5,56 @@ All notable changes to **inD3X Art** are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.4] - 2026-06-25
+
+### Added
+
+#### Performance & reliability (frontend)
+
+- **Key-scoped catalog icon subscriptions** — cells re-render only when their icon key changes, not on every cache update.
+- **Icon bake generation tokens** — stale pipeline resets no longer write outdated icons or exceed inflight limits.
+- **Stable virtual grid range key** — catalog scroll no longer recomputes visible entries every frame.
+- **Per-consumer animated textures** — shared cache textures are not mutated; inflight texture load deduplication.
+- **Serialized face painting** — drag strokes queue with generation to prevent out-of-order commits.
+- **Isolated FPS status** (`viewerFps.ts`, `StatusBarFps`) — ~2 Hz FPS updates no longer re-render the app shell.
+- **`useWorkspaceMode`** — studio/classic transition orchestration moved out of `settingsStore`.
+- **Service validation** — handle, page bounds, and icon base64 size checks in `app/services/*`.
+- **Async screenshot export** — `toBlob` instead of synchronous `toDataURL`.
+- **Project lifecycle tests** — overlapping `openSource`, listener dispose, reindex-after-unmount, poison-lock recovery.
+
+#### Rust backend
+
+- **Incremental index fingerprint** and texture-only save path skipping full rebuilds.
+- **Path safety** (`path_safety.rs`) — TOCTOU checks, symlink/junction rejection on Windows and Unix.
+- **Safe PNG decode** limits; JAR reads without global archive mutex; watcher debounce (300 ms).
+- **App cache v2** under `app_cache_dir()`; graceful startup fatal dialog; poisoned lock recovery.
+- **Async texture saves** via `spawn_blocking`; folder backup retention (10); aggregated index warnings.
+
+#### CI
+
+- **Rust clippy + tests** on `ubuntu-latest` and `macos-latest` cross-platform job.
+- **Codecov** uploads no longer fail the pipeline on external upload errors.
+
+### Changed
+
+- `setIndexProgress` uses separate `indexTotal` — asset totals no longer jump during indexing.
+- `withProgressToast` shows success toast only when work completes without error.
+- `useSaveWorkflow` guards `setState` after unmount; hotkey handlers use stable ref (no listener churn).
+- Item extrusion grid capped at 128²; bilinear UV inverse for rotated face hits; correct N/S/W/E cull predicates.
+- Reusable offscreen icon render rig; Three.js dispose fixes on error paths and `UvDebugOverlay`.
+
+### Fixed
+
+- Catalog icon pipeline cancellation; `disposeObject3D` / texture branch leaks.
+- Binary IPC for textures (`getTextureBinary` base64); async PNG encode worker for saves.
+- Project open supersede / stale IPC cleanup; Tauri listener dispose on unmount.
+- Face raycaster paint race; texture document eviction disposes canvases and viewer textures.
+
+### Upgrade notes
+
+- Rust app cache schema is **v2** (`ind3x-art/cache/v2/sled`). Legacy temp cache is ignored; reopen projects once after upgrade.
+- No settings migration required.
+
 ## [0.3.2] - 2026-06-24
 
 ### Added
@@ -208,6 +258,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Initial release: asset indexer, explorer, 3D viewer, texture editor, save pipeline, Tauri 2 desktop shell.
 
+[0.3.4]: https://github.com/ximaks00-hue/ind3x-art/compare/v0.3.2...v0.3.4
 [0.3.2]: https://github.com/ximaks00-hue/ind3x-art/compare/v0.3.1...v0.3.2
 [0.3.1]: https://github.com/ximaks00-hue/ind3x-art/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/ximaks00-hue/ind3x-art/compare/v0.2.0...v0.3.0

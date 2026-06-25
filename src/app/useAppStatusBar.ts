@@ -34,7 +34,6 @@ export function useAppStatusBar() {
   const documentRevision = useDocumentRevision();
 
   const cameraPreset = useViewerStore((s) => s.cameraPreset);
-  const viewerFps = useViewerStore((s) => s.fps);
 
   const dirtyCount = useDirtyTextureCount();
 
@@ -85,6 +84,5 @@ export function useAppStatusBar() {
     cursorY: selectedFace ? editorCursorY : undefined,
     interactionMode: handle ? interactionMode : undefined,
     cameraPreset: handle ? CAMERA_PRESET_LABELS[cameraPreset] : undefined,
-    fps: handle ? viewerFps : undefined,
   };
 }

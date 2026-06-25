@@ -8,14 +8,30 @@ import type {
 } from "../../ipc/types";
 
 const cache = new Map<string, THREE.Texture>();
+const inflightLoads = new Map<string, Promise<THREE.Texture>>();
+const animationStates = new Map<string, TextureAnimationState>();
+const animatedTextureBranches = new Map<string, Set<THREE.Texture>>();
 let cacheLimit = 512;
 
 function evictExcessTextures(): void {
   while (cache.size > cacheLimit) {
     const oldest = cache.keys().next().value;
     if (oldest === undefined) break;
-    cache.get(oldest)?.dispose();
-    cache.delete(oldest);
+    disposeCachedTexture(oldest);
+  }
+}
+
+function disposeCachedTexture(key: string): void {
+  const texture = cache.get(key);
+  if (texture) {
+    texture.dispose();
+    cache.delete(key);
+  }
+  animationStates.delete(key);
+  const branches = animatedTextureBranches.get(key);
+  if (branches) {
+    for (const branch of branches) branch.dispose();
+    animatedTextureBranches.delete(key);
   }
 }
 
@@ -26,6 +42,40 @@ function touchCachedTexture(key: string, texture: THREE.Texture): THREE.Texture 
   cache.set(key, texture);
   evictExcessTextures();
   return texture;
+}
+
+function registerAnimatedBranch(key: string, texture: THREE.Texture): void {
+  let branches = animatedTextureBranches.get(key);
+  if (!branches) {
+    branches = new Set();
+    animatedTextureBranches.set(key, branches);
+  }
+  branches.add(texture);
+  const state = animationStates.get(key);
+  if (state) {
+    texture.userData.animation = state;
+    applyAnimationFrame(texture, state);
+  }
+}
+
+function branchCachedTexture(key: string, cached: THREE.Texture): THREE.Texture {
+  if (!animationStates.has(key)) {
+    return touchCachedTexture(key, cached);
+  }
+  const branch = cached.clone();
+  branch.image = cached.image;
+  registerAnimatedBranch(key, branch);
+  return branch;
+}
+
+function syncAnimationFrame(key: string): void {
+  const state = animationStates.get(key);
+  if (!state) return;
+  const branches = animatedTextureBranches.get(key);
+  if (!branches) return;
+  for (const texture of branches) {
+    applyAnimationFrame(texture, state);
+  }
 }
 
 export function setViewerTextureCacheLimit(limit: number): void {
@@ -58,18 +108,94 @@ function applyAnimationFrame(texture: THREE.Texture, state: TextureAnimationStat
   texture.needsUpdate = true;
 }
 
+export function releaseCanvasElement(canvas: HTMLCanvasElement): void {
+  canvas.width = 0;
+  canvas.height = 0;
+}
+
+export function disposeViewerTexture(handle: ProjectHandle, path: string): void {
+  disposeCachedTexture(cacheKey(handle, path));
+}
+
 export function clearTextureCache(handle?: ProjectHandle): void {
   if (!handle) {
-    for (const tex of cache.values()) tex.dispose();
-    cache.clear();
+    for (const key of [...cache.keys()]) disposeCachedTexture(key);
     return;
   }
   const prefix = `${handle.id}:`;
-  for (const [key, tex] of cache) {
-    if (key.startsWith(prefix)) {
-      tex.dispose();
-      cache.delete(key);
+  for (const key of [...cache.keys()]) {
+    if (key.startsWith(prefix)) disposeCachedTexture(key);
+  }
+}
+
+async function decodeTextureImage(
+  handle: ProjectHandle,
+  path: string,
+): Promise<HTMLImageElement> {
+  try {
+    const bytes = await ipc.getTextureBinary(handle, path);
+    const blob = new Blob([bytes], { type: "image/png" });
+    const url = URL.createObjectURL(blob);
+    return new Promise<HTMLImageElement>((resolve, reject) => {
+      const img = new Image();
+      img.onload = () => {
+        URL.revokeObjectURL(url);
+        resolve(img);
+      };
+      img.onerror = () => {
+        URL.revokeObjectURL(url);
+        reject(new Error(`failed: ${path}`));
+      };
+      img.src = url;
+    });
+  } catch {
+    const data = await ipc.getTexture(handle, path);
+    return new Promise<HTMLImageElement>((resolve, reject) => {
+      const img = new Image();
+      img.onload = () => resolve(img);
+      img.onerror = () => reject(new Error(`failed to decode texture: ${path}`));
+      img.src = `data:image/png;base64,${data.pngBase64}`;
+    });
+  }
+}
+
+async function loadTextureBase(
+  handle: ProjectHandle,
+  path: string,
+  meta?: TextureMetaInfo,
+): Promise<THREE.Texture> {
+  const key = cacheKey(handle, path);
+  const cached = cache.get(key);
+  if (cached) return cached;
+
+  const inflight = inflightLoads.get(key);
+  if (inflight) return inflight;
+
+  const promise = (async () => {
+    const image = await decodeTextureImage(handle, path);
+    const texture = new THREE.Texture(image);
+    texture.magFilter = THREE.NearestFilter;
+    texture.minFilter = THREE.NearestFilter;
+    texture.colorSpace = THREE.SRGBColorSpace;
+    texture.needsUpdate = true;
+
+    if (meta?.animation && meta.animation.frames.length > 0) {
+      animationStates.set(key, {
+        meta: meta.animation,
+        frameIndex: 0,
+        elapsed: 0,
+      });
     }
+
+    touchCachedTexture(key, texture);
+    return texture;
+  })();
+
+  inflightLoads.set(key, promise);
+  try {
+    return await promise;
+  } finally {
+    inflightLoads.delete(key);
   }
 }
 
@@ -80,58 +206,9 @@ export async function loadTexture(
 ): Promise<THREE.Texture> {
   const key = cacheKey(handle, path);
   const cached = cache.get(key);
-  if (cached) {
-    return touchCachedTexture(key, cached);
-  }
-
-  // Use binary IPC to avoid base64 overhead when available
-  const image = await (async () => {
-    try {
-      const bytes = await ipc.getTextureBinary(handle, path);
-      const blob = new Blob([bytes], { type: "image/png" });
-      const url = URL.createObjectURL(blob);
-      return new Promise<HTMLImageElement>((resolve, reject) => {
-        const img = new Image();
-        img.onload = () => {
-          URL.revokeObjectURL(url);
-          resolve(img);
-        };
-        img.onerror = () => {
-          URL.revokeObjectURL(url);
-          reject(new Error(`failed: ${path}`));
-        };
-        img.src = url;
-      });
-    } catch {
-      // Fallback to base64 JSON path
-      const data = await ipc.getTexture(handle, path);
-      return new Promise<HTMLImageElement>((resolve, reject) => {
-        const img = new Image();
-        img.onload = () => resolve(img);
-        img.onerror = () => reject(new Error(`failed to decode texture: ${path}`));
-        img.src = `data:image/png;base64,${data.pngBase64}`;
-      });
-    }
-  })();
-
-  const texture = new THREE.Texture(image);
-  texture.magFilter = THREE.NearestFilter;
-  texture.minFilter = THREE.NearestFilter;
-  texture.colorSpace = THREE.SRGBColorSpace;
-  texture.needsUpdate = true;
-
-  if (meta?.animation && meta.animation.frames.length > 0) {
-    const animState: TextureAnimationState = {
-      meta: meta.animation,
-      frameIndex: 0,
-      elapsed: 0,
-    };
-    texture.userData.animation = animState;
-    applyAnimationFrame(texture, animState);
-  }
-
-  touchCachedTexture(key, texture);
-  return texture;
+  if (cached) return branchCachedTexture(key, cached);
+  const base = await loadTextureBase(handle, path, meta);
+  return branchCachedTexture(key, base);
 }
 
 export function refreshTextureFromCanvas(
@@ -145,6 +222,7 @@ export function refreshTextureFromCanvas(
     existing.image = canvas;
     existing.needsUpdate = true;
     touchCachedTexture(key, existing);
+    syncAnimationFrame(key);
     return;
   }
 
@@ -157,18 +235,19 @@ export function refreshTextureFromCanvas(
 }
 
 export function tickAnimatedTextures(deltaSeconds: number): void {
-  for (const texture of cache.values()) {
-    const state = texture.userData.animation as TextureAnimationState | undefined;
-    if (!state || state.meta.frames.length === 0) continue;
+  for (const [key, state] of animationStates) {
+    if (state.meta.frames.length === 0) continue;
     if (state.paused) continue;
 
     const tickSeconds = state.meta.frametime / 20;
     state.elapsed += deltaSeconds;
+    let advanced = false;
     while (state.elapsed >= tickSeconds) {
       state.elapsed -= tickSeconds;
       state.frameIndex = (state.frameIndex + 1) % state.meta.frames.length;
-      applyAnimationFrame(texture, state);
+      advanced = true;
     }
+    if (advanced) syncAnimationFrame(key);
   }
 }
 
@@ -180,29 +259,27 @@ export async function seekAnimatedTextureFrame(
   meta?: TextureMetaInfo,
 ): Promise<void> {
   const key = cacheKey(handle, path);
-  let texture = cache.get(key);
-  if (!texture) {
+  if (!cache.has(key)) {
     try {
-      texture = await loadTexture(handle, path, meta);
+      await loadTextureBase(handle, path, meta);
     } catch {
       return;
     }
   }
 
-  const state = texture.userData.animation as TextureAnimationState | undefined;
+  const state = animationStates.get(key);
   if (!state || state.meta.frames.length === 0) return;
 
   const clamped = Math.max(0, Math.min(frameIndex, state.meta.frames.length - 1));
   state.frameIndex = clamped;
   state.elapsed = 0;
   state.paused = true;
-  applyAnimationFrame(texture, state);
+  syncAnimationFrame(key);
 }
 
 /** Resume automatic animation ticking for a texture. */
 export function resumeAnimatedTexture(path: string, handle: ProjectHandle): void {
-  const texture = cache.get(cacheKey(handle, path));
-  const state = texture?.userData.animation as TextureAnimationState | undefined;
+  const state = animationStates.get(cacheKey(handle, path));
   if (state) state.paused = false;
 }
 

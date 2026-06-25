@@ -64,8 +64,8 @@ export class CatalogIconLruCache {
     }
     this.map.set(key, value);
     this.totalBytes += bytes;
-    this.evictWhileOverBudget();
-    notifyCatalogIconCache();
+    const evicted = this.evictWhileOverBudget();
+    notifyCatalogIconKeys([key, ...evicted]);
   }
 
   delete(key: string): void {
@@ -73,37 +73,41 @@ export class CatalogIconLruCache {
     if (existing) {
       this.totalBytes -= estimateDataUrlBytes(existing.url);
       this.map.delete(key);
-      notifyCatalogIconCache();
+      notifyCatalogIconKeys([key]);
     }
   }
 
   clear(): void {
+    const keys = [...this.map.keys()];
     this.map.clear();
     this.totalBytes = 0;
-    notifyCatalogIconCache();
+    notifyCatalogIconKeys(keys);
   }
 
   deleteKeysWithPrefix(prefix: string): void {
+    const removed: string[] = [];
     for (const key of [...this.map.keys()]) {
       if (key.startsWith(prefix)) {
-        const removed = this.map.get(key);
-        if (removed) {
-          this.totalBytes -= estimateDataUrlBytes(removed.url);
+        const entry = this.map.get(key);
+        if (entry) {
+          this.totalBytes -= estimateDataUrlBytes(entry.url);
         }
         this.map.delete(key);
+        removed.push(key);
       }
     }
-    notifyCatalogIconCache();
+    if (removed.length > 0) notifyCatalogIconKeys(removed);
   }
 
   /** Shrink or grow entry cap without discarding cached icons (LRU evicts if over new limit). */
   setMaxEntries(limit: number): void {
     this.max = Math.max(32, limit);
-    this.evictWhileOverBudget();
-    notifyCatalogIconCache();
+    const evicted = this.evictWhileOverBudget();
+    if (evicted.length > 0) notifyCatalogIconKeys(evicted);
   }
 
-  private evictWhileOverBudget(): void {
+  private evictWhileOverBudget(): string[] {
+    const evicted: string[] = [];
     while (
       (this.map.size > this.max || this.totalBytes > this.maxBytes) &&
       this.map.size > 1
@@ -115,13 +119,16 @@ export class CatalogIconLruCache {
         this.totalBytes -= estimateDataUrlBytes(removed.url);
       }
       this.map.delete(oldest);
+      evicted.push(oldest);
     }
+    return evicted;
   }
 }
 
 let sharedLimit = 256;
 let sharedCache = new CatalogIconLruCache(256);
-const listeners = new Set<Listener>();
+const keyListeners = new Map<string, Set<Listener>>();
+const globalListeners = new Set<Listener>();
 const inflightKeys = new Set<string>();
 const failureMessages = new Map<string, string>();
 const progressByKey = new Map<string, CatalogIconProgress>();
@@ -138,13 +145,43 @@ export function getCatalogIconCache(limit: number): CatalogIconLruCache {
   return sharedCache;
 }
 
-export function subscribeCatalogIconCache(listener: Listener): () => void {
-  listeners.add(listener);
-  return () => listeners.delete(listener);
+/** Key-scoped subscription — only cells for this icon re-render on updates. */
+export function subscribeCatalogIconKey(key: string, listener: Listener): () => void {
+  let set = keyListeners.get(key);
+  if (!set) {
+    set = new Set();
+    keyListeners.set(key, set);
+  }
+  set.add(listener);
+  return () => {
+    set!.delete(listener);
+    if (set!.size === 0) keyListeners.delete(key);
+  };
 }
 
-function notifyCatalogIconCache(): void {
-  for (const listener of listeners) listener();
+/** Global subscription for aggregate metrics (pending bake count). */
+export function subscribeCatalogIconCache(listener: Listener): () => void {
+  globalListeners.add(listener);
+  return () => globalListeners.delete(listener);
+}
+
+function notifyCatalogIconKeys(keys: Iterable<string>): void {
+  const notified = new Set<Listener>();
+  for (const key of keys) {
+    const subs = keyListeners.get(key);
+    if (!subs) continue;
+    for (const listener of subs) {
+      if (!notified.has(listener)) {
+        listener();
+        notified.add(listener);
+      }
+    }
+  }
+  notifyCatalogIconGlobal();
+}
+
+function notifyCatalogIconGlobal(): void {
+  for (const listener of globalListeners) listener();
 }
 
 export function resetCatalogIconCache(): void {
@@ -156,41 +193,49 @@ export function resetCatalogIconCache(): void {
 
 export function invalidateCatalogIconCacheForHandle(handleId: number): void {
   const prefix = `${handleId}:`;
+  const touched: string[] = [];
   for (const key of [...inflightKeys]) {
-    if (key.startsWith(prefix)) inflightKeys.delete(key);
+    if (key.startsWith(prefix)) {
+      inflightKeys.delete(key);
+      touched.push(key);
+    }
   }
   for (const key of [...failureMessages.keys()]) {
-    if (key.startsWith(prefix)) failureMessages.delete(key);
+    if (key.startsWith(prefix)) {
+      failureMessages.delete(key);
+      touched.push(key);
+    }
   }
   getCatalogIconCache(sharedLimit).deleteKeysWithPrefix(prefix);
+  if (touched.length > 0) notifyCatalogIconKeys(touched);
 }
 
 export function markCatalogIconInflight(key: string): void {
   inflightKeys.add(key);
   failureMessages.delete(key);
-  notifyCatalogIconCache();
+  notifyCatalogIconKeys([key]);
 }
 
 export function clearCatalogIconInflight(key: string): void {
   inflightKeys.delete(key);
-  notifyCatalogIconCache();
+  notifyCatalogIconKeys([key]);
 }
 
 export function setCatalogIconProgress(key: string, phase: CatalogIconProgress): void {
   progressByKey.set(key, phase);
-  notifyCatalogIconCache();
+  notifyCatalogIconKeys([key]);
 }
 
 export function setCatalogIconFailure(key: string, message: string): void {
   inflightKeys.delete(key);
   progressByKey.delete(key);
   failureMessages.set(key, message);
-  notifyCatalogIconCache();
+  notifyCatalogIconKeys([key]);
 }
 
 export function clearCatalogIconFailure(key: string): void {
   failureMessages.delete(key);
-  notifyCatalogIconCache();
+  notifyCatalogIconKeys([key]);
 }
 
 export function getCatalogIconPendingCount(): number {

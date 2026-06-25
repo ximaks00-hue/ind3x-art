@@ -175,7 +175,6 @@ function App() {
             cursorY={statusBar.cursorY}
             interactionMode={statusBar.interactionMode}
             cameraPreset={statusBar.cameraPreset}
-            fps={statusBar.fps}
           />
         }
       />

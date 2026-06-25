@@ -44,11 +44,20 @@ export function CatalogVirtualGrid({
     overscan: ICON_PREFETCH_ROWS,
   });
 
+  const scrollOffset = virtualizer.scrollOffset;
+  const virtualRangeKey = useMemo(() => {
+    const items = virtualizer.getVirtualItems();
+    if (items.length === 0) return `${rowCount}:empty`;
+    const first = items[0]!.index;
+    const last = items[items.length - 1]!.index;
+    return `${rowCount}:${first}:${last}`;
+  }, [virtualizer, rowCount, scrollOffset]);
+
   const virtualItems = virtualizer.getVirtualItems();
 
   const visibleEntries = useMemo(() => {
     const indices = new Set<number>();
-    for (const item of virtualItems) {
+    for (const item of virtualizer.getVirtualItems()) {
       for (let rowOffset = -ICON_PREFETCH_ROWS; rowOffset <= ICON_PREFETCH_ROWS; rowOffset++) {
         const row = item.index + rowOffset;
         if (row < 0 || row >= rowCount) continue;
@@ -63,7 +72,7 @@ export function CatalogVirtualGrid({
       .sort((a, b) => a - b)
       .map((i) => entries[i])
       .filter((e): e is CatalogEntry => Boolean(e));
-  }, [virtualItems, entries, rowCount]);
+  }, [virtualRangeKey, entries, rowCount, virtualizer]);
 
   useCatalogIconPipeline(visibleEntries, selectedId, entries);
 

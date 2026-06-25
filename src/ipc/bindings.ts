@@ -101,9 +101,9 @@ export const commands = {
     typedError<TexturePreview, CoreError>(
       __TAURI_INVOKE("get_texture", { handle, texturePath }),
     ),
-  // Returns raw PNG bytes via Tauri binary IPC (avoids base64 overhead).
+  // Returns PNG bytes as base64 (avoids JSON number[] materialization on the frontend).
   getTextureBinary: (handle: ProjectHandle, texturePath: string) =>
-    typedError<number[], CoreError>(
+    typedError<string, CoreError>(
       __TAURI_INVOKE("get_texture_binary", { handle, texturePath }),
     ),
   // Save or update a `.mcmeta` animation descriptor alongside a texture.

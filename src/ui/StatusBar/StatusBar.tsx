@@ -1,4 +1,5 @@
 import { useUiStore } from "../../state/uiStore";
+import { StatusBarFps } from "./StatusBarFps";
 import styles from "./StatusBar.module.css";
 
 interface StatusBarProps {
@@ -23,7 +24,6 @@ interface StatusBarProps {
   cursorY?: number | null;
   interactionMode?: string;
   cameraPreset?: string;
-  fps?: number;
 }
 
 export function StatusBar({
@@ -48,7 +48,6 @@ export function StatusBar({
   cursorY,
   interactionMode,
   cameraPreset,
-  fps,
 }: StatusBarProps) {
   const saveFlashTick = useUiStore((s) => s.saveFlashTick);
 
@@ -120,7 +119,6 @@ export function StatusBar({
     segments.push(interactionMode.charAt(0).toUpperCase() + interactionMode.slice(1));
   }
   if (cameraPreset) segments.push(cameraPreset);
-  if (fps !== undefined && fps > 0) segments.push(`${fps} FPS`);
 
   return (
     <div
@@ -150,6 +148,7 @@ export function StatusBar({
           </span>
         </span>
       ))}
+      <StatusBarFps />
     </div>
   );
 }

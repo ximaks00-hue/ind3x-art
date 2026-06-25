@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 
 import {
   cameraHotkeyBindings,
@@ -13,6 +13,9 @@ import { useUiStore } from "../state/uiStore";
 export type { HotkeyHandlers } from "../lib/hotkeyRegistry";
 
 export function useHotkeys(handlers: HotkeyHandlers, enabled: boolean): void {
+  const handlersRef = useRef(handlers);
+  handlersRef.current = handlers;
+
   const toggleCommandPalette = useUiStore((s) => s.toggleCommandPalette);
   const openShortcutsHelp = useUiStore((s) => s.openShortcutsHelp);
   const commandPaletteOpen = useUiStore((s) => s.commandPaletteOpen);
@@ -20,6 +23,7 @@ export function useHotkeys(handlers: HotkeyHandlers, enabled: boolean): void {
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
+      const handlers = handlersRef.current;
       if (commandPaletteOpen || shortcutsHelpOpen) {
         if (event.key === "Escape") {
           useUiStore.getState().closeCommandPalette();
@@ -208,7 +212,6 @@ export function useHotkeys(handlers: HotkeyHandlers, enabled: boolean): void {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [
     enabled,
-    handlers,
     toggleCommandPalette,
     openShortcutsHelp,
     commandPaletteOpen,

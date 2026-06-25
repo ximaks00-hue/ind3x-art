@@ -1,3 +1,4 @@
+use base64::{engine::general_purpose::STANDARD, Engine};
 use tauri::State;
 use tauri_plugin_opener::OpenerExt;
 
@@ -198,14 +199,14 @@ pub fn get_texture_binary(
     handle: ProjectHandle,
     texture_path: String,
     state: State<'_, SharedState>,
-) -> CoreResult<Vec<u8>> {
+) -> CoreResult<String> {
     let app = state.read()?;
     let project = project_for_handle(&app, handle)?;
     require_indexed_texture(project, &texture_path)?;
 
     let bytes = project.source.read(&texture_path)?;
     crate::save::validate_png(&bytes)?;
-    Ok(bytes)
+    Ok(STANDARD.encode(bytes))
 }
 
 #[tauri::command]
@@ -234,7 +235,7 @@ pub fn list_variants(
 
 #[tauri::command]
 #[specta::specta]
-pub fn models_for_texture(
+pub async fn models_for_texture(
     handle: ProjectHandle,
     asset_path: String,
     state: State<'_, SharedState>,
@@ -248,18 +249,33 @@ pub fn models_for_texture(
         return Ok(indexed);
     }
 
-    let mut app = state.write()?;
-    let project = app.projects.get_mut(&handle.id).ok_or(CoreError::ProjectNotFound)?;
-    super::helpers::rebuild_texture_model_index(project)?;
-    Ok(texture_index::models_for_texture_path(
-        &project.index.texture_model_index,
-        &asset_path,
-    ))
+    let shared = state.inner().clone();
+    let handle_id = handle.id;
+    let asset_path_for_task = asset_path.clone();
+
+    tauri::async_runtime::spawn_blocking(move || {
+        let mut project = {
+            let mut app = shared.write()?;
+            app.projects
+                .remove(&handle_id)
+                .ok_or(CoreError::ProjectNotFound)?
+        };
+        super::helpers::rebuild_texture_model_index(&mut project)?;
+        let models = texture_index::models_for_texture_path(
+            &project.index.texture_model_index,
+            &asset_path_for_task,
+        );
+        let mut app = shared.write()?;
+        app.projects.insert(handle_id, project);
+        Ok(models)
+    })
+    .await
+    .map_err(|e| CoreError::Internal(format!("models_for_texture task failed: {e}")))?
 }
 
 #[tauri::command]
 #[specta::specta]
-pub fn resolve_renderable(
+pub async fn resolve_renderable(
     handle: ProjectHandle,
     asset_path: String,
     variant_key: Option<String>,
@@ -284,9 +300,22 @@ pub fn resolve_renderable(
             .is_empty()
     };
     if needs_texture_index_rebuild {
-        let mut app = state.write()?;
-        let project = app.projects.get_mut(&handle.id).ok_or(CoreError::ProjectNotFound)?;
-        rebuild_texture_model_index(project)?;
+        let shared = state.inner().clone();
+        let handle_id = handle.id;
+        tauri::async_runtime::spawn_blocking(move || {
+            let mut project = {
+                let mut app = shared.write()?;
+                app.projects
+                    .remove(&handle_id)
+                    .ok_or(CoreError::ProjectNotFound)?
+            };
+            rebuild_texture_model_index(&mut project)?;
+            let mut app = shared.write()?;
+            app.projects.insert(handle_id, project);
+            Ok::<(), CoreError>(())
+        })
+        .await
+        .map_err(|e| CoreError::Internal(format!("resolve_renderable rebuild failed: {e}")))??;
     }
 
     let app = state.read()?;

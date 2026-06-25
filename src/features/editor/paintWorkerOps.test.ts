@@ -94,6 +94,7 @@ describe("paintWorkerOps", () => {
       [{ x: 0, y: 0, before: [255, 0, 0, 255], after: [0, 255, 0, 255], layerId: "layer-a" }],
       true,
       "Fill",
+      true,
     );
     expect(floodFillChanges).not.toHaveBeenCalled();
   });

@@ -1,6 +1,7 @@
 import {
   AmbientLight,
   DirectionalLight,
+  Group,
   OrthographicCamera,
   Scene,
   WebGLRenderer,
@@ -59,6 +60,9 @@ function createAsyncQueue(maxInflight: number) {
 const iconRenderQueue = createAsyncQueue(1);
 
 let sharedRenderer: WebGLRenderer | null = null;
+let sharedScene: Scene | null = null;
+let sharedCamera: OrthographicCamera | null = null;
+let activeModelGroup: Group | null = null;
 
 function getSharedRenderer(size: number): WebGLRenderer {
   if (!sharedRenderer) {
@@ -75,9 +79,40 @@ function getSharedRenderer(size: number): WebGLRenderer {
   return sharedRenderer;
 }
 
+function getSharedIconRig(): { scene: Scene; camera: OrthographicCamera } {
+  if (!sharedScene) {
+    sharedScene = new Scene();
+    sharedCamera = new OrthographicCamera(-0.55, 0.55, 0.55, -0.55, 0.1, 10);
+    sharedCamera.position.set(0, 0, 3);
+    sharedCamera.lookAt(0, 0, 0);
+
+    const ambient = new AmbientLight(
+      ICON_LIGHTING.ambient.color,
+      ICON_LIGHTING.ambient.intensity,
+    );
+    const key = new DirectionalLight(
+      ICON_LIGHTING.key.color,
+      ICON_LIGHTING.key.intensity,
+    );
+    key.position.set(...ICON_LIGHTING.key.position);
+    sharedScene.add(ambient, key);
+  }
+  return { scene: sharedScene, camera: sharedCamera! };
+}
+
+function clearActiveModelGroup(): void {
+  if (!activeModelGroup || !sharedScene) return;
+  sharedScene.remove(activeModelGroup);
+  disposeObject3D(activeModelGroup);
+  activeModelGroup = null;
+}
+
 export function disposeCatalogIconRenderer(): void {
+  clearActiveModelGroup();
   sharedRenderer?.dispose();
   sharedRenderer = null;
+  sharedScene = null;
+  sharedCamera = null;
 }
 
 /**
@@ -138,25 +173,14 @@ export async function bakeCatalogIcon3d(
   size = ICON_SIZE,
 ): Promise<string | null> {
   return iconRenderQueue.run(async () => {
+    let group: Group | null = null;
     try {
       const renderer = getSharedRenderer(size);
-      const scene = new Scene();
-      const camera = new OrthographicCamera(-0.55, 0.55, 0.55, -0.55, 0.1, 10);
-      camera.position.set(0, 0, 3);
-      camera.lookAt(0, 0, 0);
+      const { scene, camera } = getSharedIconRig();
 
-      const ambient = new AmbientLight(
-        ICON_LIGHTING.ambient.color,
-        ICON_LIGHTING.ambient.intensity,
-      );
-      const key = new DirectionalLight(
-        ICON_LIGHTING.key.color,
-        ICON_LIGHTING.key.intensity,
-      );
-      key.position.set(...ICON_LIGHTING.key.position);
-      scene.add(ambient, key);
-
-      const group = await buildModelGroup(model, handle, "gui");
+      clearActiveModelGroup();
+      group = await buildModelGroup(model, handle, "gui");
+      activeModelGroup = group;
       scene.add(group);
 
       renderer.render(scene, camera);
@@ -169,15 +193,12 @@ export async function bakeCatalogIcon3d(
       ctx.imageSmoothingEnabled = false;
       ctx.clearRect(0, 0, size, size);
       ctx.drawImage(renderer.domElement, 0, 0, size, size);
-      const dataUrl = out.toDataURL("image/png");
-
-      disposeObject3D(group);
-      scene.clear();
-
-      return dataUrl;
+      return out.toDataURL("image/png");
     } catch (error) {
       console.warn("[CatalogIconRenderer] 3D icon bake failed", error);
       throw error;
+    } finally {
+      clearActiveModelGroup();
     }
   });
 }

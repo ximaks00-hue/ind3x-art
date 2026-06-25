@@ -11,6 +11,8 @@ vi.mock("../../ipc/client", () => ({
 
 vi.mock("../viewer3d/textureLoader", () => ({
   refreshTextureFromCanvas: vi.fn(),
+  releaseCanvasElement: vi.fn(),
+  disposeViewerTexture: vi.fn(),
 }));
 
 import { ipc } from "../../ipc/client";

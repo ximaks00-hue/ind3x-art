@@ -136,4 +136,99 @@ describe("useProjectSource", () => {
     expect(useProjectStore.getState().indexStatus).toBe("error");
     expect(pushToast).toHaveBeenCalledWith("Failed to open: corrupt JAR", "error");
   });
+
+  it("supersedes overlapping openSource and cleans up the stale handle", async () => {
+    const cancelIndex = vi.spyOn(ipc, "cancelIndex");
+    const closeSource = vi.spyOn(ipc, "closeSource");
+    let releaseSlow: () => void = () => {};
+    const slowGate = new Promise<void>((resolve) => {
+      releaseSlow = resolve;
+    });
+
+    const baseOpen = ipc.openSource.bind(ipc);
+    vi.spyOn(ipc, "openSource").mockImplementation(async (path, onEvent) => {
+      if (path === "tests/fixtures/slow_pack") {
+        await slowGate;
+      }
+      return baseOpen(path, onEvent);
+    });
+
+    const { result } = renderHook(() => useProjectSource());
+
+    let slowResult!: Promise<boolean>;
+    let fastResult!: Promise<boolean>;
+    act(() => {
+      slowResult = result.current.openSource("tests/fixtures/slow_pack");
+    });
+    await act(async () => {
+      fastResult = result.current.openSource("tests/fixtures/simple_pack");
+    });
+
+    releaseSlow();
+    const [slowOk, fastOk] = await act(async () => [await slowResult, await fastResult]);
+
+    expect(slowOk).toBe(false);
+    expect(fastOk).toBe(true);
+    expect(cancelIndex).toHaveBeenCalled();
+    expect(closeSource).toHaveBeenCalled();
+    expect(useProjectStore.getState().sourcePath).toBe("tests/fixtures/simple_pack");
+  });
+
+  it("disposes Tauri source listeners on unsubscribe", async () => {
+    const unlistenChanged = vi.fn();
+    const unlistenInvalidated = vi.fn();
+    vi.spyOn(ipc, "onSourceChanged").mockResolvedValue(unlistenChanged);
+    vi.spyOn(ipc, "onCacheInvalidated").mockResolvedValue(unlistenInvalidated);
+
+    const { result } = renderHook(() => useProjectSource());
+    await act(async () => {
+      await result.current.openSource("tests/fixtures/simple_pack");
+    });
+
+    const dispose = result.current.subscribeSourceEvents();
+    await waitFor(() => {
+      expect(ipc.onSourceChanged).toHaveBeenCalled();
+      expect(ipc.onCacheInvalidated).toHaveBeenCalled();
+    });
+
+    dispose();
+    expect(unlistenChanged).toHaveBeenCalled();
+    expect(unlistenInvalidated).toHaveBeenCalled();
+  });
+
+  it("does not schedule reindex after subscribeSourceEvents cleanup", async () => {
+    vi.useFakeTimers();
+    try {
+      const reindexSpy = vi.spyOn(ipc, "reindexProject");
+      let changedCb: ((event: { path: string }) => void) | null = null;
+      vi.spyOn(ipc, "onSourceChanged").mockImplementation(async (cb) => {
+        changedCb = cb;
+        return () => undefined;
+      });
+
+      const { result } = renderHook(() => useProjectSource());
+      await act(async () => {
+        await result.current.openSource("tests/fixtures/simple_pack");
+      });
+
+      const dispose = result.current.subscribeSourceEvents();
+      await act(async () => {
+        await Promise.resolve();
+      });
+
+      expect(changedCb).not.toBeNull();
+      act(() => {
+        changedCb!({ path: "assets/minecraft/textures/block/stone.png" });
+      });
+
+      dispose();
+      await act(async () => {
+        vi.advanceTimersByTime(6_000);
+      });
+
+      expect(reindexSpy).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });

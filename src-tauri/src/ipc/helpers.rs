@@ -7,13 +7,13 @@ use crate::catalog::CreativeTabOrder;
 use crate::dto::{AssetEntry, AssetKind, IndexEvent, ModelRefInfo, ProjectHandle, SourceKind};
 use crate::error::{log_if_err, CoreError, CoreResult};
 use crate::index::{
-    invalidate_index, patch_entries_for_paths, prune_orphan_entries, run_index, scan_index_entries,
-    source_fingerprint, texture_index,
+    fingerprint_after_disk_change, invalidate_index, patch_entries_for_paths, prune_orphan_entries,
+    run_index, scan_index_entries, source_fingerprint, texture_index,
 };
 use crate::model::normalize::{read_pack_info, PackInfo};
 use crate::resolve::ModelRegistry;
 use crate::source::open_source as load_source;
-use crate::state::{lock_model_cache, SharedState};
+use crate::state::{lock_model_cache, IndexState, SharedState};
 
 pub(crate) const INDEX_EVENT: &str = "index-event";
 
@@ -61,6 +61,45 @@ pub(crate) fn rebuild_texture_model_index(project: &mut crate::state::Project) -
     Ok(())
 }
 
+fn evict_model_cache_for_paths(
+    cache: &mut HashMap<String, std::sync::Arc<crate::model::types::ResolvedModel>>,
+    changed_paths: &[String],
+) {
+    use crate::model::types::{blockstate_id_from_asset_path, model_id_from_asset_path};
+
+    for raw in changed_paths {
+        let path = raw.replace('\\', "/");
+        if let Some((ns, model_path)) = model_id_from_asset_path(&path) {
+            cache.remove(&format!("{ns}:{model_path}"));
+        }
+        if let Some((ns, block_name)) = blockstate_id_from_asset_path(&path) {
+            cache.remove(&format!("{ns}:{block_name}"));
+        }
+    }
+}
+
+pub(crate) fn patch_texture_model_index_for_paths(
+    project: &mut crate::state::Project,
+    changed_paths: &[String],
+) -> CoreResult<()> {
+    if !texture_index::paths_affect_texture_model_index(changed_paths) {
+        return Ok(());
+    }
+    let pack = pack_for_project(project);
+    let mut cache = lock_model_cache(&project.index.model_cache)?;
+    evict_model_cache_for_paths(&mut cache, changed_paths);
+    let mut registry = ModelRegistry::new(project.source.as_ref(), &mut cache, pack);
+    texture_index::patch_texture_model_index(
+        &mut registry,
+        &project.index.entries,
+        &mut project.index.texture_model_index,
+        changed_paths,
+    );
+    drop(cache);
+    apply_texture_link_counts(project);
+    Ok(())
+}
+
 pub(crate) fn apply_texture_link_counts(project: &mut crate::state::Project) {
     let index = &project.index.texture_model_index;
     for entry in &mut project.index.entries {
@@ -73,16 +112,15 @@ pub(crate) fn apply_texture_link_counts(project: &mut crate::state::Project) {
 }
 
 pub(crate) struct OpenPreparedProject {
-    pub entries: Vec<AssetEntry>,
     pub from_cache: bool,
     pub catalog_from_cache: bool,
     pub pack_format: Option<u32>,
     pub catalog: Vec<crate::dto::CatalogEntry>,
     pub creative_tab_order: CreativeTabOrder,
-    pub texture_model_index: HashMap<String, Vec<ModelRefInfo>>,
     pub source: Box<dyn crate::source::AssetSource>,
     pub fingerprint: String,
     pub catalog_language: String,
+    pub index: IndexState,
 }
 
 pub(crate) fn prepare_opened_project(
@@ -112,7 +150,7 @@ pub(crate) fn prepare_opened_project(
         source,
         index: crate::state::IndexState {
             fingerprint: fingerprint.clone(),
-            entries: entries.clone(),
+            entries,
             entry_id_index: HashMap::new(),
             texture_model_index: HashMap::new(),
             model_cache: Mutex::new(HashMap::new()),
@@ -168,7 +206,6 @@ pub(crate) fn prepare_opened_project(
             true,
         )?;
         from_cache = fresh_from_cache;
-        entries = fresh_entries.clone();
         project.index.entries = fresh_entries;
         rebuild_texture_model_index(&mut project)?;
         send_index_event(
@@ -183,7 +220,6 @@ pub(crate) fn prepare_opened_project(
         catalog_from_cache = crate::catalog::build_project_catalog(&mut project, db)?;
     }
     Ok(OpenPreparedProject {
-        entries,
         from_cache,
         catalog_from_cache,
         pack_format: project.pack_format,
@@ -194,10 +230,10 @@ pub(crate) fn prepare_opened_project(
             .map(|e| e.as_ref().clone())
             .collect(),
         creative_tab_order: project.catalog.creative_tab_order,
-        texture_model_index: project.index.texture_model_index,
         source: project.source,
         fingerprint,
         catalog_language: project.catalog.language.clone(),
+        index: project.index,
     })
 }
 
@@ -323,19 +359,22 @@ pub(crate) fn refresh_pack_format(project: &mut crate::state::Project) {
     project.pack_format = pack_info.pack_format;
 }
 
-pub(crate) fn refresh_project_for_paths(
-    app: &mut crate::state::AppState,
+/// Incremental index/catalog refresh — no `AppState` lock; safe inside `spawn_blocking`.
+pub(crate) fn refresh_project_for_paths_on_project(
+    project: &mut crate::state::Project,
     db: &sled::Db,
-    handle: ProjectHandle,
     changed_paths: &[String],
-) -> CoreResult<(crate::dto::SourceKind, std::path::PathBuf)> {
-    let project = project_for_handle_mut(app, handle)?;
+) -> CoreResult<()> {
     let source_path = project.source_path.clone();
-    let source_kind = project.source_kind;
     project.source = load_source(&source_path)?;
     refresh_pack_format(project);
     let old_fp = project.index.fingerprint.clone();
-    let new_fp = source_fingerprint(&project.source_path)?;
+    let new_fp = fingerprint_after_disk_change(
+        &source_path,
+        project.source_kind,
+        &old_fp,
+        changed_paths,
+    )?;
     patch_entries_for_paths(
         &mut project.index.entries,
         project.source.as_ref(),
@@ -344,40 +383,38 @@ pub(crate) fn refresh_project_for_paths(
     )?;
     prune_orphan_entries(&mut project.index.entries, project.source.as_ref())?;
     project.index.fingerprint = new_fp.clone();
-    let entries_snapshot = project.index.entries.clone();
-    if let Ok(mut cache) = project.index.model_cache.lock() {
-        cache.clear();
+    if texture_index::paths_affect_texture_model_index(changed_paths) {
+        if let Ok(mut cache) = project.index.model_cache.lock() {
+            evict_model_cache_for_paths(&mut cache, changed_paths);
+        }
+        patch_texture_model_index_for_paths(project, changed_paths)?;
     }
-    rebuild_texture_model_index(project)?;
-    refresh_index_cache(db, &old_fp, &new_fp, &entries_snapshot)?;
+    refresh_index_cache(db, &old_fp, &new_fp, &project.index.entries)?;
     if crate::catalog::patch::paths_need_full_catalog_rebuild(changed_paths) {
         crate::catalog::build_project_catalog(project, db)?;
     } else {
         crate::catalog::patch_project_catalog(project, db, changed_paths)?;
     }
-    Ok((source_kind, source_path))
+    Ok(())
 }
 
-pub(crate) fn full_resync_project_after_disk_change(
-    app: &mut crate::state::AppState,
+/// Full disk resync — no `AppState` lock; safe inside `spawn_blocking`.
+pub(crate) fn full_resync_project_on_project(
+    project: &mut crate::state::Project,
     db: &sled::Db,
-    handle: ProjectHandle,
-) -> CoreResult<(crate::dto::SourceKind, std::path::PathBuf)> {
-    let project = project_for_handle_mut(app, handle)?;
+) -> CoreResult<()> {
     let source_path = project.source_path.clone();
-    let source_kind = project.source_kind;
     project.source = load_source(&source_path)?;
     refresh_pack_format(project);
     let old_fp = project.index.fingerprint.clone();
     let new_fp = source_fingerprint(&project.source_path)?;
     project.index.entries = scan_index_entries(project.source.as_ref())?;
     project.index.fingerprint = new_fp.clone();
-    let entries_snapshot = project.index.entries.clone();
     if let Ok(mut cache) = project.index.model_cache.lock() {
         cache.clear();
     }
     rebuild_texture_model_index(project)?;
-    refresh_index_cache(db, &old_fp, &new_fp, &entries_snapshot)?;
+    refresh_index_cache(db, &old_fp, &new_fp, &project.index.entries)?;
     log_if_err(
         crate::catalog::invalidate_project_catalog_cache(db, &new_fp),
         "invalidate catalog after full resync",
@@ -387,5 +424,30 @@ pub(crate) fn full_resync_project_after_disk_change(
         "invalidate icons after full resync",
     );
     crate::catalog::build_project_catalog(project, db)?;
+    Ok(())
+}
+
+pub(crate) fn refresh_project_for_paths(
+    app: &mut crate::state::AppState,
+    db: &sled::Db,
+    handle: ProjectHandle,
+    changed_paths: &[String],
+) -> CoreResult<(crate::dto::SourceKind, std::path::PathBuf)> {
+    let project = project_for_handle_mut(app, handle)?;
+    let source_kind = project.source_kind;
+    let source_path = project.source_path.clone();
+    refresh_project_for_paths_on_project(project, db, changed_paths)?;
+    Ok((source_kind, source_path))
+}
+
+pub(crate) fn full_resync_project_after_disk_change(
+    app: &mut crate::state::AppState,
+    db: &sled::Db,
+    handle: ProjectHandle,
+) -> CoreResult<(crate::dto::SourceKind, std::path::PathBuf)> {
+    let project = project_for_handle_mut(app, handle)?;
+    let source_kind = project.source_kind;
+    let source_path = project.source_path.clone();
+    full_resync_project_on_project(project, db)?;
     Ok((source_kind, source_path))
 }

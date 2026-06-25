@@ -46,6 +46,7 @@ import { CATALOG_PAGE_SIZE } from "./useCatalogQuery";
 import { catalogRowCount } from "./catalogUtils";
 import { useProjectStore } from "../../state/projectStore";
 import { useSettingsStore } from "../../state/settingsStore";
+import { transitionToWorkspaceMode } from "../../app/useWorkspaceMode";
 
 async function openFixtureProject() {
   const onEvent = { onmessage: null as ((event: IndexEvent) => void) | null };
@@ -109,7 +110,8 @@ describe("studio catalog scale (mock IPC)", () => {
 
   it("studio select wires catalog to project store", async () => {
     const { handle } = await openFixtureProject();
-    useSettingsStore.getState().setWorkspaceMode("studio");
+    useSettingsStore.getState().setWorkspaceModeState("classic");
+    transitionToWorkspaceMode("studio");
 
     const page = await queryCatalog(
       handle,

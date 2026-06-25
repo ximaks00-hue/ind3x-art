@@ -8,13 +8,22 @@ export interface ScreenshotExportOptions {
   filename?: string;
 }
 
-export function exportViewerScreenshot(
+function triggerDownload(blob: Blob, filename: string): void {
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.download = filename;
+  link.href = url;
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
+export async function exportViewerScreenshot(
   options: ScreenshotExportOptions = {
     format: "png",
     quality: 0.92,
     transparentBackground: false,
   },
-): boolean {
+): Promise<boolean> {
   const canvas = document.querySelector<HTMLCanvasElement>(
     '[data-viewer-canvas="true"] canvas',
   );
@@ -34,14 +43,16 @@ export function exportViewerScreenshot(
   const mime = options.format === "jpeg" ? "image/jpeg" : "image/png";
   const ext = options.format === "jpeg" ? "jpg" : "png";
   const filename = options.filename ?? `ind3x-preview.${ext}`;
-  const dataUrl =
-    options.format === "jpeg"
-      ? exportCanvas.toDataURL(mime, options.quality)
-      : exportCanvas.toDataURL(mime);
 
-  const link = document.createElement("a");
-  link.download = filename;
-  link.href = dataUrl;
-  link.click();
+  const blob = await new Promise<Blob | null>((resolve) => {
+    exportCanvas.toBlob(
+      (result) => resolve(result),
+      mime,
+      options.format === "jpeg" ? options.quality : undefined,
+    );
+  });
+
+  if (!blob) return false;
+  triggerDownload(blob, filename);
   return true;
 }

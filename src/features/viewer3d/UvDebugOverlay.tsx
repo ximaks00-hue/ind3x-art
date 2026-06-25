@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useEffect, useMemo } from "react";
 import * as THREE from "three";
 
 import type { RenderableModel } from "../../ipc/types";
@@ -89,6 +89,16 @@ export function UvDebugOverlay({ model }: { model: RenderableModel }) {
     }
     return root;
   }, [model]);
+
+  useEffect(() => {
+    return () => {
+      group.traverse((child) => {
+        if (child instanceof THREE.ArrowHelper) {
+          child.dispose();
+        }
+      });
+    };
+  }, [group]);
 
   return <primitive object={group} />;
 }

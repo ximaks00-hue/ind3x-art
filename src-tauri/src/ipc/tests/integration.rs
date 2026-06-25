@@ -58,13 +58,7 @@ fn insert_opened_project(
                 source_kind,
                 pack_format: prepared.pack_format,
                 source: prepared.source,
-                index: crate::state::IndexState {
-                    fingerprint: prepared.fingerprint.clone(),
-                    entries: prepared.entries.clone(),
-                    entry_id_index: HashMap::new(),
-                    texture_model_index: prepared.texture_model_index,
-                    model_cache: Mutex::new(HashMap::new()),
-                },
+                index: prepared.index,
                 catalog: {
                     let entries = arc_catalog(prepared.catalog);
                     let id_index = crate::state::build_catalog_id_index(&entries);
@@ -131,7 +125,7 @@ fn open_source_flow_indexes_simple_pack() {
     )
     .expect("prepare open");
 
-    assert!(!prepared.entries.is_empty(), "index should contain assets");
+    assert!(!prepared.index.entries.is_empty(), "index should contain assets");
     assert!(
         !prepared.catalog.is_empty(),
         "catalog should be built for simple pack"
@@ -224,7 +218,7 @@ fn reindex_project_flow_patches_changed_texture() {
         None,
     )
     .expect("prepare open");
-    let entry_count = prepared.entries.len();
+    let entry_count = prepared.index.entries.len();
     let handle = insert_opened_project(&state, tmp.path(), prepared);
 
     let texture_path = "assets/minecraft/textures/block/test_stone.png";

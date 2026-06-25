@@ -55,4 +55,15 @@ describe("catalogService", () => {
     await getCatalogEntry(handle, "minecraft:test_stone");
     expect(ipcMock.getCatalogEntry).toHaveBeenCalledWith(handle, "minecraft:test_stone");
   });
+
+  it("rejects empty catalog entry id", async () => {
+    await expect(getCatalogEntry(handle, "  ")).rejects.toThrow(/entry id/i);
+  });
+
+  it("rejects oversized icon cache payload", async () => {
+    const { setCatalogIconCache } = await import("./catalogService");
+    await expect(setCatalogIconCache(handle, "key:", "A".repeat(600_000))).rejects.toThrow(
+      /size limit/i,
+    );
+  });
 });

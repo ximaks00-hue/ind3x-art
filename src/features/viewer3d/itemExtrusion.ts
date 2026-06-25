@@ -6,7 +6,8 @@ import { loadTexture } from "./textureLoader";
 
 const ITEM_DISPLAY_SCALE = 0.9;
 const EXTRUSION_DEPTH = 1 / 16;
-const MAX_ITEM_TEXTURE_DIM = 512;
+/** Cap extrusion grid resolution — side walls scale with pixel count squared. */
+const EXTRUSION_GRID_MAX = 128;
 
 type AlphaGrid = {
   width: number;
@@ -19,8 +20,8 @@ function readAlphaGrid(image: CanvasImageSource): AlphaGrid {
   let width = "width" in image && typeof image.width === "number" ? image.width : 16;
   let height =
     "height" in image && typeof image.height === "number" ? image.height : 16;
-  if (width > MAX_ITEM_TEXTURE_DIM || height > MAX_ITEM_TEXTURE_DIM) {
-    const scale = MAX_ITEM_TEXTURE_DIM / Math.max(width, height);
+  if (width > EXTRUSION_GRID_MAX || height > EXTRUSION_GRID_MAX) {
+    const scale = EXTRUSION_GRID_MAX / Math.max(width, height);
     width = Math.max(1, Math.floor(width * scale));
     height = Math.max(1, Math.floor(height * scale));
   }

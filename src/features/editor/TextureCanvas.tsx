@@ -17,6 +17,7 @@ import {
   canUndo,
   commitChanges,
   ensureTextureDocument,
+  flushIconInvalidations,
   getActiveLayerContext,
   getDoc,
   getLayerPixel,
@@ -602,7 +603,7 @@ function TextureCanvasInner({ handle, selectedFace }: TextureCanvasProps) {
             { width: doc.width, height: doc.height },
           );
           if (changes.length > 0) {
-            commitChanges(handle, path, changes);
+            commitChanges(handle, path, changes, true, "edit", true);
             bumpRevision();
           }
         }
@@ -631,6 +632,7 @@ function TextureCanvasInner({ handle, selectedFace }: TextureCanvasProps) {
     }
 
     event.currentTarget.releasePointerCapture(event.pointerId);
+    if (handle) flushIconInvalidations(handle);
   };
 
   return (

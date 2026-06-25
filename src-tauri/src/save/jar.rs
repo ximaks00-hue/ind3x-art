@@ -9,6 +9,10 @@ use zip::ZipWriter;
 use crate::error::{CoreError, CoreResult};
 use crate::source::{normalize_zip_path, validate_relative_asset_path};
 
+/// Rebuild a JAR/ZIP by copying every entry except replacements.
+///
+/// **Limitation:** even a single texture save rewrites the entire archive (full unpack/repack).
+/// Large mod JARs can take seconds and need temporary disk space equal to the archive size.
 pub fn rebuild_jar_atomic(
     jar_path: &Path,
     replacements: &HashMap<String, Vec<u8>>,

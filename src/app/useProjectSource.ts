@@ -9,7 +9,7 @@ import { useCatalogStore, snapshotCatalogState, restoreCatalogState } from "../f
 import { clearTextureCache } from "../features/viewer3d/textureLoader";
 import { formatIpcError } from "../ipc/errors";
 import { ipc } from "../ipc/client";
-import type { IndexEvent } from "../ipc/types";
+import type { IndexEvent, ProjectHandle } from "../ipc/types";
 import { useEditorStore } from "../state/editorStore";
 import { useInteractionStore } from "../state/interactionStore";
 import { useProjectStore } from "../state/projectStore";
@@ -21,41 +21,70 @@ const OPEN_GRACE_MS = 5000;
 const RELOAD_DEBOUNCE_MS = 800;
 const CACHE_INVALIDATE_DEBOUNCE_MS = 300;
 
+async function cleanupProjectHandle(handle: ProjectHandle): Promise<void> {
+  try {
+    await ipc.cancelIndex(handle);
+  } catch {
+    // ignore stale cancel errors
+  }
+  try {
+    await ipc.closeSource(handle);
+  } catch {
+    // ignore stale close errors
+  }
+}
+
 async function recoverEmptyCatalog(
-  handle: { id: number },
+  handle: ProjectHandle,
   onEvent: Channel<IndexEvent>,
   pushToast: (message: string, kind: "success" | "error" | "info") => void,
-): Promise<void> {
+  isStale: () => boolean,
+): Promise<boolean> {
+  if (isStale()) return false;
   const language = useSettingsStore.getState().catalogLanguage;
   pushToast("Catalog empty — rebuilding index and catalog…", "info");
   try {
     await ipc.invalidateProjectIndex(handle);
+    if (isStale()) return false;
     await ipc.reindexProject(handle, onEvent, null);
+    if (isStale()) return false;
     await rebuildProjectCatalog(handle, language);
+    if (isStale()) return false;
     bumpProjectDataRevision();
     pushToast("Catalog rebuilt", "success");
+    return true;
   } catch (error) {
-    pushToast(`Catalog rebuild failed: ${formatIpcError(error)}`, "error");
+    if (!isStale()) {
+      pushToast(`Catalog rebuild failed: ${formatIpcError(error)}`, "error");
+    }
+    return false;
   }
 }
 
 async function rebuildCatalogIfNeeded(
-  handle: { id: number },
+  handle: ProjectHandle,
   language: string,
   catalogLanguageOnOpen: string | undefined,
   pushToast: (message: string, kind: "success" | "error" | "info") => void,
-): Promise<void> {
-  if (!language || language === catalogLanguageOnOpen) return;
+  isStale: () => boolean,
+): Promise<boolean> {
+  if (!language || language === catalogLanguageOnOpen) return true;
+  if (isStale()) return false;
   try {
     await rebuildProjectCatalog(handle, language);
+    return !isStale();
   } catch (error) {
-    pushToast(`Catalog language rebuild failed: ${formatIpcError(error)}`, "error");
+    if (!isStale()) {
+      pushToast(`Catalog language rebuild failed: ${formatIpcError(error)}`, "error");
+    }
+    return false;
   }
 }
 
 export function useProjectSource(onBeforeOpen?: () => void) {
   const [opening, setOpening] = useState(false);
   const openRequestIdRef = useRef(0);
+  const inFlightOpenHandleRef = useRef<ProjectHandle | null>(null);
   const handle = useProjectStore((s) => s.handle);
   const addRecentProject = useSettingsStore((s) => s.addRecentProject);
   const catalogLanguage = useSettingsStore((s) => s.catalogLanguage);
@@ -71,8 +100,15 @@ export function useProjectSource(onBeforeOpen?: () => void) {
 
   const openSource = useCallback(
     async (path: string) => {
+      const previousInFlight = inFlightOpenHandleRef.current;
+      if (previousInFlight) {
+        void cleanupProjectHandle(previousInFlight);
+        inFlightOpenHandleRef.current = null;
+      }
+
       const requestId = openRequestIdRef.current + 1;
       openRequestIdRef.current = requestId;
+      const isStale = () => openRequestIdRef.current !== requestId;
 
       const hadOpenProject = Boolean(handle);
       const catalogSnapshot = hadOpenProject ? snapshotCatalogState() : null;
@@ -85,6 +121,9 @@ export function useProjectSource(onBeforeOpen?: () => void) {
       setIndexProgress(0, 1, "starting");
 
       const applyIndexEvent = (event: IndexEvent) => {
+        if (isStale()) {
+          return;
+        }
         switch (event.type) {
           case "started":
             setIndexProgress(0, event.total, "scanning");
@@ -106,32 +145,38 @@ export function useProjectSource(onBeforeOpen?: () => void) {
 
       const onEvent = new Channel<IndexEvent>();
       onEvent.onmessage = (event) => {
-        if (openRequestIdRef.current !== requestId) {
-          return;
-        }
         applyIndexEvent(event);
       };
 
+      let openedHandle: ProjectHandle | null = null;
+
       try {
         const result = await ipc.openSource(path, onEvent);
-        if (openRequestIdRef.current !== requestId) {
-          try {
-            await ipc.closeSource(result.handle);
-          } catch {
-            // ignore stale handle cleanup errors
-          }
+        openedHandle = result.handle;
+        inFlightOpenHandleRef.current = result.handle;
+
+        if (isStale()) {
+          await cleanupProjectHandle(result.handle);
+          inFlightOpenHandleRef.current = null;
           return false;
         }
 
         const previousHandle = useProjectStore.getState().handle;
         if (previousHandle) {
           try {
+            await ipc.cancelIndex(previousHandle);
             await ipc.closeSource(previousHandle);
           } catch {
             // ignore stale handle cleanup errors
           }
           clearTextureCache(previousHandle);
           onBeforeOpen?.();
+        }
+
+        if (isStale()) {
+          await cleanupProjectHandle(result.handle);
+          inFlightOpenHandleRef.current = null;
+          return false;
         }
 
         clearProject();
@@ -145,15 +190,42 @@ export function useProjectSource(onBeforeOpen?: () => void) {
 
         setHandle(result);
         finishOpen(result);
+
         if (result.entryCount > 0 && (result.catalogEntryCount ?? 0) === 0) {
-          await recoverEmptyCatalog(result.handle, onEvent, pushToast);
+          const recovered = await recoverEmptyCatalog(result.handle, onEvent, pushToast, isStale);
+          if (!recovered && isStale()) {
+            await cleanupProjectHandle(result.handle);
+            inFlightOpenHandleRef.current = null;
+            return false;
+          }
         }
-        await rebuildCatalogIfNeeded(
+
+        if (isStale()) {
+          await cleanupProjectHandle(result.handle);
+          inFlightOpenHandleRef.current = null;
+          return false;
+        }
+
+        const rebuilt = await rebuildCatalogIfNeeded(
           result.handle,
           catalogLanguage,
           result.catalogLanguage,
           pushToast,
+          isStale,
         );
+        if (!rebuilt) {
+          await cleanupProjectHandle(result.handle);
+          inFlightOpenHandleRef.current = null;
+          return false;
+        }
+
+        if (isStale()) {
+          await cleanupProjectHandle(result.handle);
+          inFlightOpenHandleRef.current = null;
+          return false;
+        }
+
+        inFlightOpenHandleRef.current = null;
         bumpProjectDataRevision();
         useCatalogStore.getState().setCategory(null);
         useCatalogStore.getState().setSearch("");
@@ -184,7 +256,11 @@ export function useProjectSource(onBeforeOpen?: () => void) {
         );
         return true;
       } catch (error) {
-        if (openRequestIdRef.current !== requestId) {
+        if (openedHandle) {
+          await cleanupProjectHandle(openedHandle);
+          inFlightOpenHandleRef.current = null;
+        }
+        if (isStale()) {
           return false;
         }
         if (catalogSnapshot) {
@@ -225,6 +301,7 @@ export function useProjectSource(onBeforeOpen?: () => void) {
   );
 
   const subscribeSourceEvents = useCallback(() => {
+    let disposed = false;
     let unlistenChanged: (() => void) | undefined;
     let unlistenInvalidated: (() => void) | undefined;
     let reloadPending = false;
@@ -236,7 +313,26 @@ export function useProjectSource(onBeforeOpen?: () => void) {
     let reindexInFlight = false;
     let reindexQueued: string[] | "full" | null = null;
 
+    const registerListener = (
+      setup: () => Promise<() => void>,
+      assign: (unlisten: () => void) => void,
+    ) => {
+      void setup()
+        .then((unlisten) => {
+          if (disposed) {
+            unlisten();
+            return;
+          }
+          assign(unlisten);
+        })
+        .catch(() => {
+          // listener registration failed — ignore
+        });
+    };
+
     const reindexCurrent = async (changedPaths?: string[]) => {
+      if (disposed) return false;
+
       const generation = ++reindexGeneration;
       const currentHandle = useProjectStore.getState().handle;
       if (!currentHandle) return false;
@@ -257,7 +353,7 @@ export function useProjectSource(onBeforeOpen?: () => void) {
 
       const onEvent = new Channel<IndexEvent>();
       onEvent.onmessage = (event) => {
-        if (generation !== reindexGeneration) return;
+        if (disposed || generation !== reindexGeneration) return;
         switch (event.type) {
           case "started":
             setIndexProgress(0, event.total, incremental ? "patching" : "reindexing");
@@ -282,7 +378,7 @@ export function useProjectSource(onBeforeOpen?: () => void) {
           onEvent,
           incremental ? changedPaths : null,
         );
-        if (generation !== reindexGeneration) return false;
+        if (disposed || generation !== reindexGeneration) return false;
         const activeHandle = useProjectStore.getState().handle;
         if (!activeHandle || activeHandle.id !== currentHandle.id) return false;
 
@@ -298,13 +394,22 @@ export function useProjectSource(onBeforeOpen?: () => void) {
           packFormat: null,
           catalogLanguage: language,
         });
-        await rebuildCatalogIfNeeded(currentHandle, language, undefined, pushToast);
+        await rebuildCatalogIfNeeded(
+          currentHandle,
+          language,
+          undefined,
+          pushToast,
+          () => disposed || generation !== reindexGeneration,
+        );
+        if (disposed || generation !== reindexGeneration) return false;
         bumpProjectDataRevision();
         const selectedId = useCatalogStore.getState().selectedId;
         if (selectedId) {
           try {
             const entry = await getCatalogEntry(currentHandle, selectedId);
-            useCatalogStore.getState().selectEntry(entry);
+            if (!disposed && generation === reindexGeneration) {
+              useCatalogStore.getState().selectEntry(entry);
+            }
           } catch {
             useCatalogStore.getState().clearSelection();
           }
@@ -324,7 +429,7 @@ export function useProjectSource(onBeforeOpen?: () => void) {
         );
         return true;
       } catch {
-        if (generation !== reindexGeneration) return false;
+        if (disposed || generation !== reindexGeneration) return false;
         const stillOpen = useProjectStore.getState().handle;
         if (stillOpen && stillOpen.id === currentHandle.id) {
           setIndexStatus("done");
@@ -335,6 +440,10 @@ export function useProjectSource(onBeforeOpen?: () => void) {
         return false;
       } finally {
         reindexInFlight = false;
+        if (disposed) {
+          reindexQueued = null;
+          return;
+        }
         if (reindexQueued !== null) {
           const queued = reindexQueued;
           reindexQueued = null;
@@ -344,6 +453,7 @@ export function useProjectSource(onBeforeOpen?: () => void) {
     };
 
     const scheduleReload = (path: string) => {
+      if (disposed) return;
       pendingPaths.add(path.replace(/\\/g, "/"));
       if (!reloadPending) {
         reloadPending = true;
@@ -356,6 +466,7 @@ export function useProjectSource(onBeforeOpen?: () => void) {
       const delay = graceRemaining + RELOAD_DEBOUNCE_MS;
 
       reloadTimer = setTimeout(() => {
+        if (disposed) return;
         reloadPending = false;
         reloadTimer = undefined;
         const paths = [...pendingPaths];
@@ -367,31 +478,38 @@ export function useProjectSource(onBeforeOpen?: () => void) {
       }, delay);
     };
 
-    void ipc
-      .onSourceChanged(({ path }) => {
-        scheduleReload(path);
-      })
-      .then((fn) => {
+    registerListener(
+      () =>
+        ipc.onSourceChanged(({ path }) => {
+          scheduleReload(path);
+        }),
+      (fn) => {
         unlistenChanged = fn;
-      });
+      },
+    );
 
-    void ipc
-      .onCacheInvalidated(() => {
-        if (cacheInvalidateTimer) clearTimeout(cacheInvalidateTimer);
-        cacheInvalidateTimer = setTimeout(() => {
-          cacheInvalidateTimer = undefined;
-          clearTextureCache();
-          invalidateProjectCaches({ thumbnails: true });
-        }, CACHE_INVALIDATE_DEBOUNCE_MS);
-      })
-      .then((fn) => {
+    registerListener(
+      () =>
+        ipc.onCacheInvalidated(() => {
+          if (disposed) return;
+          if (cacheInvalidateTimer) clearTimeout(cacheInvalidateTimer);
+          cacheInvalidateTimer = setTimeout(() => {
+            if (disposed) return;
+            cacheInvalidateTimer = undefined;
+            clearTextureCache();
+            invalidateProjectCaches({ thumbnails: true });
+          }, CACHE_INVALIDATE_DEBOUNCE_MS);
+        }),
+      (fn) => {
         unlistenInvalidated = fn;
-      });
+      },
+    );
 
     const unsubOpen = useProjectStore.subscribe((state, prev) => {
       if (state.handle && state.handle !== prev.handle) {
         openedAt = Date.now();
         reindexGeneration += 1;
+        reindexQueued = null;
       }
     });
     if (useProjectStore.getState().handle) {
@@ -399,7 +517,9 @@ export function useProjectSource(onBeforeOpen?: () => void) {
     }
 
     return () => {
+      disposed = true;
       reindexGeneration += 1;
+      reindexQueued = null;
       if (reloadTimer) clearTimeout(reloadTimer);
       if (cacheInvalidateTimer) clearTimeout(cacheInvalidateTimer);
       unsubOpen();

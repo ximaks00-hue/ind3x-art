@@ -87,8 +87,8 @@ describe("spectaClient", () => {
     ).rejects.toBeInstanceOf(IpcError);
   });
 
-  it("converts binary response array to Uint8Array", async () => {
-    commandsMock.getTextureBinary.mockResolvedValue([1, 2, 3]);
+  it("decodes base64 texture payload to Uint8Array", async () => {
+    commandsMock.getTextureBinary.mockResolvedValue("AQID");
     const bytes = await spectaCommands.getTextureBinary({ id: 1 }, "assets/test.png");
     expect(bytes).toBeInstanceOf(Uint8Array);
     expect([...bytes]).toEqual([1, 2, 3]);

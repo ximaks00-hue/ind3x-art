@@ -7,13 +7,19 @@ use walkdir::WalkDir;
 
 use crate::dto::{BackupInfo, SourceKind};
 use crate::error::{CoreError, CoreResult};
-use crate::source::{normalize_zip_path, safe_join_under_root, validate_relative_asset_path};
+use crate::source::{
+    canonical_root, ensure_write_path_under_root, normalize_zip_path, safe_join_under_root,
+    validate_relative_asset_path,
+};
 
 /// Written by `create_backup` for folder packs — distinguishes full snapshots from per-save sessions.
 const FULL_SNAPSHOT_MARKER: &str = ".ind3x-full-snapshot";
 
 /// Per-save session manifest — tracks files created vs overwritten for rollback cleanup.
 pub const SESSION_MANIFEST: &str = ".ind3x-session-manifest.json";
+
+/// Keep at most this many manual folder snapshots under `.ind3x-backups/`.
+const MAX_RETAINED_FOLDER_BACKUPS: usize = 10;
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -72,6 +78,7 @@ pub fn revert_partial_folder_apply(
     applied_paths: &[String],
     manifest: &FolderSaveSessionManifest,
 ) -> CoreResult<()> {
+    let root_canonical = canonical_root(root)?;
     let created: HashSet<&str> = manifest.created.iter().map(|s| s.as_str()).collect();
     let overwritten: HashSet<&str> = manifest.overwritten.iter().map(|s| s.as_str()).collect();
 
@@ -88,7 +95,8 @@ pub fn revert_partial_folder_apply(
                 if let Some(parent) = dest.parent() {
                     std::fs::create_dir_all(parent)?;
                 }
-                std::fs::copy(&backup_file, &dest)?;
+                let verified = ensure_write_path_under_root(&root_canonical, &dest)?;
+                std::fs::copy(&backup_file, &verified)?;
             }
         }
     }
@@ -130,7 +138,9 @@ fn list_jar_backups(jar_path: &Path) -> CoreResult<Vec<BackupInfo>> {
             .strip_prefix(&prefix)
             .and_then(|s| s.strip_suffix(".bak"))
             .unwrap_or("");
-        let created_at = middle.parse::<u64>().unwrap_or(0);
+        let Ok(created_at) = middle.parse::<u64>() else {
+            continue;
+        };
         let path_str = path.to_string_lossy().to_string();
         backups.push(BackupInfo {
             id: backup_id(&path_str),
@@ -158,7 +168,9 @@ fn list_folder_backups(root: &Path) -> CoreResult<Vec<BackupInfo>> {
             continue;
         }
         let name = entry.file_name().to_string_lossy().to_string();
-        let created_at = name.parse::<u64>().unwrap_or(0);
+        let Ok(created_at) = name.parse::<u64>() else {
+            continue;
+        };
         let path_str = entry.path().to_string_lossy().to_string();
         backups.push(BackupInfo {
             id: backup_id(&path_str),
@@ -225,6 +237,7 @@ fn restore_folder_backup(root: &Path, backup_session: &Path) -> CoreResult<()> {
 
     let is_full_snapshot = backup_session.join(FULL_SNAPSHOT_MARKER).is_file();
     let backup_root = root.join(".ind3x-backups");
+    let root_canonical = canonical_root(root)?;
     let mut backup_files: Vec<(std::path::PathBuf, std::path::PathBuf)> = Vec::new();
     let mut backup_rel_paths: HashSet<std::path::PathBuf> = HashSet::new();
 
@@ -275,7 +288,8 @@ fn restore_folder_backup(root: &Path, backup_session: &Path) -> CoreResult<()> {
         if let Some(parent) = dest.parent() {
             std::fs::create_dir_all(parent)?;
         }
-        std::fs::copy(src, &dest)?;
+        let verified = ensure_write_path_under_root(&root_canonical, &dest)?;
+        std::fs::copy(src, &verified)?;
     }
 
     if !is_full_snapshot {
@@ -354,6 +368,7 @@ pub fn create_backup(source_path: &Path, kind: SourceKind) -> CoreResult<BackupI
                 std::fs::copy(path, &dest)?;
             }
             std::fs::write(backup_dir.join(FULL_SNAPSHOT_MARKER), b"")?;
+            prune_old_folder_backups(source_path, MAX_RETAINED_FOLDER_BACKUPS)?;
             let path_str = backup_dir.to_string_lossy().to_string();
             Ok(BackupInfo {
                 id: backup_id(&path_str),
@@ -364,6 +379,25 @@ pub fn create_backup(source_path: &Path, kind: SourceKind) -> CoreResult<BackupI
             })
         }
     }
+}
+
+fn prune_old_folder_backups(pack_root: &Path, keep: usize) -> CoreResult<()> {
+    if keep == 0 {
+        return Ok(());
+    }
+    let mut backups = list_folder_backups(pack_root)?;
+    if backups.len() <= keep {
+        return Ok(());
+    }
+    backups.sort_by_key(|b| b.created_at);
+    let remove_count = backups.len().saturating_sub(keep);
+    for info in backups.into_iter().take(remove_count) {
+        let path = PathBuf::from(&info.path);
+        if path.is_dir() {
+            std::fs::remove_dir_all(path)?;
+        }
+    }
+    Ok(())
 }
 
 #[cfg(test)]

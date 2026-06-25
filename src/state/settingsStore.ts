@@ -1,11 +1,6 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 
-import {
-  classicEnterFromStudio,
-  studioEnterPatch,
-} from "../features/catalog/workspaceTransition";
-
 import type { CatalogCategory } from "../ipc/types";
 
 export type Theme = "dark" | "light" | "high-contrast";
@@ -62,8 +57,7 @@ interface SettingsState {
   setTextureCacheLimit: (n: number) => void;
   setModelCacheLimit: (n: number) => void;
   setUiScale: (scale: number) => void;
-  setWorkspaceMode: (mode: WorkspaceMode) => void;
-  toggleWorkspaceMode: () => void;
+  setWorkspaceModeState: (mode: WorkspaceMode) => void;
   setCatalogIconMode: (mode: CatalogIconMode) => void;
   setCatalogIconCacheLimit: (n: number) => void;
   setCatalogShowCellLabels: (show: boolean) => void;
@@ -158,34 +152,7 @@ export const useSettingsStore = create<SettingsState>()(
       setTextureCacheLimit: (textureCacheLimit) => set({ textureCacheLimit }),
       setModelCacheLimit: (modelCacheLimit) => set({ modelCacheLimit }),
       setUiScale: (uiScale) => set({ uiScale: Math.max(0.8, Math.min(1.5, uiScale)) }),
-      setWorkspaceMode: (workspaceMode) => {
-        const prev = get();
-        if (workspaceMode === "classic" && prev.workspaceMode === "studio") {
-          classicEnterFromStudio();
-        }
-        const enteringStudio =
-          workspaceMode === "studio" && prev.workspaceMode !== "studio";
-        const studioPatch = enteringStudio ? studioEnterPatch() : {};
-        if (
-          workspaceMode === "studio" &&
-          prev.workspaceMode !== "studio" &&
-          !prev.studioOnboardingCompleted
-        ) {
-          set({ ...studioPatch, workspaceMode, studioOnboardingTourStep: 0 });
-        } else {
-          set({ ...studioPatch, workspaceMode });
-        }
-      },
-      toggleWorkspaceMode: () => {
-        const prev = get();
-        const next = prev.workspaceMode === "classic" ? "studio" : "classic";
-        if (next === "classic") {
-          classicEnterFromStudio();
-          set({ workspaceMode: next });
-          return;
-        }
-        set({ ...studioEnterPatch(), workspaceMode: next });
-      },
+      setWorkspaceModeState: (workspaceMode) => set({ workspaceMode }),
       setCatalogIconMode: (catalogIconMode) => set({ catalogIconMode }),
       setCatalogIconCacheLimit: (catalogIconCacheLimit) =>
         set({

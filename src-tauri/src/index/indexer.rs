@@ -36,32 +36,21 @@ pub fn invalidate_index(db: &sled::Db, fingerprint: &str) -> CoreResult<()> {
     Ok(())
 }
 
-fn source_blockstate_path_count(source: &dyn AssetSource) -> CoreResult<usize> {
+fn source_trust_counts(source: &dyn AssetSource) -> CoreResult<(usize, usize)> {
     if source.source_kind() == SourceKind::Jar {
         let jar = JarSource::new(source.source_path())?;
-        return jar_count_blockstate_paths(&jar);
+        return jar.count_blockstate_and_lang_paths();
     }
-    Ok(source
-        .list_entries()?
+    let entries = source.list_entries()?;
+    let blockstates = entries
         .iter()
         .filter(|p| p.contains("/blockstates/") && p.ends_with(".json"))
-        .count())
-}
-
-fn jar_count_blockstate_paths(jar: &JarSource) -> CoreResult<usize> {
-    jar.count_blockstate_paths()
-}
-
-fn source_lang_path_count(source: &dyn AssetSource) -> CoreResult<usize> {
-    if source.source_kind() == SourceKind::Jar {
-        let jar = JarSource::new(source.source_path())?;
-        return jar.count_lang_paths();
-    }
-    Ok(source
-        .list_entries()?
+        .count();
+    let langs = entries
         .iter()
-        .filter(|p| p.contains("/lang/") && p.ends_with(".json"))
-        .count())
+        .filter(|p| p.starts_with("assets/") && p.contains("/lang/") && p.ends_with(".json"))
+        .count();
+    Ok((blockstates, langs))
 }
 
 fn indexed_lang_count(entries: &[AssetEntry]) -> usize {
@@ -101,7 +90,7 @@ pub fn cached_index_trustworthy(
     source: &dyn AssetSource,
     entries: &[AssetEntry],
 ) -> CoreResult<bool> {
-    let live_bs = source_blockstate_path_count(source)?;
+    let (live_bs, live_lang) = source_trust_counts(source)?;
     let cached_bs = indexed_blockstate_count(entries);
     if live_bs > 0 && cached_bs == 0 {
         tracing::warn!(
@@ -110,7 +99,6 @@ pub fn cached_index_trustworthy(
         );
         return Ok(false);
     }
-    let live_lang = source_lang_path_count(source)?;
     let cached_lang = indexed_lang_count(entries);
     if live_lang > 0 && cached_lang == 0 {
         tracing::warn!(
@@ -230,24 +218,34 @@ pub fn collect_indexed_entries(
     entries.dedup_by(|a, b| a.path == b.path);
 
     let classified_set: HashSet<String> = entries.iter().map(|e| e.path.clone()).collect();
+    const MAX_WARNING_SAMPLES: usize = 8;
+    let mut unclassified_count = 0u64;
+    let mut samples: Vec<String> = Vec::new();
     for path in &paths {
         if path.starts_with("assets/") && !classified_set.contains(path) {
-            let reason = if path.ends_with(".json") {
-                "unrecognized JSON under assets/".to_string()
-            } else if path.ends_with(".png") {
-                "texture path not under textures/".to_string()
-            } else {
-                "unrecognized asset path".to_string()
-            };
-            let _ = send(
-                on_event,
-                None,
-                IndexEvent::Warning {
-                    path: path.clone(),
-                    reason,
-                },
-            );
+            unclassified_count += 1;
+            if samples.len() < MAX_WARNING_SAMPLES {
+                samples.push(path.clone());
+            }
         }
+    }
+    if unclassified_count > 0 {
+        let reason = format!(
+            "{unclassified_count} unrecognized asset paths (showing {}): {}",
+            samples.len(),
+            samples.join(", ")
+        );
+        let _ = send(
+            on_event,
+            None,
+            IndexEvent::Warning {
+                path: samples
+                    .first()
+                    .cloned()
+                    .unwrap_or_else(|| "assets/".to_string()),
+                reason,
+            },
+        );
     }
 
     let classified = entries.len() as u64;
@@ -356,6 +354,72 @@ pub fn patch_entries_for_paths(
     entries.sort_unstable_by(|a, b| a.path.cmp(&b.path));
     entries.dedup_by(|a, b| a.path == b.path);
     Ok(())
+}
+
+/// Bump fingerprint after point saves without scanning the whole pack tree.
+pub fn incremental_fingerprint_for_paths(
+    previous_fingerprint: &str,
+    root: &Path,
+    changed_paths: &[String],
+) -> CoreResult<String> {
+    let mut hasher = Sha256::new();
+    hasher.update(b"inc:v1:");
+    hasher.update(previous_fingerprint.as_bytes());
+    if let Ok(meta) = std::fs::metadata(root) {
+        hasher.update(meta.len().to_le_bytes());
+        if let Ok(secs) = meta.modified().and_then(|t| {
+            t.duration_since(std::time::UNIX_EPOCH)
+                .map_err(|_| std::io::Error::from(std::io::ErrorKind::InvalidData))
+        }) {
+            hasher.update(secs.as_secs().to_le_bytes());
+        }
+    }
+
+    let mut paths: Vec<String> = changed_paths
+        .iter()
+        .map(|path| crate::source::normalize_zip_path(path))
+        .collect();
+    paths.sort();
+    paths.dedup();
+
+    for rel in paths {
+        hasher.update(rel.as_bytes());
+        let abs = root.join(rel.replace('/', std::path::MAIN_SEPARATOR_STR));
+        let Ok(meta) = std::fs::metadata(&abs) else {
+            continue;
+        };
+        hasher.update(meta.len().to_le_bytes());
+        if let Ok(secs) = meta.modified().and_then(|t| {
+            t.duration_since(std::time::UNIX_EPOCH)
+                .map_err(|_| std::io::Error::from(std::io::ErrorKind::InvalidData))
+        }) {
+            hasher.update(secs.as_secs().to_le_bytes());
+        }
+        if meta.is_file() {
+            if let Ok(digest) = sample_file_digest(&abs, CONTENT_SAMPLE_BYTES) {
+                hasher.update(digest.as_bytes());
+            }
+        }
+    }
+
+    Ok(hex::encode(hasher.finalize()))
+}
+
+/// Choose incremental vs full fingerprint depending on source kind and change scope.
+pub fn fingerprint_after_disk_change(
+    source_path: &Path,
+    source_kind: SourceKind,
+    previous_fingerprint: &str,
+    changed_paths: &[String],
+) -> CoreResult<String> {
+    match source_kind {
+        SourceKind::Folder if !changed_paths.is_empty() => incremental_fingerprint_for_paths(
+            previous_fingerprint,
+            source_path,
+            changed_paths,
+        ),
+        _ => source_fingerprint(source_path),
+    }
 }
 
 pub fn source_fingerprint(path: &Path) -> CoreResult<String> {
@@ -564,6 +628,30 @@ mod fingerprint_tests {
         std::fs::write(&texture, &bytes).expect("mutate texture");
         let after = source_fingerprint(tmp.path()).expect("after");
         assert_ne!(before, after);
+    }
+
+    #[test]
+    fn incremental_fingerprint_changes_after_save_without_full_scan() {
+        let tmp = TempDir::new().expect("temp dir");
+        let src = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../tests/fixtures/lang_pack");
+        copy_fixture_tree(&src, tmp.path());
+
+        let before = source_fingerprint(tmp.path()).expect("before");
+        let texture = "assets/minecraft/textures/block/test_stone.png";
+        let texture_abs = tmp.path().join(texture);
+        let mut bytes = std::fs::read(&texture_abs).expect("read texture");
+        if let Some(last) = bytes.last_mut() {
+            *last ^= 0xFF;
+        }
+        std::fs::write(&texture_abs, &bytes).expect("mutate texture");
+
+        let incremental = incremental_fingerprint_for_paths(before.as_str(), tmp.path(), &[texture.to_string()])
+            .expect("incremental");
+        let full = source_fingerprint(tmp.path()).expect("full after");
+        assert_ne!(before, incremental);
+        assert_ne!(before, full);
+        assert_eq!(incremental.len(), 64);
     }
 
     fn copy_fixture_tree(src: &std::path::Path, dst: &std::path::Path) {

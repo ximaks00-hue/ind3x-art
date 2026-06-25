@@ -64,6 +64,8 @@ export function FaceRaycaster({ model, handle, studioMode = false }: FaceRaycast
   const shapeStartRef = useRef<{ x: number; y: number } | null>(null);
   const activeTextureRef = useRef<string | null>(null);
   const activePickRef = useRef<FacePickData | null>(null);
+  const paintGenRef = useRef(0);
+  const paintChainRef = useRef(Promise.resolve());
   const raycasterRef = useRef(new Raycaster());
   const pointerRef = useRef(new Vector2());
   const hoverRafRef = useRef<number | null>(null);
@@ -117,6 +119,19 @@ export function FaceRaycaster({ model, handle, studioMode = false }: FaceRaycast
       lastPixelRef.current = last;
     };
 
+    const enqueuePaint = (
+      texturePath: string,
+      x: number,
+      y: number,
+      isStroke: boolean,
+    ) => {
+      const gen = paintGenRef.current;
+      paintChainRef.current = paintChainRef.current.then(async () => {
+        if (gen !== paintGenRef.current) return;
+        await runPaint(texturePath, x, y, isStroke);
+      });
+    };
+
     const updateShapeDraft = (pick: FacePickData, pixel: [number, number]) => {
       const start = shapeStartRef.current;
       if (!start) return;
@@ -143,7 +158,7 @@ export function FaceRaycaster({ model, handle, studioMode = false }: FaceRaycast
 
       if (tool === "picker") {
         void ensureTextureDocument(handle, texturePath).then(() => {
-          void runPaint(texturePath, pixel[0], pixel[1], false);
+          enqueuePaint(texturePath, pixel[0], pixel[1], false);
         });
         return;
       }
@@ -158,12 +173,12 @@ export function FaceRaycaster({ model, handle, studioMode = false }: FaceRaycast
       }
 
       if (isClickOnlyTool(tool)) {
-        void runPaint(texturePath, pixel[0], pixel[1], false);
+        enqueuePaint(texturePath, pixel[0], pixel[1], false);
         paintingRef.current = false;
         return;
       }
 
-      void runPaint(texturePath, pixel[0], pixel[1], false);
+      enqueuePaint(texturePath, pixel[0], pixel[1], false);
       event.stopPropagation();
     };
 
@@ -209,10 +224,11 @@ export function FaceRaycaster({ model, handle, studioMode = false }: FaceRaycast
       if (!result) return;
 
       const { pick, pixel } = result;
-      void runPaint(pick.face.texture, pixel[0], pixel[1], true);
+      enqueuePaint(pick.face.texture, pixel[0], pixel[1], true);
     };
 
     const endStroke = (event: PointerEvent) => {
+      paintGenRef.current += 1;
       const texturePath = activeTextureRef.current;
       const shapeStart = shapeStartRef.current;
 

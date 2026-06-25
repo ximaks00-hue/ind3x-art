@@ -11,6 +11,7 @@ import {
   getActiveLayerId,
   type PixelChange,
 } from "./textureDocument";
+import { trackPixelWorkerTask } from "./pixelWorkerClient";
 
 export function workerChangesToPixelChanges(
   path: string,
@@ -44,7 +45,7 @@ export async function applyFillAtPixel(
 
   const runSync = () => {
     const changes = floodFillChanges(texturePath, x, y, color, tolerance);
-    commitChanges(handle, texturePath, changes, true, "Fill");
+    commitChanges(handle, texturePath, changes, true, "Fill", true);
     onComplete?.();
   };
 
@@ -58,26 +59,29 @@ export async function applyFillAtPixel(
   const [fr, fg, fb, fa] = hexToRgba(color);
   await withProgressToast("Flood fill", async () => {
     try {
-      const workerChanges = await worker.floodFill(
-        Comlink.transfer(
-          {
-            imageData,
-            startX: x,
-            startY: y,
-            fillR: fr,
-            fillG: fg,
-            fillB: fb,
-            fillA: fa,
-            tolerance,
-          },
-          [imageData.data.buffer],
+      const workerChanges = await trackPixelWorkerTask(
+        worker.floodFill(
+          Comlink.transfer(
+            {
+              imageData,
+              startX: x,
+              startY: y,
+              fillR: fr,
+              fillG: fg,
+              fillB: fb,
+              fillA: fa,
+              tolerance,
+            },
+            [imageData.data.buffer],
+          ),
         ),
       );
       const changes = workerChangesToPixelChanges(texturePath, workerChanges);
       if (changes.length > 0) {
-        commitChanges(handle, texturePath, changes, true, "Fill");
+        commitChanges(handle, texturePath, changes, true, "Fill", true);
       }
-    } catch {
+    } catch (error) {
+      console.warn("[paint] flood fill worker failed, falling back to main thread", error);
       runSync();
     }
     onComplete?.();
@@ -113,19 +117,22 @@ export async function applyWandAtPixel(
   const imageData = ctx2.getImageData(0, 0, layerCanvas.width, layerCanvas.height);
   await withProgressToast("Magic wand", async () => {
     try {
-      const sel = await worker.magicWand(
-        Comlink.transfer(
-          {
-            imageData,
-            startX: x,
-            startY: y,
-            tolerance,
-          },
-          [imageData.data.buffer],
+      const sel = await trackPixelWorkerTask(
+        worker.magicWand(
+          Comlink.transfer(
+            {
+              imageData,
+              startX: x,
+              startY: y,
+              tolerance,
+            },
+            [imageData.data.buffer],
+          ),
         ),
       );
       onSelection(sel);
-    } catch {
+    } catch (error) {
+      console.warn("[paint] magic wand worker failed, falling back to main thread", error);
       runSync();
     }
   });

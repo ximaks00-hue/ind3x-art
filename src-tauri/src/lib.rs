@@ -25,16 +25,30 @@ pub fn run() {
 
     let specta_builder = ipc::builder();
 
-    tauri::Builder::default()
+    let run_result = tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .setup(|app| {
             logging::init_logging(app.handle());
-            let state = AppState::new().map_err(|e| -> Box<dyn std::error::Error> { Box::new(e) })?;
+            let cache_root = app
+                .path()
+                .app_cache_dir()
+                .or_else(|_| app.path().app_data_dir())
+                .map_err(|error| -> Box<dyn std::error::Error> {
+                    Box::new(std::io::Error::other(format!(
+                        "failed to resolve app cache directory: {error}"
+                    )))
+                })?;
+            let state = AppState::new(cache_root)
+                .map_err(|error| -> Box<dyn std::error::Error> { Box::new(error) })?;
             app.manage(SharedState::new(state));
             Ok(())
         })
         .invoke_handler(specta_builder.invoke_handler())
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .run(tauri::generate_context!());
+
+    if let Err(error) = run_result {
+        logging::show_fatal_startup_error(&format!("{error}"));
+        std::process::exit(1);
+    }
 }

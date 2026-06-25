@@ -5,9 +5,11 @@ import { useProjectStore } from "../../state/projectStore";
 import { useSettingsStore } from "../../state/settingsStore";
 import { useCatalogStore } from "./catalogStore";
 import {
+  catalogIconCacheKey,
   getCatalogIconPendingCount as getCacheInflightCount,
   readCatalogIconState,
   subscribeCatalogIconCache,
+  subscribeCatalogIconKey,
   type CatalogIconState,
 } from "./catalogIconCache";
 import {
@@ -16,7 +18,6 @@ import {
   scheduleCatalogIconBakes,
   type IconBakeBatch,
 } from "./catalogIconPipeline";
-import { catalogIconCacheKey } from "./catalogIconCache";
 
 const PREFETCH_RING = 36;
 
@@ -116,8 +117,9 @@ export function useCatalogIconSrc(
   iconKey: string,
 ): string | null {
   const limit = useSettingsStore((s) => s.catalogIconCacheLimit);
+  const cacheKey = handleId ? catalogIconCacheKey(handleId, iconKey) : "";
   return useSyncExternalStore(
-    subscribeCatalogIconCache,
+    (listener) => (cacheKey ? subscribeCatalogIconKey(cacheKey, listener) : () => {}),
     () => readCatalogIconState(handleId, iconKey, limit).src,
     () => null,
   );
@@ -128,8 +130,9 @@ export function useCatalogIconStatus(
   iconKey: string,
 ): CatalogIconState {
   const limit = useSettingsStore((s) => s.catalogIconCacheLimit);
+  const cacheKey = handleId ? catalogIconCacheKey(handleId, iconKey) : "";
   return useSyncExternalStore(
-    subscribeCatalogIconCache,
+    (listener) => (cacheKey ? subscribeCatalogIconKey(cacheKey, listener) : () => {}),
     () => readCatalogIconState(handleId, iconKey, limit),
     () => ({ src: null, status: "idle", error: null }),
   );

@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::fs;
 
 use tauri::State;
 
@@ -11,17 +12,86 @@ use crate::save::restore_backup_by_id;
 use crate::save::{
     create_backup, list_backups, prepare_textures, restore_backup_from_known_path, save_prepared_textures,
 };
-use crate::source::{safe_join_under_root, validate_relative_asset_path};
+use crate::source::{prepare_file_write_under_root, validate_relative_asset_path};
 use crate::state::SharedState;
 
 use super::helpers::{
-    full_resync_project_after_disk_change, invalidate_jar_cache_if_needed, project_for_handle,
-    project_for_handle_mut, refresh_project_for_paths,
+    full_resync_project_on_project, invalidate_jar_cache_if_needed, project_for_handle,
+    refresh_project_for_paths_on_project,
 };
+
+async fn refresh_paths_off_lock(
+    state: &SharedState,
+    handle: ProjectHandle,
+    changed_paths: Vec<String>,
+    journal_entry: Option<SaveJournalEntry>,
+) -> CoreResult<(crate::dto::SourceKind, std::path::PathBuf)> {
+    let (handle_id, db, mut project) = {
+        let mut app = state.write()?;
+        let db = app.db.clone();
+        let project = app
+            .projects
+            .remove(&handle.id)
+            .ok_or(CoreError::ProjectNotFound)?;
+        (handle.id, db, project)
+    };
+
+    let source_kind = project.source_kind;
+    let source_path = project.source_path.clone();
+
+    let mut project = tauri::async_runtime::spawn_blocking(move || {
+        refresh_project_for_paths_on_project(&mut project, &db, &changed_paths)?;
+        Ok::<_, CoreError>(project)
+    })
+    .await
+    .map_err(|e| CoreError::Internal(format!("refresh task failed: {e}")))??;
+
+    {
+        let mut app = state.write()?;
+        if let Some(entry) = journal_entry {
+            project.save.journal.push(entry);
+        }
+        app.projects.insert(handle_id, project);
+    }
+
+    Ok((source_kind, source_path))
+}
+
+async fn full_resync_off_lock(
+    state: &SharedState,
+    handle: ProjectHandle,
+) -> CoreResult<(crate::dto::SourceKind, std::path::PathBuf)> {
+    let (handle_id, db, mut project) = {
+        let mut app = state.write()?;
+        let db = app.db.clone();
+        let project = app
+            .projects
+            .remove(&handle.id)
+            .ok_or(CoreError::ProjectNotFound)?;
+        (handle.id, db, project)
+    };
+
+    let source_kind = project.source_kind;
+    let source_path = project.source_path.clone();
+
+    let mut project = tauri::async_runtime::spawn_blocking(move || {
+        full_resync_project_on_project(&mut project, &db)?;
+        Ok::<_, CoreError>(project)
+    })
+    .await
+    .map_err(|e| CoreError::Internal(format!("resync task failed: {e}")))??;
+
+    {
+        let mut app = state.write()?;
+        app.projects.insert(handle_id, project);
+    }
+
+    Ok((source_kind, source_path))
+}
 
 #[tauri::command]
 #[specta::specta]
-pub fn save_texture_mcmeta(
+pub async fn save_texture_mcmeta(
     handle: ProjectHandle,
     texture_path: String,
     mcmeta_json: String,
@@ -48,26 +118,22 @@ pub fn save_texture_mcmeta(
             crate::save::rebuild_jar_atomic(&source_path, &replacements)?;
         }
         SourceKind::Folder => {
-            let abs = safe_join_under_root(&source_path, &mcmeta_path)?;
-            if let Some(parent) = abs.parent() {
-                std::fs::create_dir_all(parent)?;
-            }
-            std::fs::write(&abs, bytes)?;
+            let abs = prepare_file_write_under_root(&source_path, &mcmeta_path)?;
+            fs::write(&abs, bytes)?;
         }
     }
 
     let changed_paths = vec![texture_path, mcmeta_path];
-    let (updated_kind, updated_source_path) = {
-        let mut app = state.write()?;
-        refresh_project_for_paths(&mut app, &db, handle, &changed_paths)?
-    };
+    let (updated_kind, updated_source_path) =
+        refresh_paths_off_lock(state.inner(), handle, changed_paths, None).await?;
     invalidate_jar_cache_if_needed(updated_kind, &updated_source_path);
+    let _ = db;
     Ok(())
 }
 
 #[tauri::command]
 #[specta::specta]
-pub fn save_textures(
+pub async fn save_textures(
     handle: ProjectHandle,
     textures: Vec<TextureSaveEntry>,
     options: Option<SaveOptions>,
@@ -101,18 +167,23 @@ pub fn save_textures(
     let (updated_kind, updated_source_path) = if options.mode == SaveMode::ExportFolder {
         (source_kind, source_path)
     } else {
-        let mut app = state.write()?;
-        let project = project_for_handle_mut(&mut app, handle.clone())?;
-        project.save.journal.push(SaveJournalEntry {
+        let journal_entry = SaveJournalEntry {
             timestamp,
             mode: options.mode,
             original_paths: original_paths.clone(),
             saved_paths: saved_paths.clone(),
             backup_path: backup_path.clone(),
-        });
-        refresh_project_for_paths(&mut app, &db, handle, &saved_paths)?
+        };
+        refresh_paths_off_lock(
+            state.inner(),
+            handle,
+            saved_paths.clone(),
+            Some(journal_entry),
+        )
+        .await?
     };
     invalidate_jar_cache_if_needed(updated_kind, &updated_source_path);
+    let _ = db;
 
     Ok(SaveTexturesResult {
         saved_count: saved_paths.len() as u64,
@@ -124,13 +195,13 @@ pub fn save_textures(
 
 #[tauri::command]
 #[specta::specta]
-pub fn save_batch(
+pub async fn save_batch(
     handle: ProjectHandle,
     textures: Vec<TextureSaveEntry>,
     options: Option<SaveOptions>,
     state: State<'_, SharedState>,
 ) -> CoreResult<SaveTexturesResult> {
-    save_textures(handle, textures, options, state)
+    save_textures(handle, textures, options, state).await
 }
 
 #[tauri::command]
@@ -149,17 +220,16 @@ pub fn get_save_journal(
 
 #[tauri::command]
 #[specta::specta]
-pub fn rollback_last_save(handle: ProjectHandle, state: State<'_, SharedState>) -> CoreResult<()> {
-    let (entry, source_path, source_kind, db) = {
+pub async fn rollback_last_save(handle: ProjectHandle, state: State<'_, SharedState>) -> CoreResult<()> {
+    let (entry, source_path, source_kind) = {
         let mut app = state.write()?;
-        let db = app.db.clone();
         let project = app.projects.get_mut(&handle.id).ok_or(CoreError::ProjectNotFound)?;
         let entry = project
             .save
             .journal
             .pop()
             .ok_or_else(|| CoreError::Internal("no save to roll back".to_string()))?;
-        (entry, project.source_path.clone(), project.source_kind, db)
+        (entry, project.source_path.clone(), project.source_kind)
     };
 
     let backup = entry
@@ -169,10 +239,7 @@ pub fn rollback_last_save(handle: ProjectHandle, state: State<'_, SharedState>) 
 
     restore_backup_from_known_path(&source_path, source_kind, backup)?;
 
-    let (updated_kind, updated_source_path) = {
-        let mut app = state.write()?;
-        full_resync_project_after_disk_change(&mut app, &db, handle)?
-    };
+    let (updated_kind, updated_source_path) = full_resync_off_lock(state.inner(), handle).await?;
     invalidate_jar_cache_if_needed(updated_kind, &updated_source_path);
 
     Ok(())
@@ -195,25 +262,22 @@ pub fn list_project_backups(
 
 #[tauri::command]
 #[specta::specta]
-pub fn restore_project_backup(
+pub async fn restore_project_backup(
     handle: ProjectHandle,
     backup_path: String,
     state: State<'_, SharedState>,
 ) -> CoreResult<()> {
-    let (source_path, source_kind, db) = {
+    let (source_path, source_kind) = {
         let app = state.read()?;
         let project = app
             .projects
             .get(&handle.id)
             .ok_or(CoreError::ProjectNotFound)?;
-        (project.source_path.clone(), project.source_kind, app.db.clone())
+        (project.source_path.clone(), project.source_kind)
     };
 
     restore_backup_from_known_path(&source_path, source_kind, &backup_path)?;
-    let (updated_kind, updated_source_path) = {
-        let mut app = state.write()?;
-        full_resync_project_after_disk_change(&mut app, &db, handle)?
-    };
+    let (updated_kind, updated_source_path) = full_resync_off_lock(state.inner(), handle).await?;
     invalidate_jar_cache_if_needed(updated_kind, &updated_source_path);
     Ok(())
 }
@@ -235,25 +299,22 @@ pub fn create_project_backup(
 
 #[tauri::command]
 #[specta::specta]
-pub fn restore_project_backup_by_id(
+pub async fn restore_project_backup_by_id(
     handle: ProjectHandle,
     backup_id: String,
     state: State<'_, SharedState>,
 ) -> CoreResult<()> {
-    let (source_path, source_kind, db) = {
+    let (source_path, source_kind) = {
         let app = state.read()?;
         let project = app
             .projects
             .get(&handle.id)
             .ok_or(CoreError::ProjectNotFound)?;
-        (project.source_path.clone(), project.source_kind, app.db.clone())
+        (project.source_path.clone(), project.source_kind)
     };
 
     restore_backup_by_id(&source_path, source_kind, &backup_id)?;
-    let (updated_kind, updated_source_path) = {
-        let mut app = state.write()?;
-        full_resync_project_after_disk_change(&mut app, &db, handle)?
-    };
+    let (updated_kind, updated_source_path) = full_resync_off_lock(state.inner(), handle).await?;
     invalidate_jar_cache_if_needed(updated_kind, &updated_source_path);
     Ok(())
 }

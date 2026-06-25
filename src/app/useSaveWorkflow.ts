@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
 
 import { clearTextureDocuments } from "../features/editor/textureDocument";
@@ -28,6 +28,22 @@ export function useSaveWorkflow({
   const [saveDialogOpen, setSaveDialogOpen] = useState(false);
   const [backupDialogOpen, setBackupDialogOpen] = useState(false);
   const savingRef = useRef(false);
+  const mountedRef = useRef(true);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
+
+  const safeSetSaving = useCallback((value: boolean) => {
+    if (mountedRef.current) setSaving(value);
+  }, []);
+
+  const safeSetSaveMessage = useCallback((value: string | null) => {
+    if (mountedRef.current) setSaveMessage(value);
+  }, []);
 
   const runSave = useCallback(
     async (options?: SaveOptions) => {
@@ -39,26 +55,26 @@ export function useSaveWorkflow({
       try {
         const result = await saveDirtyTextures(handle, options);
         if (result.savedCount === 0) {
-          setSaveMessage("nothing to save");
+          safeSetSaveMessage("nothing to save");
           pushToast("Nothing to save", "info");
         } else {
           const backup = result.backupPath ? ` · backup: ${result.backupPath}` : "";
           const message = `Saved ${result.savedCount} texture(s)${backup}`;
-          setSaveMessage(message);
+          safeSetSaveMessage(message);
           pushToast(`Saved ${result.savedCount} texture(s)`, "success");
           triggerSaveFlash();
           useInteractionStore.getState().captureCompareBeforeFromSave();
         }
       } catch (error) {
         const message = error instanceof Error ? error.message : "save failed";
-        setSaveMessage(message);
+        safeSetSaveMessage(message);
         pushToast(message, "error");
       } finally {
         savingRef.current = false;
-        setSaving(false);
+        safeSetSaving(false);
       }
     },
-    [handle, dirtyCount, pushToast, triggerSaveFlash],
+    [handle, dirtyCount, pushToast, triggerSaveFlash, safeSetSaveMessage, safeSetSaving],
   );
 
   const handleSave = useCallback(async () => {
@@ -99,24 +115,24 @@ export function useSaveWorkflow({
     try {
       const result = await restoreLatestBackup(handle);
       if (!result.restored) {
-        setSaveMessage(result.reason);
+        safeSetSaveMessage(result.reason);
         pushToast(result.reason, "info");
         return;
       }
 
       clearTextureDocuments();
       await openSource(sourcePath);
-      setSaveMessage(`restored ${result.backup.label}`);
+      safeSetSaveMessage(`restored ${result.backup.label}`);
       pushToast("Backup restored and project reloaded", "success");
     } catch (error) {
       const message = error instanceof Error ? error.message : "restore failed";
-      setSaveMessage(message);
+      safeSetSaveMessage(message);
       pushToast(message, "error");
     } finally {
       savingRef.current = false;
-      setSaving(false);
+      safeSetSaving(false);
     }
-  }, [handle, sourcePath, opening, openSource, pushToast]);
+  }, [handle, sourcePath, opening, openSource, pushToast, safeSetSaveMessage, safeSetSaving]);
 
   return {
     saving,
