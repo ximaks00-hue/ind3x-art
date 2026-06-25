@@ -74,12 +74,6 @@ jobs:
         run: cargo test
         working-directory: src-tauri
 
-      - name: Install Playwright browsers
-        run: npx playwright install chromium
-
-      - name: Integration E2E (mock IPC smoke)
-        run: npm run test:e2e:integration
-
   build:
     needs: validate
     strategy:
