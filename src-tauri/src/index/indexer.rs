@@ -295,36 +295,33 @@ pub fn patch_entries_for_paths(
     for raw_path in changed_paths {
         let path = raw_path.replace('\\', "/");
 
-        match source.read(&path) {
-            Err(err) => {
-                if read_failure_is_missing(&err) {
-                    let had_entry = entries.iter().any(|e| e.path == path);
-                    entries.retain(|e| e.path != path);
-                    if had_entry {
-                        if let Some(ch) = on_event {
-                            let _ = send(
-                                ch,
-                                None,
-                                IndexEvent::Warning {
-                                    path: path.clone(),
-                                    reason: "removed from source".to_string(),
-                                },
-                            );
-                        }
+        if let Err(err) = source.read(&path) {
+            if read_failure_is_missing(&err) {
+                let had_entry = entries.iter().any(|e| e.path == path);
+                entries.retain(|e| e.path != path);
+                if had_entry {
+                    if let Some(ch) = on_event {
+                        let _ = send(
+                            ch,
+                            None,
+                            IndexEvent::Warning {
+                                path: path.clone(),
+                                reason: "removed from source".to_string(),
+                            },
+                        );
                     }
-                } else if let Some(ch) = on_event {
-                    let _ = send(
-                        ch,
-                        None,
-                        IndexEvent::Warning {
-                            path: path.clone(),
-                            reason: format!("read failed, keeping index entry: {err}"),
-                        },
-                    );
                 }
-                continue;
+            } else if let Some(ch) = on_event {
+                let _ = send(
+                    ch,
+                    None,
+                    IndexEvent::Warning {
+                        path: path.clone(),
+                        reason: format!("read failed, keeping index entry: {err}"),
+                    },
+                );
             }
-            Ok(_) => {}
+            continue;
         }
 
         if let Some(entry) = classify_path(&path) {

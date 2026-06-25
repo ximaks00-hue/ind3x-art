@@ -17,11 +17,13 @@ mod pipeline;
 #[path = "tests/ic2_integration.rs"]
 mod ic2_integration;
 
+#[allow(unused_imports)]
 pub use builder::{build_from_entries, build_from_entries_with_options, CatalogBuildOptions};
 pub use icon::compile_catalog_icon_model;
 pub use icon::compile_catalog_placed_model;
 pub use creative_tabs::{load_creative_tabs, CreativeTabOrder};
 pub use patch::patch_project_catalog;
+#[allow(unused_imports)]
 pub use query::{catalog_facets, get_catalog_entry, get_catalog_entry_indexed, query_catalog};
 
 use crate::dto::{AssetEntry, AssetKind, CatalogEntry, CatalogResolveKind};

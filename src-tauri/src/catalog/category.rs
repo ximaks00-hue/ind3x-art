@@ -3,7 +3,6 @@ use crate::dto::{CatalogCategory, CatalogEntryKind, CatalogPresentation};
 
 
 /// Heuristic Creative-like tab assignment (v1). First matching rule wins.
-
 pub fn categorize(id: &str, source_path: &str, kind: CatalogEntryKind) -> CatalogCategory {
 
     let hay = format!("{id} {source_path}").to_ascii_lowercase();

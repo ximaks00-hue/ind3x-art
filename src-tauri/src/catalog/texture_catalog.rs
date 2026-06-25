@@ -121,6 +121,7 @@ fn texture_stem_from_path(path: &str) -> Option<(CatalogEntryKind, String)> {
     Some((kind, rel.to_string()))
 }
 
+#[allow(dead_code)]
 pub fn find_representative_texture(
     namespace: &str,
     kind: CatalogEntryKind,
@@ -174,19 +175,22 @@ impl TextureStemIndex {
         let needle = format!("/{stem}/");
         let dot_needle = format!("/{stem}.");
         for (ns, k, _stem, path) in &self.multiface {
-            if ns == namespace && *k == kind && (path.contains(&needle) || path.contains(&dot_needle))
+            if ns == namespace
+                && *k == kind
+                && (path.contains(&needle) || path.contains(&dot_needle))
+                && (path.ends_with("/north.png") || path.ends_with("/all.png"))
             {
-                if path.ends_with("/north.png") || path.ends_with("/all.png") {
-                    return Some(path.clone());
-                }
+                return Some(path.clone());
             }
         }
         for (ns, k, _stem, path) in &self.multiface {
-            if ns == namespace && *k == kind && (path.contains(&needle) || path.contains(&dot_needle))
+            if ns == namespace
+                && *k == kind
+                && (path.contains(&needle) || path.contains(&dot_needle))
+                && path.ends_with(".png")
+                && !path.contains("_overlay")
             {
-                if path.ends_with(".png") && !path.contains("_overlay") {
-                    return Some(path.clone());
-                }
+                return Some(path.clone());
             }
         }
         None

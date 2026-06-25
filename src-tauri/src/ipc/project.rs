@@ -1,6 +1,3 @@
-use std::collections::HashMap;
-use std::sync::Mutex;
-
 use tauri::State;
 
 use crate::dto::{AppInfo, IndexEvent, OpenSourceResult, ProjectHandle};
@@ -176,6 +173,7 @@ pub async fn reindex_project(
     .map_err(|e| CoreError::Internal(format!("reindex task failed: {e}")))?
 }
 
+#[allow(clippy::too_many_arguments)]
 fn reindex_project_blocking(
     state: &SharedState,
     handle_id: u64,

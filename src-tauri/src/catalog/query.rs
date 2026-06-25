@@ -110,6 +110,7 @@ pub fn query_catalog(
     }
 }
 
+#[allow(dead_code)]
 pub fn get_catalog_entry<'a>(entries: &'a [Arc<CatalogEntry>], id: &str) -> Option<&'a CatalogEntry> {
     entries.iter().find(|e| e.id == id).map(Arc::as_ref)
 }

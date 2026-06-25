@@ -4,7 +4,7 @@ use std::sync::Mutex;
 use tauri::Emitter;
 
 use crate::catalog::CreativeTabOrder;
-use crate::dto::{AssetEntry, AssetKind, IndexEvent, ModelRefInfo, ProjectHandle, SourceKind};
+use crate::dto::{AssetEntry, AssetKind, IndexEvent, ProjectHandle, SourceKind};
 use crate::error::{log_if_err, CoreError, CoreResult};
 use crate::index::{
     fingerprint_after_disk_change, invalidate_index, patch_entries_for_paths, prune_orphan_entries,
@@ -118,6 +118,7 @@ pub(crate) struct OpenPreparedProject {
     pub catalog: Vec<crate::dto::CatalogEntry>,
     pub creative_tab_order: CreativeTabOrder,
     pub source: Box<dyn crate::source::AssetSource>,
+    #[allow(dead_code)]
     pub fingerprint: String,
     pub catalog_language: String,
     pub index: IndexState,
@@ -133,7 +134,7 @@ pub(crate) fn prepare_opened_project(
     app: Option<&tauri::AppHandle>,
 ) -> CoreResult<OpenPreparedProject> {
     let source = load_source(source_path)?;
-    let (mut entries, mut from_cache) = run_index(
+    let (entries, mut from_cache) = run_index(
         source.as_ref(),
         db,
         &fingerprint,
@@ -246,6 +247,7 @@ pub(crate) fn project_for_handle(
         .ok_or(CoreError::ProjectNotFound)
 }
 
+#[allow(dead_code)]
 pub(crate) fn project_for_handle_mut(
     app: &mut crate::state::AppState,
     handle: ProjectHandle,
@@ -427,6 +429,7 @@ pub(crate) fn full_resync_project_on_project(
     Ok(())
 }
 
+#[allow(dead_code)]
 pub(crate) fn refresh_project_for_paths(
     app: &mut crate::state::AppState,
     db: &sled::Db,
@@ -440,6 +443,7 @@ pub(crate) fn refresh_project_for_paths(
     Ok((source_kind, source_path))
 }
 
+#[allow(dead_code)]
 pub(crate) fn full_resync_project_after_disk_change(
     app: &mut crate::state::AppState,
     db: &sled::Db,

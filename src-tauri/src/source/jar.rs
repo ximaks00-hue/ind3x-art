@@ -54,11 +54,13 @@ impl JarSource {
     }
 
     /// Count blockstate JSON paths without building the full entry list.
+    #[allow(dead_code)]
     pub fn count_blockstate_paths(&self) -> CoreResult<usize> {
         Ok(self.count_blockstate_and_lang_paths()?.0)
     }
 
     /// Count lang JSON paths under assets without building the full entry list.
+    #[allow(dead_code)]
     pub fn count_lang_paths(&self) -> CoreResult<usize> {
         Ok(self.count_blockstate_and_lang_paths()?.1)
     }
@@ -90,6 +92,7 @@ impl JarSource {
         })
     }
 
+    #[allow(dead_code)]
     fn count_zip_paths(&self, predicate: impl Fn(&str) -> bool) -> CoreResult<usize> {
         self.with_archive(|archive| {
             let mut count = 0usize;

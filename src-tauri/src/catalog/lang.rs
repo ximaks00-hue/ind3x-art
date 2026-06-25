@@ -43,6 +43,7 @@ impl LangResolver {
         }
     }
 
+    #[allow(dead_code)]
     pub fn available_locales(&self) -> &[String] {
         &self.available_locales
     }
@@ -155,6 +156,7 @@ pub struct LangCatalogSeed {
     pub kind: CatalogEntryKind,
     pub namespace: String,
     pub stem: String,
+    #[allow(dead_code)]
     pub display_name: String,
 }
 

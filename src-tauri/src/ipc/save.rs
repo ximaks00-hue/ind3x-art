@@ -74,7 +74,7 @@ async fn full_resync_off_lock(
     let source_kind = project.source_kind;
     let source_path = project.source_path.clone();
 
-    let mut project = tauri::async_runtime::spawn_blocking(move || {
+    let project = tauri::async_runtime::spawn_blocking(move || {
         full_resync_project_on_project(&mut project, &db)?;
         Ok::<_, CoreError>(project)
     })

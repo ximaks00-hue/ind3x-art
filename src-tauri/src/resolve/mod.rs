@@ -247,6 +247,7 @@ pub fn list_all_variant_models(blockstate: &RawBlockstate) -> Vec<(RawVariantMod
     out
 }
 
+#[allow(dead_code)]
 pub fn find_models_for_texture(
     registry: &mut ModelRegistry<'_>,
     entries: &[crate::dto::AssetEntry],
@@ -322,6 +323,7 @@ fn is_item_generated_parent(parent: &str, namespace: &str, pack: &PackInfo) -> b
     p_path == "item/generated" || (p_ns == "builtin" && p_path == "generated")
 }
 
+#[allow(dead_code)]
 fn asset_kind_label(kind: AssetKind) -> &'static str {
     match kind {
         AssetKind::BlockModel => "blockModel",
@@ -382,7 +384,7 @@ mod tests {
         let source = FolderSource::new(&root).expect("folder");
         let pack = crate::model::normalize::read_pack_info(&source);
         let mut cache = std::collections::HashMap::new();
-        let mut registry = ModelRegistry::new(&source, &mut cache, pack.clone());
+        let mut registry = ModelRegistry::new(&source, &mut cache, pack);
         let resolved = registry
             .resolve_model("minecraft", "block/legacy_stone")
             .expect("resolve");
