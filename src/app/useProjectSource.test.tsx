@@ -200,9 +200,10 @@ describe("useProjectSource", () => {
     vi.useFakeTimers();
     try {
       const reindexSpy = vi.spyOn(ipc, "reindexProject");
-      let changedCb: ((event: { path: string }) => void) | null = null;
-      vi.spyOn(ipc, "onSourceChanged").mockImplementation(async (cb) => {
-        changedCb = cb;
+      let changedCb: ((event: { path: string; kind: string }) => void) | null = null;
+      vi.spyOn(ipc, "onSourceChanged").mockImplementation(async (...args) => {
+        const cb = args[0];
+        if (cb) changedCb = cb;
         return () => undefined;
       });
 
@@ -218,7 +219,7 @@ describe("useProjectSource", () => {
 
       expect(changedCb).not.toBeNull();
       act(() => {
-        changedCb!({ path: "assets/minecraft/textures/block/stone.png" });
+        changedCb!({ path: "assets/minecraft/textures/block/stone.png", kind: "texture" });
       });
 
       dispose();
