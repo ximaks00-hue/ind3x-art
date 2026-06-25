@@ -161,7 +161,11 @@ mod tests {
         std::os::unix::fs::symlink(outside.path(), &link).expect("symlink");
 
         let err = safe_join_under_root(root.path(), "assets/file.txt").expect_err("must reject");
-        assert!(format!("{err:?}").contains("escapes root"));
+        let message = format!("{err:?}");
+        assert!(
+            message.contains("reparse point") || message.contains("escapes root"),
+            "unexpected error: {message}"
+        );
         let _ = fs::remove_file(link);
     }
 

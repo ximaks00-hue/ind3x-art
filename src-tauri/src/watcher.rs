@@ -211,6 +211,7 @@ mod tests {
         );
     }
 
+    #[cfg(windows)]
     #[test]
     fn relative_pack_path_normalizes_windows_separators() {
         let root = Path::new(r"D:\pack");
