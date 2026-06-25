@@ -386,13 +386,6 @@ pub(crate) fn invalidate_jar_cache_if_needed(
     }
 }
 
-pub(crate) fn ensure_catalog_built(state: &SharedState, handle_id: u64) -> CoreResult<()> {
-    if !catalog_needs_build(state, handle_id)? {
-        return Ok(());
-    }
-    ensure_catalog_built_blocking(state, handle_id)
-}
-
 pub(crate) fn catalog_needs_build(state: &SharedState, handle_id: u64) -> CoreResult<bool> {
     let app = state.read()?;
     let arc = crate::state::project_arc(&app.projects, handle_id)?;

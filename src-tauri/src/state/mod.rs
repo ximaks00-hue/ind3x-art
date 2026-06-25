@@ -22,7 +22,6 @@ pub const CACHE_SCHEMA_VERSION: &str = "v2";
 
 /// Projects remain in `AppState.projects` as `Arc<RwLock<Project>>` for their lifetime.
 /// Blocking IPC takes a per-project write lock instead of removing the project from the map.
-
 pub struct Project {
     pub source_path: PathBuf,
     pub source_kind: crate::dto::SourceKind,

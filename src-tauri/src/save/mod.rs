@@ -46,10 +46,6 @@ pub fn decode_texture_entry(path: String, png_base64: String) -> CoreResult<Deco
     })
 }
 
-pub fn validate_png(bytes: &[u8]) -> CoreResult<()> {
-    crate::image::validate_png_bytes(bytes)
-}
-
 /// Lightweight PNG check (signature + size cap) without full decode.
 pub fn validate_png_header(bytes: &[u8]) -> CoreResult<()> {
     crate::image::validate_png_header(bytes)
@@ -311,7 +307,7 @@ mod tests {
 
     #[test]
     fn rejects_short_png_signature() {
-        let err = super::validate_png(b"\x89PNG").expect_err("short signature");
+        let err = crate::image::validate_png_bytes(b"\x89PNG").expect_err("short signature");
         assert!(format!("{err:?}").contains("valid PNG"));
     }
 
