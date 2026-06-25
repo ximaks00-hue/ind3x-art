@@ -5,14 +5,19 @@ const setAppInfo = vi.fn();
 const setIpcHealthy = vi.fn();
 const pushToast = vi.fn();
 
+const mockAppInfo = vi.hoisted(() => ({
+  name: "inD3X Art",
+  version: "0.3.6",
+  identifier: "com.ind3x.art",
+  target: "test",
+  profile: "debug",
+  logDir: null as string | null,
+  cacheEphemeral: false,
+}));
+
 vi.mock("../ipc/client", () => ({
   ipc: {
-    getAppInfo: vi.fn().mockResolvedValue({
-      name: "inD3X Art",
-      version: "0.1.0",
-      target: "test",
-      profile: "debug",
-    }),
+    getAppInfo: vi.fn().mockResolvedValue(mockAppInfo),
     ping: vi.fn().mockResolvedValue("pong"),
   },
 }));
@@ -43,12 +48,7 @@ describe("useAppBootstrap", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(ipc.ping).mockResolvedValue("pong");
-    vi.mocked(ipc.getAppInfo).mockResolvedValue({
-      name: "inD3X Art",
-      version: "0.1.0",
-      target: "test",
-      profile: "debug",
-    });
+    vi.mocked(ipc.getAppInfo).mockResolvedValue(mockAppInfo);
   });
 
   it("loads app info and marks IPC healthy on mount", async () => {
